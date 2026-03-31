@@ -1,14 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
-// ─── SUPABASE ────────────────────────────────────────────────────────────────
 const supabase = createClient(
   "https://bxxnjmottokudtjgigss.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4eG5qbW90dG9rdWR0amdpZ3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NzAyMzgsImV4cCI6MjA5MDU0NjIzOH0.NoIADiNmtaSJd67lAWLbQ49tPHa7KcAu4VBLcAY5kgk"
 );
 
-// ─── THEME ───────────────────────────────────────────────────────────────────
 const C = {
   bg:"#090909", surface:"#101010", card:"#151515",
   border:"rgba(255,255,255,0.06)", borderGold:"rgba(201,168,76,0.35)",
@@ -21,7 +19,6 @@ const C = {
   mono:"'Courier New', monospace", sans:"'Helvetica Neue', Arial, sans-serif",
 };
 
-// ─── AUTH ────────────────────────────────────────────────────────────────────
 const USERS = [
   { username:"ahmed",   password:"jmf-admin-2026",  role:"admin",      name:"Ahmed (AJ)",         initials:"AJ", individualId:1 },
   { username:"nazila",  password:"nazila-2026",      role:"individual", name:"Nazila Isgandarova", initials:"NI", individualId:2 },
@@ -30,7 +27,6 @@ const USERS = [
   { username:"akbar",   password:"akbar-2026",       role:"individual", name:"Akbar Majidov",      initials:"AM", individualId:5 },
 ];
 
-// ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
 const DEFAULT = {
   properties: [
     { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:730000,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:0, tenant:"No tenant on file", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",         amort:"",                     originalBalance:730000,  notes:"Crown jewel. $1.27M unrealized gain. Confirm TD renewal date." },
@@ -78,28 +74,25 @@ const DEFAULT = {
     {m:"Nov '25",nw:3538614,liq:178728},
     {m:"Jan '26",nw:3632436,liq:217326},
   ],
-  lastUpdated: "March 31, 2026",
+  lastUpdated:"March 31, 2026",
 };
 
-// ─── FORMATTERS ──────────────────────────────────────────────────────────────
 const $K = n => { if(n==null)return"—"; const a=Math.abs(n),s=n<0?"-":""; return a>=1e6?`${s}$${(a/1e6).toFixed(2)}M`:a>=1e3?`${s}$${(a/1e3).toFixed(0)}K`:`${s}$${a.toFixed(0)}`; };
 const $F = (n,d=0) => n==null?"—":new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD",maximumFractionDigits:d}).format(n);
 
-// ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
-async function loadFromDB() {
-  const { data, error } = await supabase.from("dashboard_data").select("*");
-  if (error || !data || data.length === 0) return null;
-  const result = {};
-  data.forEach(row => { result[row.key] = row.value; });
-  const isEmpty = !result.individuals || result.individuals.length === 0;
-  return isEmpty ? null : result;
+async function loadFromDB(){
+  const {data,error}=await supabase.from("dashboard_data").select("*");
+  if(error||!data||data.length===0)return null;
+  const result={};
+  data.forEach(row=>{result[row.key]=row.value;});
+  const isEmpty=!result.individuals||result.individuals.length===0;
+  return isEmpty?null:result;
 }
 
-async function saveToDB(key, value) {
-  await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
+async function saveToDB(key,value){
+  await supabase.from("dashboard_data").upsert({key,value,updated_at:new Date().toISOString()});
 }
 
-// ─── SHARED COMPONENTS ───────────────────────────────────────────────────────
 function SL({children,color}){return <div style={{fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",color:color||C.textDim,marginBottom:10,fontFamily:C.sans}}>{children}</div>;}
 function Card({children,style}){return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20,...style}}>{children}</div>;}
 function DR({label,children,last}){
@@ -134,17 +127,10 @@ function EditCell({value,onChange,locked}){
     </span>
   );
 }
-
-// ─── SAVED INDICATOR ─────────────────────────────────────────────────────────
 function SavedBadge({saved}){
-  return saved?(
-    <span style={{fontSize:10,color:C.greenLight,background:C.greenDim,border:`1px solid rgba(39,174,96,0.25)`,borderRadius:4,padding:"2px 8px",fontFamily:C.sans,marginLeft:8}}>
-      ✓ Saved
-    </span>
-  ):null;
+  return saved?<span style={{fontSize:10,color:C.greenLight,background:C.greenDim,border:`1px solid rgba(39,174,96,0.25)`,borderRadius:4,padding:"2px 8px",fontFamily:C.sans,marginLeft:8}}>✓ Saved</span>:null;
 }
 
-// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen({onLogin}){
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
@@ -194,7 +180,6 @@ function LoginScreen({onLogin}){
   );
 }
 
-// ─── MEMBER VIEW ─────────────────────────────────────────────────────────────
 function MemberView({user,data,onUpdate,onLogout}){
   const [saved,setSaved]=useState(false);
   const f=data.individuals.find(x=>x.id===user.individualId);
@@ -202,13 +187,7 @@ function MemberView({user,data,onUpdate,onLogout}){
   const net=f.cash+f.accounts+f.securities+f.crypto;
   const col=net>10000?C.gold:net>0?C.greenLight:C.redLight;
   const totalNW=data.properties.reduce((s,p)=>s+(p.market-p.mortgage),0)+data.individuals.reduce((s,x)=>s+Math.max(0,x.cash+x.accounts+x.securities+x.crypto),0)+data.businesses.reduce((s,b)=>s+b.cash,0);
-
-  const handleUpdate=(id,field,val)=>{
-    onUpdate(id,field,val);
-    setSaved(true);
-    setTimeout(()=>setSaved(false),3000);
-  };
-
+  const handleUpdate=(id,field,val)=>{onUpdate(id,field,val);setSaved(true);setTimeout(()=>setSaved(false),3000);};
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:C.sans,color:C.text}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52}}>
@@ -265,7 +244,6 @@ function MemberView({user,data,onUpdate,onLogout}){
   );
 }
 
-// ─── PROPERTY CARD ───────────────────────────────────────────────────────────
 function PropCard({prop,onUpdate,isAdmin}){
   const [open,setOpen]=useState(false);
   const equity=prop.market-prop.mortgage;
@@ -373,12 +351,10 @@ function BizCard({biz}){
   );
 }
 
-// ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
 function AdminDashboard({user,data,setData,onLogout}){
   const [tab,setTab]=useState("overview");
   const [saved,setSaved]=useState(false);
-
-  const showSaved=()=>{ setSaved(true); setTimeout(()=>setSaved(false),3000); };
+  const showSaved=()=>{setSaved(true);setTimeout(()=>setSaved(false),3000);};
 
   const indNet=f=>f.cash+f.accounts+f.securities+f.crypto;
   const totalREEquity=data.properties.reduce((s,p)=>s+(p.market-p.mortgage),0);
@@ -392,34 +368,26 @@ function AdminDashboard({user,data,setData,onLogout}){
   const gap=totalIncome-totalOblig;
   const totalMtgOut=data.properties.reduce((s,p)=>s+p.monthlyPayment,0);
 
-  const updProp=useCallback((id,f,v)=>{
-    setData(d=>{
-      const props=d.properties.map(p=>p.id===id?{...p,[f]:v}:p);
-      saveToDB("properties",props);
-      showSaved();
-      return{...d,properties:props};
-    });
-  },[]);
-
-  const updInd=useCallback((id,f,v)=>{
-    setData(d=>{
-      const inds=d.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
-      saveToDB("individuals",inds);
-      showSaved();
-      return{...d,individuals:inds};
-    });
-  },[]);
-
-  const updCF=useCallback((type,idx,v)=>{
-    setData(d=>{
-      const a=[...d.cashflow[type]];
-      a[idx]={...a[idx],amount:Number(v)};
-      const cf={...d.cashflow,[type]:a};
-      saveToDB("cashflow",cf);
-      showSaved();
-      return{...d,cashflow:cf};
-    });
-  },[]);
+  function updProp(id,f,v){
+    const props=data.properties.map(p=>p.id===id?{...p,[f]:v}:p);
+    saveToDB("properties",props);
+    setData(d=>({...d,properties:props}));
+    showSaved();
+  }
+  function updInd(id,f,v){
+    const inds=data.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
+    saveToDB("individuals",inds);
+    setData(d=>({...d,individuals:inds}));
+    showSaved();
+  }
+  function updCF(type,idx,v){
+    const a=[...data.cashflow[type]];
+    a[idx]={...a[idx],amount:Number(v)};
+    const cf={...data.cashflow,[type]:a};
+    saveToDB("cashflow",cf);
+    setData(d=>({...d,cashflow:cf}));
+    showSaved();
+  }
 
   const TABS=[{id:"overview",label:"Overview"},{id:"realestate",label:"Real Estate"},{id:"individuals",label:"Individuals"},{id:"businesses",label:"Businesses"},{id:"cashflow",label:"Cash Flow"}];
 
@@ -468,7 +436,6 @@ function AdminDashboard({user,data,setData,onLogout}){
       </div>
 
       <div style={{padding:24,maxWidth:1120,margin:"0 auto"}}>
-
         {tab==="overview"&&(
           <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.55fr) minmax(0,1fr)",gap:20}}>
             <Card>
@@ -616,7 +583,7 @@ function AdminDashboard({user,data,setData,onLogout}){
               <div style={{fontSize:48,fontFamily:C.mono,fontWeight:800,color:gap>=0?C.greenLight:C.redLight}}>{gap>=0?"+":""}{$F(gap)}</div>
               <div style={{fontSize:13,color:C.textMid,marginTop:10}}>{totalIncome===0?"Add Kratos Moving net profit to see your true position.":gap<0?`Need ${$F(Math.abs(gap))} more/month to break even.`:`${$F(gap)}/month surplus.`}</div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
               <Card>
                 <div style={{fontSize:11,color:C.greenLight,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14}}>↑ Monthly Income</div>
                 {data.cashflow.income.map((item,i)=>(
@@ -657,7 +624,6 @@ function AdminDashboard({user,data,setData,onLogout}){
   );
 }
 
-// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const [data,setData]=useState(null);
@@ -666,37 +632,34 @@ export default function App(){
   useEffect(()=>{
     loadFromDB().then(dbData=>{
       if(dbData){
-        setData({...DEFAULT, ...dbData, nwHistory:DEFAULT.nwHistory, lastUpdated:DEFAULT.lastUpdated});
+        setData({...DEFAULT,...dbData,nwHistory:DEFAULT.nwHistory,lastUpdated:DEFAULT.lastUpdated});
       } else {
-        // First time — save defaults to DB
-        saveToDB("individuals", DEFAULT.individuals);
-        saveToDB("properties",  DEFAULT.properties);
-        saveToDB("businesses",  DEFAULT.businesses);
-        saveToDB("cashflow",    DEFAULT.cashflow);
+        saveToDB("individuals",DEFAULT.individuals);
+        saveToDB("properties",DEFAULT.properties);
+        saveToDB("businesses",DEFAULT.businesses);
+        saveToDB("cashflow",DEFAULT.cashflow);
         setData(DEFAULT);
       }
       setLoading(false);
     });
   },[]);
 
-  const updInd=(id,f,v)=>{
-    setData(d=>{
-      const inds=d.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
-      saveToDB("individuals",inds);
-      return{...d,individuals:inds};
-    });
-  };
+  function updInd(id,f,v){
+    const inds=data.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
+    saveToDB("individuals",inds);
+    setData(d=>({...d,individuals:inds}));
+  }
 
   const logout=()=>setCurrentUser(null);
 
-  if(loading) return(
+  if(loading)return(
     <div style={{minHeight:"100vh",background:"#090909",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'Helvetica Neue', Arial, sans-serif"}}>
       <div style={{fontSize:28,fontWeight:800,color:"#C9A84C",letterSpacing:"0.15em",marginBottom:16}}>JMF</div>
       <div style={{fontSize:12,color:"#3A3835",letterSpacing:"0.1em"}}>Loading...</div>
     </div>
   );
 
-  if(!currentUser) return <LoginScreen onLogin={setCurrentUser}/>;
-  if(currentUser.role==="individual") return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout}/>;
+  if(!currentUser)return <LoginScreen onLogin={setCurrentUser}/>;
+  if(currentUser.role==="individual")return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout}/>;
   return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout}/>;
 }
