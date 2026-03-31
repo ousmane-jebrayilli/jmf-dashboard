@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
+// ─── SUPABASE ────────────────────────────────────────────────────────────────
+const supabase = createClient(
+  "https://bxxnjmottokudtjgigss.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4eG5qbW90dG9rdWR0amdpZ3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NzAyMzgsImV4cCI6MjA5MDU0NjIzOH0.NoIADiNmtaSJd67lAWLbQ49tPHa7KcAu4VBLcAY5kgk"
+);
+
+// ─── THEME ───────────────────────────────────────────────────────────────────
 const C = {
   bg:"#090909", surface:"#101010", card:"#151515",
   border:"rgba(255,255,255,0.06)", borderGold:"rgba(201,168,76,0.35)",
@@ -13,32 +21,30 @@ const C = {
   mono:"'Courier New', monospace", sans:"'Helvetica Neue', Arial, sans-serif",
 };
 
+// ─── AUTH ────────────────────────────────────────────────────────────────────
 const USERS = [
-  { username:"ahmed",   password:"jmf-admin-2026",  role:"admin",      name:"Ahmed (AJ)",          initials:"AJ", individualId: 1 },
-  { username:"nazila",  password:"nazila-2026",      role:"individual", name:"Nazila Isgandarova",  initials:"NI", individualId: 2 },
-  { username:"yasin",   password:"yasin-2026",       role:"individual", name:"Yasin Majidov",       initials:"YM", individualId: 3 },
-  { username:"maryam",  password:"maryam-2026",      role:"individual", name:"Maryam Majidova",     initials:"MM", individualId: 4 },
-  { username:"akbar",   password:"akbar-2026",       role:"individual", name:"Akbar Majidov",       initials:"AM", individualId: 5 },
+  { username:"ahmed",   password:"jmf-admin-2026",  role:"admin",      name:"Ahmed (AJ)",         initials:"AJ", individualId:1 },
+  { username:"nazila",  password:"nazila-2026",      role:"individual", name:"Nazila Isgandarova", initials:"NI", individualId:2 },
+  { username:"yasin",   password:"yasin-2026",       role:"individual", name:"Yasin Majidov",      initials:"YM", individualId:3 },
+  { username:"maryam",  password:"maryam-2026",      role:"individual", name:"Maryam Majidova",    initials:"MM", individualId:4 },
+  { username:"akbar",   password:"akbar-2026",       role:"individual", name:"Akbar Majidov",      initials:"AM", individualId:5 },
 ];
 
-const $K = n => { if(n==null)return"—"; const a=Math.abs(n),s=n<0?"-":""; return a>=1e6?`${s}$${(a/1e6).toFixed(2)}M`:a>=1e3?`${s}$${(a/1e3).toFixed(0)}K`:`${s}$${a.toFixed(0)}`; };
-const $F = (n,d=0) => n==null?"—":new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD",maximumFractionDigits:d}).format(n);
-
-const INIT = {
-  lastUpdated: "March 31, 2026",
+// ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
+const DEFAULT = {
   properties: [
-    { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:730000,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:0, tenant:"No tenant on file", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",         amort:"",                     originalBalance:730000,  borrower:"",                 notes:"Crown jewel. $1.27M unrealized gain. Confirm TD renewal date." },
-    { id:2, name:"3705 Farr Ave.",    status:"STRONG", purchase:250000,  market:1200000, mortgage:0,       monthlyPayment:0,     monthlyTax:0,    rentalIncome:0, tenant:"No tenant on file", lender:"None",           rate:"N/A",    rateType:"Mortgage-free",          maturity:"N/A",         amort:"",                     originalBalance:0,       borrower:"",                 notes:"Completely mortgage-free. Pure equity. Lowest risk in the portfolio." },
-    { id:3, name:"121 Milky Way",     status:"WATCH",  purchase:3079729, market:2850000, mortgage:1826927, monthlyPayment:15013, monthlyTax:905,  rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"7.95%",  rateType:"12 Month Fixed Open",   maturity:"Dec 1, 2026", amort:"286 months remaining", originalBalance:2000000, borrower:"Nazila Isgandarova", notes:"Market below purchase. Fixed Open — can refinance without penalty." },
-    { id:4, name:"51 Ahchie Crt.",    status:"RISK",   purchase:2119105, market:1750000, mortgage:1533355, monthlyPayment:9339,  monthlyTax:1235, rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"P+0.14%",rateType:"36 Month ARM Closed",   maturity:"Mar 1, 2029", amort:"337 months remaining", originalBalance:1553670, borrower:"Akbar Majidov",      notes:"Variable rate ARM. Market significantly below purchase." },
-    { id:5, name:"4 New Seabury Dr.", status:"WATCH",  purchase:349000,  market:958800,  mortgage:895992,  monthlyPayment:5979,  monthlyTax:374,  rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"5.94%",  rateType:"60 Month Fixed Closed", maturity:"Dec 1, 2029", amort:"312 months remaining", originalBalance:960000,  borrower:"Nazila Isgandarova", notes:"Locked in at 5.94% until Dec 2029. Thin equity." },
+    { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:730000,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:0, tenant:"No tenant on file", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",         amort:"",                     originalBalance:730000,  notes:"Crown jewel. $1.27M unrealized gain. Confirm TD renewal date." },
+    { id:2, name:"3705 Farr Ave.",    status:"STRONG", purchase:250000,  market:1200000, mortgage:0,       monthlyPayment:0,     monthlyTax:0,    rentalIncome:0, tenant:"No tenant on file", lender:"None",           rate:"N/A",    rateType:"Mortgage-free",          maturity:"N/A",         amort:"",                     originalBalance:0,       notes:"Completely mortgage-free. Pure equity." },
+    { id:3, name:"121 Milky Way",     status:"WATCH",  purchase:3079729, market:2850000, mortgage:1826927, monthlyPayment:15013, monthlyTax:905,  rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"7.95%",  rateType:"12 Month Fixed Open",   maturity:"Dec 1, 2026", amort:"286 months remaining", originalBalance:2000000, notes:"Market below purchase. Fixed Open — can refinance without penalty." },
+    { id:4, name:"51 Ahchie Crt.",    status:"RISK",   purchase:2119105, market:1750000, mortgage:1533355, monthlyPayment:9339,  monthlyTax:1235, rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"P+0.14%",rateType:"36 Month ARM Closed",   maturity:"Mar 1, 2029", amort:"337 months remaining", originalBalance:1553670, notes:"Variable rate ARM. Market significantly below purchase." },
+    { id:5, name:"4 New Seabury Dr.", status:"WATCH",  purchase:349000,  market:958800,  mortgage:895992,  monthlyPayment:5979,  monthlyTax:374,  rentalIncome:0, tenant:"No tenant on file", lender:"Equitable Bank", rate:"5.94%",  rateType:"60 Month Fixed Closed", maturity:"Dec 1, 2029", amort:"312 months remaining", originalBalance:960000,  notes:"Locked in at 5.94% until Dec 2029. Thin equity." },
   ],
   individuals: [
-    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:34770,  accounts:-1581, securities:46231, crypto:1459,  color:"#C9A84C" },
-    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:47963,  accounts:0,     securities:0,     crypto:0,     color:"#2ECC71" },
-    { id:3, name:"Yasin Majidov",      initials:"YM", cash:750,    accounts:0,     securities:0,     crypto:0,     color:"#7A7670" },
-    { id:4, name:"Maryam Majidova",    initials:"MM", cash:671,    accounts:0,     securities:0,     crypto:0,     color:"#7A7670" },
-    { id:5, name:"Akbar Majidov",      initials:"AM", cash:-1575,  accounts:-1316, securities:0,     crypto:0,     color:"#E05A4E" },
+    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:34770,  accounts:-1581, securities:46231, crypto:1459  },
+    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:47963,  accounts:0,     securities:0,     crypto:0     },
+    { id:3, name:"Yasin Majidov",      initials:"YM", cash:750,    accounts:0,     securities:0,     crypto:0     },
+    { id:4, name:"Maryam Majidova",    initials:"MM", cash:671,    accounts:0,     securities:0,     crypto:0     },
+    { id:5, name:"Akbar Majidov",      initials:"AM", cash:-1575,  accounts:-1316, securities:0,     crypto:0     },
   ],
   businesses: [
     { id:1, name:"Kratos Moving Inc.", role:"Operating company", revenue:0, expenses:0, netProfit:0, cash:166000, debt:0, notes:"CEO: James Bond. Cash confirmed at $166K. Share P&L to unlock full analysis." },
@@ -72,8 +78,28 @@ const INIT = {
     {m:"Nov '25",nw:3538614,liq:178728},
     {m:"Jan '26",nw:3632436,liq:217326},
   ],
+  lastUpdated: "March 31, 2026",
 };
 
+// ─── FORMATTERS ──────────────────────────────────────────────────────────────
+const $K = n => { if(n==null)return"—"; const a=Math.abs(n),s=n<0?"-":""; return a>=1e6?`${s}$${(a/1e6).toFixed(2)}M`:a>=1e3?`${s}$${(a/1e3).toFixed(0)}K`:`${s}$${a.toFixed(0)}`; };
+const $F = (n,d=0) => n==null?"—":new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD",maximumFractionDigits:d}).format(n);
+
+// ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
+async function loadFromDB() {
+  const { data, error } = await supabase.from("dashboard_data").select("*");
+  if (error || !data || data.length === 0) return null;
+  const result = {};
+  data.forEach(row => { result[row.key] = row.value; });
+  const isEmpty = !result.individuals || result.individuals.length === 0;
+  return isEmpty ? null : result;
+}
+
+async function saveToDB(key, value) {
+  await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
+}
+
+// ─── SHARED COMPONENTS ───────────────────────────────────────────────────────
 function SL({children,color}){return <div style={{fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",color:color||C.textDim,marginBottom:10,fontFamily:C.sans}}>{children}</div>;}
 function Card({children,style}){return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20,...style}}>{children}</div>;}
 function DR({label,children,last}){
@@ -92,8 +118,8 @@ function Badge({status}){
 function EditCell({value,onChange,locked}){
   const [editing,setEditing]=useState(false);
   const [v,setV]=useState(value);
-  if(locked) return <span style={{color:C.textMid,fontFamily:C.mono,fontSize:13}}>{value<0?"-":""}${Math.abs(value).toLocaleString("en-CA")}</span>;
-  if(editing) return(
+  if(locked)return <span style={{color:C.textMid,fontFamily:C.mono,fontSize:13}}>{value<0?"-":""}${Math.abs(value).toLocaleString("en-CA")}</span>;
+  if(editing)return(
     <input autoFocus type="number" value={v}
       onChange={e=>setV(e.target.value)}
       onBlur={()=>{onChange(Number(v));setEditing(false);}}
@@ -109,6 +135,16 @@ function EditCell({value,onChange,locked}){
   );
 }
 
+// ─── SAVED INDICATOR ─────────────────────────────────────────────────────────
+function SavedBadge({saved}){
+  return saved?(
+    <span style={{fontSize:10,color:C.greenLight,background:C.greenDim,border:`1px solid rgba(39,174,96,0.25)`,borderRadius:4,padding:"2px 8px",fontFamily:C.sans,marginLeft:8}}>
+      ✓ Saved
+    </span>
+  ):null;
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen({onLogin}){
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
@@ -145,7 +181,7 @@ function LoginScreen({onLogin}){
         </button>
         <div style={{marginTop:24,padding:"14px 16px",background:"rgba(255,255,255,0.02)",borderRadius:8,border:`1px solid ${C.border}`}}>
           <div style={{fontSize:10,color:C.textDim,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>Access Levels</div>
-          {[{role:"Admin",desc:"Full access to all tabs and data",col:C.gold},{role:"Member",desc:"View summary · Edit own section only",col:C.greenLight}].map((r,i)=>(
+          {[{role:"Admin",desc:"Full access · edit everything",col:C.gold},{role:"Member",desc:"Edit own numbers only",col:C.greenLight}].map((r,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:i===0?8:0}}>
               <span style={{fontSize:9,fontWeight:700,color:r.col,background:`${r.col}15`,border:`1px solid ${r.col}30`,borderRadius:3,padding:"2px 7px",flexShrink:0}}>{r.role.toUpperCase()}</span>
               <span style={{fontSize:11,color:C.textDim}}>{r.desc}</span>
@@ -158,12 +194,21 @@ function LoginScreen({onLogin}){
   );
 }
 
+// ─── MEMBER VIEW ─────────────────────────────────────────────────────────────
 function MemberView({user,data,onUpdate,onLogout}){
+  const [saved,setSaved]=useState(false);
   const f=data.individuals.find(x=>x.id===user.individualId);
   if(!f)return null;
   const net=f.cash+f.accounts+f.securities+f.crypto;
   const col=net>10000?C.gold:net>0?C.greenLight:C.redLight;
   const totalNW=data.properties.reduce((s,p)=>s+(p.market-p.mortgage),0)+data.individuals.reduce((s,x)=>s+Math.max(0,x.cash+x.accounts+x.securities+x.crypto),0)+data.businesses.reduce((s,b)=>s+b.cash,0);
+
+  const handleUpdate=(id,field,val)=>{
+    onUpdate(id,field,val);
+    setSaved(true);
+    setTimeout(()=>setSaved(false),3000);
+  };
+
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:C.sans,color:C.text}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52}}>
@@ -171,6 +216,7 @@ function MemberView({user,data,onUpdate,onLogout}){
           <span style={{fontSize:16,fontWeight:800,color:C.gold,letterSpacing:"0.15em"}}>JMF</span>
           <span style={{width:1,height:18,background:C.border,display:"inline-block"}}/>
           <span style={{fontSize:11,color:C.textMid}}>My Financial Snapshot</span>
+          <SavedBadge saved={saved}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <span style={{fontSize:12,color:C.textMid}}>{f.name}</span>
@@ -188,7 +234,7 @@ function MemberView({user,data,onUpdate,onLogout}){
             <div style={{width:44,height:44,borderRadius:"50%",background:`${col}15`,border:`1.5px solid ${col}35`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:col}}>{f.initials}</div>
             <div>
               <div style={{fontSize:16,fontWeight:600,color:C.text}}>{f.name}</div>
-              <div style={{fontSize:12,color:C.textMid}}>Click any value below to update it</div>
+              <div style={{fontSize:12,color:C.textMid}}>Click any value to update · changes save automatically</div>
             </div>
           </div>
           {[{l:"Cash / Vault",fi:"cash",desc:"Physical cash or savings"},{l:"Accounts (net)",fi:"accounts",desc:"Bank accounts minus credit cards"},{l:"Securities",fi:"securities",desc:"TFSA, investments, Wealthsimple"},{l:"Crypto",fi:"crypto",desc:"Crypto portfolio market value"}].map(row=>(
@@ -198,7 +244,7 @@ function MemberView({user,data,onUpdate,onLogout}){
                   <div style={{fontSize:13,color:C.text,marginBottom:2}}>{row.l}</div>
                   <div style={{fontSize:11,color:C.textDim}}>{row.desc}</div>
                 </div>
-                <EditCell value={f[row.fi]} onChange={v=>onUpdate(f.id,row.fi,v)}/>
+                <EditCell value={f[row.fi]} onChange={v=>handleUpdate(f.id,row.fi,v)}/>
               </div>
             </div>
           ))}
@@ -219,6 +265,7 @@ function MemberView({user,data,onUpdate,onLogout}){
   );
 }
 
+// ─── PROPERTY CARD ───────────────────────────────────────────────────────────
 function PropCard({prop,onUpdate,isAdmin}){
   const [open,setOpen]=useState(false);
   const equity=prop.market-prop.mortgage;
@@ -326,8 +373,13 @@ function BizCard({biz}){
   );
 }
 
+// ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
 function AdminDashboard({user,data,setData,onLogout}){
   const [tab,setTab]=useState("overview");
+  const [saved,setSaved]=useState(false);
+
+  const showSaved=()=>{ setSaved(true); setTimeout(()=>setSaved(false),3000); };
+
   const indNet=f=>f.cash+f.accounts+f.securities+f.crypto;
   const totalREEquity=data.properties.reduce((s,p)=>s+(p.market-p.mortgage),0);
   const totalREValue=data.properties.reduce((s,p)=>s+p.market,0);
@@ -339,9 +391,36 @@ function AdminDashboard({user,data,setData,onLogout}){
   const totalOblig=data.cashflow.obligations.reduce((s,o)=>s+o.amount,0);
   const gap=totalIncome-totalOblig;
   const totalMtgOut=data.properties.reduce((s,p)=>s+p.monthlyPayment,0);
-  const updProp=(id,f,v)=>setData(d=>({...d,properties:d.properties.map(p=>p.id===id?{...p,[f]:v}:p)}));
-  const updInd=(id,f,v)=>setData(d=>({...d,individuals:d.individuals.map(x=>x.id===id?{...x,[f]:v}:x)}));
-  const updCF=(type,idx,v)=>setData(d=>{const a=[...d.cashflow[type]];a[idx]={...a[idx],amount:Number(v)};return{...d,cashflow:{...d.cashflow,[type]:a}};});
+
+  const updProp=useCallback((id,f,v)=>{
+    setData(d=>{
+      const props=d.properties.map(p=>p.id===id?{...p,[f]:v}:p);
+      saveToDB("properties",props);
+      showSaved();
+      return{...d,properties:props};
+    });
+  },[]);
+
+  const updInd=useCallback((id,f,v)=>{
+    setData(d=>{
+      const inds=d.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
+      saveToDB("individuals",inds);
+      showSaved();
+      return{...d,individuals:inds};
+    });
+  },[]);
+
+  const updCF=useCallback((type,idx,v)=>{
+    setData(d=>{
+      const a=[...d.cashflow[type]];
+      a[idx]={...a[idx],amount:Number(v)};
+      const cf={...d.cashflow,[type]:a};
+      saveToDB("cashflow",cf);
+      showSaved();
+      return{...d,cashflow:cf};
+    });
+  },[]);
+
   const TABS=[{id:"overview",label:"Overview"},{id:"realestate",label:"Real Estate"},{id:"individuals",label:"Individuals"},{id:"businesses",label:"Businesses"},{id:"cashflow",label:"Cash Flow"}];
 
   return(
@@ -351,6 +430,7 @@ function AdminDashboard({user,data,setData,onLogout}){
           <span style={{fontSize:16,fontWeight:800,color:C.gold,letterSpacing:"0.15em"}}>JMF</span>
           <span style={{width:1,height:18,background:C.border,display:"inline-block"}}/>
           <span style={{fontSize:11,color:C.textMid,letterSpacing:"0.07em"}}>Family Office · Command Center</span>
+          <SavedBadge saved={saved}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <span style={{fontSize:9,fontWeight:700,color:C.gold,background:"rgba(201,168,76,0.12)",border:`1px solid rgba(201,168,76,0.25)`,borderRadius:3,padding:"2px 8px",letterSpacing:"0.08em"}}>ADMIN</span>
@@ -469,7 +549,7 @@ function AdminDashboard({user,data,setData,onLogout}){
                 ))}
               </div>
             </Card>
-            <div style={{fontSize:11,color:C.textDim,marginBottom:14}}>Click any property to expand · Gold values are editable</div>
+            <div style={{fontSize:11,color:C.textDim,marginBottom:14}}>Click any property to expand · Gold values are editable · Changes save automatically</div>
             {data.properties.map(p=><PropCard key={p.id} prop={p} onUpdate={(f,v)=>updProp(p.id,f,v)} isAdmin={true}/>)}
           </div>
         )}
@@ -577,12 +657,46 @@ function AdminDashboard({user,data,setData,onLogout}){
   );
 }
 
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
   const [currentUser,setCurrentUser]=useState(null);
-  const [data,setData]=useState(INIT);
-  const updInd=(id,f,v)=>setData(d=>({...d,individuals:d.individuals.map(x=>x.id===id?{...x,[f]:v}:x)}));
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    loadFromDB().then(dbData=>{
+      if(dbData){
+        setData({...DEFAULT, ...dbData, nwHistory:DEFAULT.nwHistory, lastUpdated:DEFAULT.lastUpdated});
+      } else {
+        // First time — save defaults to DB
+        saveToDB("individuals", DEFAULT.individuals);
+        saveToDB("properties",  DEFAULT.properties);
+        saveToDB("businesses",  DEFAULT.businesses);
+        saveToDB("cashflow",    DEFAULT.cashflow);
+        setData(DEFAULT);
+      }
+      setLoading(false);
+    });
+  },[]);
+
+  const updInd=(id,f,v)=>{
+    setData(d=>{
+      const inds=d.individuals.map(x=>x.id===id?{...x,[f]:v}:x);
+      saveToDB("individuals",inds);
+      return{...d,individuals:inds};
+    });
+  };
+
   const logout=()=>setCurrentUser(null);
-  if(!currentUser)return <LoginScreen onLogin={setCurrentUser}/>;
-  if(currentUser.role==="individual")return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout}/>;
+
+  if(loading) return(
+    <div style={{minHeight:"100vh",background:"#090909",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'Helvetica Neue', Arial, sans-serif"}}>
+      <div style={{fontSize:28,fontWeight:800,color:"#C9A84C",letterSpacing:"0.15em",marginBottom:16}}>JMF</div>
+      <div style={{fontSize:12,color:"#3A3835",letterSpacing:"0.1em"}}>Loading...</div>
+    </div>
+  );
+
+  if(!currentUser) return <LoginScreen onLogin={setCurrentUser}/>;
+  if(currentUser.role==="individual") return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout}/>;
   return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout}/>;
 }
