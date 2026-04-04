@@ -67,8 +67,8 @@ const USERS = [
 const safe = (n) => (isNaN(n) || n == null ? 0 : Number(n));
 const $K = (n) => {
   const v = safe(n), a = Math.abs(v), s = v < 0 ? "-" : "";
-  if (a >= 1_000_000) return `${s}$${(a / 1_000_000).toFixed(2)}M`;
-  if (a >= 1_000)     return `${s}$${(a / 1_000).toFixed(0)}K`;
+  if (a >= 1000000) return `${s}$${(a / 1000000).toFixed(2)}M`;
+  if (a >= 1000)    return `${s}$${(a / 1000).toFixed(0)}K`;
   return `${s}$${a.toLocaleString("en-CA")}`;
 };
 const $F = (n, d = 0) =>
@@ -437,18 +437,19 @@ function MemberView({ user, data, onUpdate, onLogout }) {
   const [submission, setSubmission]   = useState(undefined); // undefined=checking, null=none
   const [showSubModal, setShowSubModal] = useState(false);
 
-  const f = data.individuals.find(x => x.id === user.individualId);
-  if (!f) return null;
-  const net        = safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
-  const isPositive = net >= 0;
-  const cashStale  = user.individualId === 1 && safe(f.cash) === 0;
-
+  // Hooks must come before any early return
   useEffect(() => {
     getSubmission(user.username, getCurrentPeriod()).then(sub => {
       setSubmission(sub);
       if (!sub) setShowSubModal(true);
     });
   }, [user.username]);
+
+  const f = data.individuals.find(x => x.id === user.individualId);
+  if (!f) return null;
+  const net        = safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+  const isPositive = net >= 0;
+  const cashStale  = user.individualId === 1 && safe(f.cash) === 0;
 
   const handleUpdate = (id, field, val) => { onUpdate(id, field, val); setSaved(true); setTimeout(() => setSaved(false), 2500); };
   const handleSubmit = async (fields) => {
