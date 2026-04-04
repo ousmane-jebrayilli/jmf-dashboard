@@ -793,7 +793,6 @@ function AdminDashboard({user,data,setData,onLogout}){
     </div>
   );
 }
-
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
   const [currentUser,setCurrentUser]=useState(null);
