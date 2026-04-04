@@ -254,12 +254,12 @@ function LoginScreen({onLogin}){
 
 // ─── MEMBER VIEW ─────────────────────────────────────────────────────────────
 function MemberView({user,data,onUpdate,onLogout}){
+  const [saved,setSaved]=useState(false);
   const f=data.individuals.find(x=>x.id===user.individualId);
   if(!f)return null;
   const net=f.cash+f.accounts+f.debt+f.securities+f.crypto;
   const col=net>10000?C.gold:net>0?C.greenLight:C.redLight;
   const totalNW=data.properties.reduce((s,p)=>s+(p.market-p.mortgage),0)+data.individuals.reduce((s,x)=>s+Math.max(0,x.cash+x.accounts+x.debt+x.securities+x.crypto),0)+data.businesses.reduce((s,b)=>s+b.net,0);
-  const [saved,setSaved]=useState(false);
   const handleUpdate=(id,field,val)=>{onUpdate(id,field,val);setSaved(true);setTimeout(()=>setSaved(false),3000);};
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:C.sans,color:C.text}}>
