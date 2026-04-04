@@ -2,20 +2,52 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 /*
-  SUPABASE SQL — run once in your SQL editor:
+ SUPABASE SCHEMA EXPECTED:
 
-  create table if not exists submissions (
-    id            uuid primary key default gen_random_uuid(),
-    user_id       text not null,
-    period        date not null,
-    submitted_at  timestamptz default now(),
-    status        text default 'pending',
-    data          jsonb not null,
-    admin_note    text,
-    reviewed_at   timestamptz,
-    reviewed_by   text
-  );
-  alter table submissions disable row level security;
+ -- auth.users: managed by Supabase Auth (email + password)
+
+ -- public.profiles
+ create table public.profiles (
+   id            uuid primary key references auth.users(id) on delete cascade,
+   role          text not null default 'individual',  -- 'admin' or 'individual'
+   individual_id int,                                  -- maps to individuals[].id; null for admin
+   display_name  text,
+   initials      text
+ );
+ -- RLS: each user can read their own row; admin can read all
+ alter table public.profiles enable row level security;
+ create policy "own profile" on public.profiles for select using (auth.uid() = id);
+ create policy "admin read all" on public.profiles for select using (
+   exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+ );
+
+ -- public.reporting_periods
+ create table public.reporting_periods (
+   id          uuid primary key default gen_random_uuid(),
+   period_date date unique not null,
+   label       text,
+   created_at  timestamptz default now()
+ );
+ alter table public.reporting_periods disable row level security;
+
+ -- public.submissions
+ create table public.submissions (
+   id           uuid primary key default gen_random_uuid(),
+   user_id      uuid not null references auth.users(id),
+   period       date not null,
+   submitted_at timestamptz default now(),
+   status       text default 'pending',
+   data         jsonb not null,
+   admin_note   text,
+   reviewed_at  timestamptz,
+   reviewed_by  uuid references auth.users(id)
+ );
+ alter table public.submissions disable row level security;
+
+ -- Seed initial reporting period:
+ insert into public.reporting_periods (period_date, label)
+ values ('2026-04-01', 'April 2026')
+ on conflict do nothing;
 */
 
 const supabase = createClient(
@@ -54,16 +86,7 @@ const C = {
   sans:        "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
 
-// ─── USERS ────────────────────────────────────────────────────────────────────
-const USERS = [
-  { username:"ahmed",  password:"jmf-admin-2026",  role:"admin",      name:"Ahmed (AJ)",         initials:"AJ", individualId:1 },
-  { username:"nazila", password:"nazila-2026",      role:"individual", name:"Nazila Isgandarova", initials:"NI", individualId:2 },
-  { username:"yasin",  password:"yasin-2026",       role:"individual", name:"Yasin Majidov",      initials:"YM", individualId:3 },
-  { username:"maryam", password:"maryam-2026",      role:"individual", name:"Maryam Majidova",    initials:"MM", individualId:4 },
-  { username:"akbar",  password:"akbar-2026",       role:"individual", name:"Akbar Majidov",      initials:"AM", individualId:5 },
-];
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// ─── NUMBER HELPERS ───────────────────────────────────────────────────────────
 const safe = (n) => (isNaN(n) || n == null ? 0 : Number(n));
 const $K = (n) => {
   const v = safe(n), a = Math.abs(v), s = v < 0 ? "-" : "";
@@ -73,13 +96,6 @@ const $K = (n) => {
 };
 const $F = (n, d = 0) =>
   new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: d }).format(safe(n));
-
-const getCurrentPeriod = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-};
-const getPeriodLabel = () =>
-  new Date().toLocaleDateString("en-CA", { month: "long", year: "numeric" });
 
 // ─── DEFAULT DATA — April 1, 2026 ─────────────────────────────────────────────
 const DEFAULT = {
@@ -93,32 +109,11 @@ const DEFAULT = {
     { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:-3014,   securities:0,     crypto:0,    physicalAssets:0 },
   ],
 
-  // ASWC (type:"nonprofit") is tracked but EXCLUDED from consolidated NW
   businesses: [
-    {
-      id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",
-      cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056,
-      revenue:0, expenses:0,
-      notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities.",
-    },
-    {
-      id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",
-      cashAccounts:2621, liabilities:0, taxPayable:0, creditCards:0,
-      revenue:0, expenses:0,
-      notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities.",
-    },
-    {
-      id:3, name:"PRIMA", abbr:"PRIMA", type:"operating",
-      cashAccounts:10007, liabilities:2349, taxPayable:0, creditCards:2349,
-      revenue:0, expenses:0,
-      notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349.",
-    },
-    {
-      id:4, name:"ASWC", abbr:"ASWC", type:"nonprofit",
-      cashAccounts:20643, liabilities:0, taxPayable:0, creditCards:0,
-      revenue:0, expenses:0,
-      notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth.",
-    },
+    { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
+    { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
+    { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
+    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
   ],
 
   properties: [
@@ -150,7 +145,7 @@ const DEFAULT = {
   },
 };
 
-// ─── DB HELPERS ───────────────────────────────────────────────────────────────
+// ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
 async function loadFromDB() {
   try {
     const { data, error } = await supabase.from("dashboard_data").select("*");
@@ -164,8 +159,6 @@ async function saveToDB(key, value) {
   try { await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() }); }
   catch (e) { console.error("DB save failed", e); }
 }
-
-// Merge DB array with DEFAULT array by id — new fields fall back to DEFAULT
 function mergeById(defaults, dbArr) {
   return defaults.map(def => {
     const db = (dbArr || []).find(x => x.id === def.id) || {};
@@ -173,13 +166,38 @@ function mergeById(defaults, dbArr) {
   });
 }
 
-// Submission helpers
-async function getSubmission(username, period) {
+// ─── AUTH / PROFILE HELPERS ───────────────────────────────────────────────────
+async function fetchProfile(userId) {
+  try {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    if (error) throw error;
+    return data;
+  } catch { return null; }
+}
+async function fetchAllProfiles() {
+  try {
+    const { data } = await supabase.from("profiles").select("*");
+    return data || [];
+  } catch { return []; }
+}
+
+// ─── REPORTING PERIOD HELPERS ─────────────────────────────────────────────────
+async function fetchReportingPeriods() {
+  try {
+    const { data } = await supabase.from("reporting_periods")
+      .select("*").order("period_date", { ascending: false });
+    return data || [];
+  } catch { return []; }
+}
+
+// ─── SUBMISSION HELPERS ───────────────────────────────────────────────────────
+// userId is auth.users UUID throughout
+async function getSubmissionsForUser(userId) {
   try {
     const { data } = await supabase.from("submissions")
-      .select("*").eq("user_id", username).eq("period", period).limit(1);
-    return data?.[0] || null;
-  } catch { return null; }
+      .select("*").eq("user_id", userId).order("period", { ascending: false });
+    return data || [];
+  } catch { return []; }
 }
 async function getPendingSubmissions() {
   try {
@@ -188,17 +206,28 @@ async function getPendingSubmissions() {
     return data || [];
   } catch { return []; }
 }
-async function createSubmission(username, period, submittedData) {
-  try { await supabase.from("submissions").insert({ user_id: username, period, data: submittedData }); return true; }
-  catch { return false; }
+async function createSubmission(userId, period, submittedData) {
+  try {
+    const { error } = await supabase.from("submissions")
+      .insert({ user_id: userId, period, data: submittedData, status: "pending" });
+    return !error;
+  } catch { return false; }
 }
-async function approveSubmission(id, reviewer) {
-  try { await supabase.from("submissions").update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: reviewer }).eq("id", id); return true; }
-  catch { return false; }
+async function approveSubmission(id, reviewerUserId) {
+  try {
+    const { error } = await supabase.from("submissions")
+      .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: reviewerUserId })
+      .eq("id", id);
+    return !error;
+  } catch { return false; }
 }
-async function rejectSubmission(id, reviewer, note) {
-  try { await supabase.from("submissions").update({ status: "rejected", admin_note: note, reviewed_at: new Date().toISOString(), reviewed_by: reviewer }).eq("id", id); return true; }
-  catch { return false; }
+async function rejectSubmission(id, reviewerUserId, note) {
+  try {
+    const { error } = await supabase.from("submissions")
+      .update({ status: "rejected", admin_note: note || null, reviewed_at: new Date().toISOString(), reviewed_by: reviewerUserId })
+      .eq("id", id);
+    return !error;
+  } catch { return false; }
 }
 
 // ─── UI PRIMITIVES ────────────────────────────────────────────────────────────
@@ -256,6 +285,14 @@ function Row({ label, children, last }) {
     </div>
   );
 }
+function LoadingScreen() {
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color: C.gold, letterSpacing: "0.08em", marginBottom: 10 }}>JMF</div>
+      <div style={{ fontSize: 12, color: C.textDim }}>Loading…</div>
+    </div>
+  );
+}
 
 // ─── CASH MODAL ───────────────────────────────────────────────────────────────
 function CashModal({ current, onSave, onClose }) {
@@ -266,7 +303,9 @@ function CashModal({ current, onSave, onClose }) {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 8px 48px rgba(0,0,0,0.12)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Cash Vault</div>
-        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 20, lineHeight: 1.6 }}>Enter Ahmed's current physical cash. Updates net worth immediately.</div>
+        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 20, lineHeight: 1.6 }}>
+          Enter Ahmed's current physical cash. Updates net worth immediately.
+        </div>
         <Label>Vault cash (CAD)</Label>
         <input type="number" value={val} onChange={e => setVal(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") onClose(); }}
@@ -292,20 +331,29 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
     crypto:         safe(currentData?.crypto),
     physicalAssets: safe(currentData?.physicalAssets),
   });
+  const [submitting, setSubmitting] = useState(false);
   const set = (k, v) => setFields(f => ({ ...f, [k]: safe(v) }));
+
   const rows = [
-    { key: "accounts",       label: "Bank Accounts",   desc: "Net account balance" },
-    { key: "cash",           label: "Cash (Vault)",     desc: "Physical cash" },
-    { key: "securities",     label: "Securities",       desc: "TFSA, investments, mutual funds" },
-    { key: "crypto",         label: "Crypto",           desc: "Market value" },
-    { key: "physicalAssets", label: "Physical Assets",  desc: "Gold, silver, etc." },
+    { key: "accounts",       label: "Bank Accounts",  desc: "Net account balance" },
+    { key: "cash",           label: "Cash (Vault)",   desc: "Physical cash" },
+    { key: "securities",     label: "Securities",     desc: "TFSA, investments, mutual funds" },
+    { key: "crypto",         label: "Crypto",         desc: "Market value" },
+    { key: "physicalAssets", label: "Physical Assets",desc: "Gold, silver, etc." },
   ];
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    await onSubmit(fields);
+    setSubmitting(false);
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 8px 48px rgba(0,0,0,0.14)", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Monthly Update Required</div>
         <div style={{ fontSize: 13, color: C.textDim, marginBottom: 24, lineHeight: 1.6 }}>
-          Please submit your financial snapshot for <strong style={{ color: C.text }}>{periodLabel}</strong>. Ahmed will review and approve.
+          Submit your financial snapshot for <strong style={{ color: C.text }}>{periodLabel}</strong>. Ahmed will review and approve.
         </div>
         {rows.map(r => (
           <div key={r.key} style={{ marginBottom: 14 }}>
@@ -319,8 +367,13 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
           </div>
         ))}
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <button onClick={() => onSubmit(fields)} style={{ flex: 2, padding: "12px", background: C.gold, border: "none", borderRadius: 8, color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Submit</button>
-          <button onClick={onClose} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textMid, fontSize: 13, cursor: "pointer" }}>Later</button>
+          <button onClick={handleSubmit} disabled={submitting}
+            style={{ flex: 2, padding: "12px", background: C.gold, border: "none", borderRadius: 8, color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "Submitting…" : "Submit"}
+          </button>
+          <button onClick={onClose} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textMid, fontSize: 13, cursor: "pointer" }}>
+            Later
+          </button>
         </div>
       </div>
     </div>
@@ -328,31 +381,41 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
 }
 
 // ─── APPROVAL QUEUE ───────────────────────────────────────────────────────────
-function ApprovalQueue({ pendingSubs, individuals, onApprove, onReject }) {
+// profiles: array of public.profiles rows for mapping user_id → display info
+// individuals: current dashboard individuals array for showing "previous" values
+function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject }) {
   const [notes, setNotes] = useState({});
   if (!pendingSubs.length) return null;
+
   return (
     <Card style={{ marginBottom: 16, border: `1.5px solid ${C.amber}` }}>
       <Label color={C.amber}>Pending Submissions — {pendingSubs.length} awaiting review</Label>
       {pendingSubs.map((sub, si) => {
-        const member  = USERS.find(u => u.username === sub.user_id);
-        const current = individuals.find(x => x.id === member?.individualId);
+        const profile = profiles.find(p => p.id === sub.user_id);
+        const current = individuals.find(x => x.id === profile?.individual_id);
         const d = sub.data || {};
+        const periodLabel = sub.period
+          ? new Date(sub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" })
+          : "Unknown period";
+
         return (
-          <div key={sub.id} style={{ borderTop: si > 0 ? `1px solid ${C.border}` : "none", paddingTop: si > 0 ? 14 : 0, marginTop: si > 0 ? 14 : 0 }}>
+          <div key={sub.id} style={{ borderTop: si > 0 ? `1px solid ${C.border}` : "none", paddingTop: si > 0 ? 16 : 0, marginTop: si > 0 ? 16 : 0 }}>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{member?.name || sub.user_id}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                {profile?.display_name || "Unknown member"}
+              </div>
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
-                {new Date(sub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" })} · submitted {new Date(sub.submitted_at).toLocaleDateString()}
+                {periodLabel} · submitted {new Date(sub.submitted_at).toLocaleDateString()}
               </div>
             </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 12 }}>
               {[
-                { label: "Accounts",      nv: d.accounts,       ov: current?.accounts },
-                { label: "Cash",          nv: d.cash,           ov: current?.cash },
-                { label: "Securities",    nv: d.securities,     ov: current?.securities },
-                { label: "Crypto",        nv: d.crypto,         ov: current?.crypto },
-                { label: "Phys. Assets",  nv: d.physicalAssets, ov: current?.physicalAssets },
+                { label: "Accounts",     nv: d.accounts,       ov: current?.accounts },
+                { label: "Cash",         nv: d.cash,           ov: current?.cash },
+                { label: "Securities",   nv: d.securities,     ov: current?.securities },
+                { label: "Crypto",       nv: d.crypto,         ov: current?.crypto },
+                { label: "Phys. Assets", nv: d.physicalAssets, ov: current?.physicalAssets },
               ].map(f => (
                 <div key={f.label} style={{ background: C.bg, borderRadius: 6, padding: "6px 10px" }}>
                   <div style={{ color: C.textDim, fontSize: 10, marginBottom: 3 }}>{f.label}</div>
@@ -364,12 +427,15 @@ function ApprovalQueue({ pendingSubs, individuals, onApprove, onReject }) {
                 </div>
               ))}
             </div>
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button onClick={() => onApprove(sub)}
-                style={{ padding: "8px 18px", background: C.green, border: "none", borderRadius: 7, color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                style={{ padding: "8px 20px", background: C.green, border: "none", borderRadius: 7, color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 Approve
               </button>
-              <input placeholder="Rejection note (optional)" value={notes[sub.id] || ""}
+              <input
+                placeholder="Rejection note (optional)"
+                value={notes[sub.id] || ""}
                 onChange={e => setNotes(n => ({ ...n, [sub.id]: e.target.value }))}
                 style={{ flex: 1, minWidth: 140, padding: "8px 10px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, outline: "none", fontFamily: C.sans }}
               />
@@ -386,19 +452,28 @@ function ApprovalQueue({ pendingSubs, individuals, onApprove, onReject }) {
 }
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
-  const [username, setUsername] = useState("");
+function LoginScreen() {
+  const [email, setEmail]     = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const login = () => {
+  const [error, setError]     = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const login = async () => {
     setLoading(true); setError("");
-    setTimeout(() => {
-      const user = USERS.find(u => u.username === username.toLowerCase().trim() && u.password === password);
-      if (user) { onLogin(user); } else { setError("Invalid username or password."); setLoading(false); }
-    }, 500);
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (authError) {
+      setError(authError.message || "Invalid email or password.");
+      setLoading(false);
+    }
+    // On success, onAuthStateChange in App root fires automatically — no manual setCurrentUser needed
   };
-  const inp = { width: "100%", padding: "11px 14px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: 14, fontFamily: C.sans, outline: "none", boxSizing: "border-box" };
+
+  const inp = {
+    width: "100%", padding: "11px 14px", background: C.bg,
+    border: `1px solid ${C.border}`, borderRadius: 8, color: C.text,
+    fontSize: 14, fontFamily: C.sans, outline: "none", boxSizing: "border-box",
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans, padding: 20 }}>
       <div style={{ marginBottom: 36, textAlign: "center" }}>
@@ -406,24 +481,40 @@ function LoginScreen({ onLogin }) {
         <div style={{ fontSize: 32, fontWeight: 800, color: C.gold, letterSpacing: "0.08em" }}>JMF</div>
         <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>Family Office · Private & Confidential</div>
       </div>
+
       <div style={{ width: "100%", maxWidth: 360, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 28, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sign in</div>
         <div style={{ fontSize: 13, color: C.textDim, marginBottom: 22 }}>Private access only.</div>
+
         <div style={{ marginBottom: 14 }}>
-          <Label>Username</Label>
-          <input type="text" placeholder="e.g. ahmed" value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => { if (e.key === "Enter") login(); }} style={inp} />
+          <Label>Email</Label>
+          <input type="email" placeholder="you@example.com" value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") login(); }}
+            style={inp} />
         </div>
         <div style={{ marginBottom: 20 }}>
           <Label>Password</Label>
-          <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === "Enter") login(); }} style={inp} />
+          <input type="password" placeholder="••••••••" value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") login(); }}
+            style={inp} />
         </div>
-        {error && <div style={{ background: C.redLight, border: "1px solid #F5C6C3", borderRadius: 7, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.redText }}>{error}</div>}
-        <button onClick={login} disabled={loading} style={{ width: "100%", padding: "12px", background: C.gold, border: "none", borderRadius: 8, color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: loading ? 0.7 : 1 }}>
+
+        {error && (
+          <div style={{ background: C.redLight, border: "1px solid #F5C6C3", borderRadius: 7, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.redText }}>
+            {error}
+          </div>
+        )}
+
+        <button onClick={login} disabled={loading}
+          style={{ width: "100%", padding: "12px", background: C.gold, border: "none", borderRadius: 8, color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Signing in…" : "Sign In"}
         </button>
+
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textDim, lineHeight: 1.8 }}>
-          <div><strong style={{ color: C.textMid }}>admin (ahmed)</strong> — full access</div>
-          <div><strong style={{ color: C.textMid }}>members</strong> — view & edit own data only</div>
+          <div><strong style={{ color: C.textMid }}>Admin</strong> — full dashboard access</div>
+          <div><strong style={{ color: C.textMid }}>Members</strong> — view & submit own data</div>
         </div>
       </div>
     </div>
@@ -431,60 +522,129 @@ function LoginScreen({ onLogin }) {
 }
 
 // ─── MEMBER VIEW ──────────────────────────────────────────────────────────────
+// user.id = auth UUID  |  user.profile.individual_id = individuals[].id
 function MemberView({ user, data, onUpdate, onLogout }) {
-  const [saved, setSaved]             = useState(false);
-  const [cashModal, setCashModal]     = useState(false);
-  const [submission, setSubmission]   = useState(undefined); // undefined=checking, null=none
+  const [saved, setSaved]               = useState(false);
+  const [cashModal, setCashModal]       = useState(false);
   const [showSubModal, setShowSubModal] = useState(false);
+  const [currentSub, setCurrentSub]     = useState(undefined); // undefined=loading
+  const [missingPeriod, setMissingPeriod] = useState(null);   // { period_date, label }
 
-  // Hooks must come before any early return
+  const individualId = user.profile?.individual_id;
+  const isAhmed      = individualId === 1;
+
+  // All hooks run unconditionally before any early return
   useEffect(() => {
-    getSubmission(user.username, getCurrentPeriod()).then(sub => {
-      setSubmission(sub);
-      if (!sub) setShowSubModal(true);
-    });
-  }, [user.username]);
+    async function checkPeriods() {
+      const [periods, userSubs] = await Promise.all([
+        fetchReportingPeriods(),
+        getSubmissionsForUser(user.id),
+      ]);
 
-  const f = data.individuals.find(x => x.id === user.individualId);
-  if (!f) return null;
+      // Find the most recent period with no pending/approved submission
+      const missing = periods.find(p => {
+        const sub = userSubs.find(s => s.period === p.period_date);
+        return !sub || sub.status === "rejected";
+      });
+
+      if (missing) {
+        setMissingPeriod(missing);
+        // Find the existing submission for this period if it was rejected
+        const existingSub = userSubs.find(s => s.period === missing.period_date) || null;
+        setCurrentSub(existingSub);
+        setShowSubModal(true);
+      } else {
+        // No missing — show latest submission status
+        const latest = userSubs[0] || null;
+        setCurrentSub(latest);
+        setShowSubModal(false);
+      }
+    }
+    checkPeriods();
+  }, [user.id]);
+
+  const f = data.individuals.find(x => x.id === individualId);
+  if (!f) return <LoadingScreen />;
+
   const net        = safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
   const isPositive = net >= 0;
-  const cashStale  = user.individualId === 1 && safe(f.cash) === 0;
+  const cashStale  = isAhmed && safe(f.cash) === 0;
 
-  const handleUpdate = (id, field, val) => { onUpdate(id, field, val); setSaved(true); setTimeout(() => setSaved(false), 2500); };
-  const handleSubmit = async (fields) => {
-    await createSubmission(user.username, getCurrentPeriod(), fields);
-    setSubmission({ status: "pending" });
-    setShowSubModal(false);
+  const handleUpdate = (id, field, val) => {
+    onUpdate(id, field, val);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  const SubBadge = () => {
-    if (submission === undefined) return null;
-    if (!submission) return <button onClick={() => setShowSubModal(true)} style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Monthly update required</button>;
-    if (submission.status === "pending")  return <span style={{ fontSize: 11, color: C.blue,  background: C.blueLight,  borderRadius: 6, padding: "4px 10px" }}>Awaiting review</span>;
-    if (submission.status === "approved") return <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 6, padding: "4px 10px" }}>✓ {getPeriodLabel()} approved</span>;
-    if (submission.status === "rejected") return <button onClick={() => setShowSubModal(true)} style={{ fontSize: 11, color: C.red, background: C.redLight, border: `1px solid #F5C6C3`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Rejected — resubmit</button>;
+  const handleSubmit = async (fields) => {
+    if (!missingPeriod) return;
+    const ok = await createSubmission(user.id, missingPeriod.period_date, fields);
+    if (ok) {
+      setCurrentSub({ status: "pending", data: fields, period: missingPeriod.period_date });
+      setShowSubModal(false);
+    }
+  };
+
+  const subStatusBadge = () => {
+    if (currentSub === undefined) return null;
+    if (!currentSub && missingPeriod) return (
+      <button onClick={() => setShowSubModal(true)}
+        style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+        {missingPeriod.label || "Monthly update"} required
+      </button>
+    );
+    if (currentSub?.status === "pending")  return <span style={{ fontSize: 11, color: C.blue,  background: C.blueLight,  borderRadius: 6, padding: "4px 10px" }}>Awaiting review</span>;
+    if (currentSub?.status === "approved") return <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 6, padding: "4px 10px" }}>✓ Approved</span>;
+    if (currentSub?.status === "rejected") return (
+      <button onClick={() => setShowSubModal(true)}
+        style={{ fontSize: 11, color: C.red, background: C.redLight, border: `1px solid #F5C6C3`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+        Rejected — resubmit
+      </button>
+    );
     return null;
   };
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: C.sans }}>
-      {showSubModal && <SubmissionModal currentData={f} periodLabel={getPeriodLabel()} onSubmit={handleSubmit} onClose={() => setShowSubModal(false)} />}
-      {cashModal && <CashModal current={safe(f.cash)} onSave={v => handleUpdate(f.id, "cash", v)} onClose={() => setCashModal(false)} />}
+      {showSubModal && missingPeriod && (
+        <SubmissionModal
+          currentData={f}
+          periodLabel={missingPeriod.label || missingPeriod.period_date}
+          onSubmit={handleSubmit}
+          onClose={() => setShowSubModal(false)}
+        />
+      )}
+      {cashModal && (
+        <CashModal
+          current={safe(f.cash)}
+          onSave={v => handleUpdate(f.id, "cash", v)}
+          onClose={() => setCashModal(false)}
+        />
+      )}
 
+      {/* Nav */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>JMF</span>
-          <span style={{ fontSize: 12, color: C.textMid }}>{f.name}</span>
-          {saved && <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 4, padding: "2px 8px" }}>✓ Saved</span>}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: C.gold, flexShrink: 0 }}>JMF</span>
+          <span style={{ fontSize: 12, color: C.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+          {saved && <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✓ Saved</span>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <SubBadge />
-          {cashStale && <button onClick={() => setCashModal(true)} style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Cash not updated</button>}
-          <button onClick={onLogout} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMid, fontSize: 11, padding: "4px 12px", cursor: "pointer" }}>Sign out</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {subStatusBadge()}
+          {cashStale && (
+            <button onClick={() => setCashModal(true)}
+              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+              Cash not updated
+            </button>
+          )}
+          <button onClick={onLogout}
+            style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMid, fontSize: 11, padding: "4px 12px", cursor: "pointer" }}>
+            Sign out
+          </button>
         </div>
       </div>
 
+      {/* Content */}
       <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
         <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 8 }}>Net Worth</div>
@@ -492,12 +652,24 @@ function MemberView({ user, data, onUpdate, onLogout }) {
           <div style={{ fontSize: 12, color: C.textDim, marginTop: 6 }}>{data.lastUpdated}</div>
         </div>
 
-        {submission?.status && (
-          <div style={{ background: submission.status === "approved" ? C.greenLight : submission.status === "rejected" ? C.redLight : C.blueLight, border: `1px solid ${submission.status === "approved" ? "#A8D8B8" : submission.status === "rejected" ? "#F5C6C3" : "#A8C4E0"}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: C.textMid }}>
-            <strong style={{ color: C.text }}>{getPeriodLabel()} submission</strong> — {submission.status === "pending" ? "Awaiting admin review." : submission.status === "approved" ? "✓ Approved and applied." : `Rejected. ${submission.admin_note || "Contact Ahmed."}`}
+        {/* Submission status banner */}
+        {currentSub?.status && (
+          <div style={{
+            background: currentSub.status === "approved" ? C.greenLight : currentSub.status === "rejected" ? C.redLight : C.blueLight,
+            border: `1px solid ${currentSub.status === "approved" ? "#A8D8B8" : currentSub.status === "rejected" ? "#F5C6C3" : "#A8C4E0"}`,
+            borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: C.textMid, lineHeight: 1.6,
+          }}>
+            <strong style={{ color: C.text }}>
+              {missingPeriod?.label || (currentSub.period ? new Date(currentSub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" }) : "")} submission
+            </strong>
+            {" — "}
+            {currentSub.status === "pending"  && "Awaiting admin review."}
+            {currentSub.status === "approved" && "✓ Approved and applied to the dashboard."}
+            {currentSub.status === "rejected" && `Rejected. ${currentSub.admin_note || "Please resubmit."}`}
           </div>
         )}
 
+        {/* Editable snapshot */}
         <Card style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>{f.name}</div>
           <div style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>Click any value to update — saves automatically</div>
@@ -569,7 +741,6 @@ function PropCard({ prop, onUpdate, isAdmin }) {
           {prop.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{prop.notes}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 20 }}>
-            {/* Valuation */}
             <div>
               <Label>Valuation</Label>
               <Row label="Purchase price"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 14 }}>{$F(prop.purchase)}</span></Row>
@@ -577,41 +748,41 @@ function PropCard({ prop, onUpdate, isAdmin }) {
               <Row label="Mortgage balance"><EditNum value={mortgage} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
               <Row label="Raw equity"><span style={{ color: eqColor, fontWeight: 700, fontFamily: C.mono, fontSize: 14 }}>{$F(rawEquity)}</span></Row>
               <Row label="Est. net if sold today" last={false}>
-                <span style={{ color: netEquity > 0 ? C.green : C.red, fontFamily: C.mono, fontSize: 13 }} title="3.5% realtor fee + HST + $1,500 legal">{$F(netEquity)}</span>
+                <span style={{ color: netEquity > 0 ? C.green : C.red, fontFamily: C.mono, fontSize: 13 }} title="3.5% realtor + HST + $1,500 legal">{$F(netEquity)}</span>
               </Row>
               <Row label="LTV ratio" last>
                 <span style={{ color: parseFloat(ltv) > 80 ? C.red : parseFloat(ltv) > 65 ? C.amber : C.green, fontFamily: C.mono, fontWeight: 600, fontSize: 14 }}>{ltv}%</span>
               </Row>
             </div>
-
-            {/* Mortgage */}
             <div>
               <Label>Mortgage</Label>
               <Row label="Lender"><span style={{ color: C.text, fontSize: 13 }}>{prop.lender}</span></Row>
               <Row label="Rate"><span style={{ color: C.amber, fontFamily: C.mono }}>{prop.rate}</span></Row>
               <Row label="Type"><span style={{ color: C.text, fontSize: 12 }}>{prop.rateType}</span></Row>
               <Row label="Maturity">
-                {isAdmin ? <EditText value={prop.maturity} onChange={v => onUpdate("maturity", v)} placeholder="e.g. Dec 2026" /> : <span style={{ color: C.text, fontFamily: C.mono, fontSize: 13 }}>{prop.maturity}</span>}
+                {isAdmin
+                  ? <EditText value={prop.maturity} onChange={v => onUpdate("maturity", v)} placeholder="e.g. Dec 2026" />
+                  : <span style={{ color: C.text, fontFamily: C.mono, fontSize: 13 }}>{prop.maturity}</span>}
               </Row>
               <Row label="Monthly P+I"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
               <Row label="Monthly tax" last><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>
             </div>
           </div>
 
-          {/* Rental */}
           <div style={{ marginTop: 16 }}>
             <Label>Rental</Label>
             <Row label="Monthly rent"><EditNum value={safe(prop.rentalIncome)} onChange={v => onUpdate("rentalIncome", v)} locked={!isAdmin} /></Row>
             <Row label="Tenant" last>
-              {isAdmin ? <EditText value={prop.tenant} onChange={v => onUpdate("tenant", v)} placeholder="Tenant name" /> : <span style={{ color: C.text, fontSize: 13 }}>{prop.tenant || "—"}</span>}
+              {isAdmin
+                ? <EditText value={prop.tenant} onChange={v => onUpdate("tenant", v)} placeholder="Tenant name" />
+                : <span style={{ color: C.text, fontSize: 13 }}>{prop.tenant || "—"}</span>}
             </Row>
           </div>
 
-          {/* Annual chips */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10, marginTop: 16 }}>
             {[
-              { label: "Annual mortgage", val: $F(safe(prop.monthlyPayment) * 12),  color: C.red,   bg: C.redLight   },
-              { label: "Annual rental",   val: $F(safe(prop.rentalIncome) * 12),    color: C.green, bg: C.greenLight },
+              { label: "Annual mortgage", val: $F(safe(prop.monthlyPayment) * 12), color: C.red,   bg: C.redLight   },
+              { label: "Annual rental",   val: $F(safe(prop.rentalIncome) * 12),   color: C.green, bg: C.greenLight },
               { label: "Annual net",      val: $F(cf * 12), color: cf >= 0 ? C.green : C.red, bg: cf >= 0 ? C.greenLight : C.redLight },
             ].map((chip, i) => (
               <div key={i} style={{ background: chip.bg, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
@@ -628,10 +799,10 @@ function PropCard({ prop, onUpdate, isAdmin }) {
 
 // ─── BUSINESS CARD ────────────────────────────────────────────────────────────
 function BizCard({ biz, onUpdate, isAdmin }) {
-  const [open, setOpen]   = useState(false);
-  const isNonProfit       = biz.type === "nonprofit";
-  const netEquity         = safe(biz.cashAccounts) - safe(biz.liabilities);
-  const netProfit         = safe(biz.revenue) - safe(biz.expenses);
+  const [open, setOpen] = useState(false);
+  const isNonProfit = biz.type === "nonprofit";
+  const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
+  const netProfit   = safe(biz.revenue) - safe(biz.expenses);
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
@@ -666,7 +837,7 @@ function BizCard({ biz, onUpdate, isAdmin }) {
             <div>
               <div style={{ background: C.purpleLight, borderRadius: 8, padding: 14, marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: C.purpleText, marginBottom: 4 }}>Collective fund — tracked for reference only</div>
-                <div style={{ fontSize: 12, color: C.textMid }}>This entity does NOT count toward JMF consolidated net worth.</div>
+                <div style={{ fontSize: 12, color: C.textMid }}>Does NOT count toward JMF consolidated net worth.</div>
               </div>
               <Row label="Cash balance" last><span style={{ fontFamily: C.mono, color: C.purple, fontWeight: 700, fontSize: 14 }}>{$F(safe(biz.cashAccounts))}</span></Row>
             </div>
@@ -695,16 +866,24 @@ function BizCard({ biz, onUpdate, isAdmin }) {
 }
 
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
+// user.id = admin auth UUID  |  user.profile.role === "admin"
 function AdminDashboard({ user, data, setData, onLogout }) {
-  const [tab, setTab]             = useState("overview");
-  const [saved, setSaved]         = useState(false);
-  const [cashModal, setCashModal] = useState(false);
+  const [tab, setTab]               = useState("overview");
+  const [saved, setSaved]           = useState(false);
+  const [cashModal, setCashModal]   = useState(false);
   const [pendingSubs, setPendingSubs] = useState([]);
+  const [profiles, setProfiles]     = useState([]);
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
 
-  useEffect(() => { getPendingSubmissions().then(setPendingSubs); }, [tab]);
+  useEffect(() => {
+    // Load pending submissions and all member profiles in parallel
+    Promise.all([getPendingSubmissions(), fetchAllProfiles()]).then(([subs, profs]) => {
+      setPendingSubs(subs);
+      setProfiles(profs);
+    });
+  }, [tab]);
 
-  // ── Derived numbers ──
+  // ── Derived totals (ASWC excluded from business equity) ──
   const indNet     = f => safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
   const totalREEq  = data.properties.reduce((s, p) => s + (safe(p.market) - safe(p.mortgage)), 0);
   const totalREVal = data.properties.reduce((s, p) => s + safe(p.market), 0);
@@ -719,33 +898,50 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const aj         = data.individuals.find(f => f.id === 1);
   const cashStale  = safe(aj?.cash) === 0;
 
+  // ── Update helpers ──
   function updProp(id, f, v) {
     const isText = f === "maturity" || f === "tenant";
     const arr = data.properties.map(p => p.id === id ? { ...p, [f]: isText ? v : safe(v) } : p);
     saveToDB("properties", arr); setData(d => ({ ...d, properties: arr })); showSaved();
   }
-  function updInd(id, f, v)  { const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x); saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved(); }
-  function updBiz(id, f, v)  { const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b); saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved(); }
-  function updCF(type, idx, v){ const a = [...data.cashflow[type]]; a[idx] = { ...a[idx], amount: safe(v) }; const cf = { ...data.cashflow, [type]: a }; saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved(); }
+  function updInd(id, f, v) {
+    const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
+    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+  }
+  function updBiz(id, f, v) {
+    const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
+    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
+  function updCF(type, idx, v) {
+    const a = [...data.cashflow[type]];
+    a[idx] = { ...a[idx], amount: safe(v) };
+    const cf = { ...data.cashflow, [type]: a };
+    saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+  }
 
+  // ── Approve: apply submitted data to individuals, mark approved ──
   async function handleApprove(sub) {
-    const member = USERS.find(u => u.username === sub.user_id);
-    if (!member) return;
+    const profile = profiles.find(p => p.id === sub.user_id);
+    const individualId = profile?.individual_id;
+    if (!individualId) { console.warn("Cannot approve — no individual_id in profile for", sub.user_id); return; }
+
     const d = sub.data || {};
     const arr = data.individuals.map(x =>
-      x.id === member.individualId
-        ? { ...x, ...Object.fromEntries(Object.entries(d).map(([k, v]) => [k, safe(v)])) }
+      x.id === individualId
+        ? { ...x, ...Object.fromEntries(Object.entries(d).map(([k, val]) => [k, safe(val)])) }
         : x
     );
-    await approveSubmission(sub.id, user.name);
+    const ok = await approveSubmission(sub.id, user.id);
+    if (!ok) return;
     saveToDB("individuals", arr);
     setData(prev => ({ ...prev, individuals: arr }));
     setPendingSubs(s => s.filter(x => x.id !== sub.id));
     showSaved();
   }
+
   async function handleReject(subId, note) {
-    await rejectSubmission(subId, user.name, note);
-    setPendingSubs(s => s.filter(x => x.id !== subId));
+    const ok = await rejectSubmission(subId, user.id, note);
+    if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
   const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow"];
@@ -764,17 +960,19 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {pendingSubs.length > 0 && (
-            <button onClick={() => setTab("overview")} style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
+            <button onClick={() => setTab("overview")}
+              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
               {pendingSubs.length} pending review
             </button>
           )}
           {cashStale && (
-            <button onClick={() => setCashModal(true)} style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
+            <button onClick={() => setCashModal(true)}
+              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
               Cash not updated
             </button>
           )}
           <span style={{ fontSize: 10, fontWeight: 700, color: C.goldText, background: C.goldLight, borderRadius: 4, padding: "3px 8px" }}>ADMIN</span>
-          <span style={{ fontSize: 12, color: C.textMid }}>{user.name}</span>
+          <span style={{ fontSize: 12, color: C.textMid }}>{user.profile?.display_name || user.email}</span>
           <button onClick={onLogout} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMid, fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>Sign out</button>
         </div>
       </div>
@@ -782,19 +980,23 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       {/* HERO */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "36px 20px 28px", textAlign: "center" }}>
         <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>JMF Consolidated Net Worth</div>
-        <div style={{ fontSize: 52, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? C.red : C.gold, letterSpacing: -1, lineHeight: 1 }}>{$F(totalNW)}</div>
-        <div style={{ fontSize: 12, color: C.textDim, marginTop: 10 }}>RE equity + personal + operating corps (ASWC excluded) · {data.lastUpdated}</div>
+        <div style={{ fontSize: 52, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? C.red : C.gold, letterSpacing: -1, lineHeight: 1 }}>
+          {$F(totalNW)}
+        </div>
+        <div style={{ fontSize: 12, color: C.textDim, marginTop: 10 }}>
+          RE equity + personal + operating corps (ASWC excluded) · {data.lastUpdated}
+        </div>
       </div>
 
-      {/* KPI STRIP */}
+      {/* KPI STRIP — scrollable on mobile */}
       <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", minWidth: "max-content" }}>
           {[
-            { label: "RE Equity",        val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`,  color: C.gold  },
-            { label: "Personal Net",     val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                     color: totalPers < 0 ? C.red : C.green },
-            { label: "Business Equity",  val: $K(totalBiz),   sub: "Kratos + JMF + PRIMA",                                                        color: C.blue  },
-            { label: "Monthly Mortgages",val: $K(totalMtg),   sub: `${$K(totalMtg * 12)}/yr`,                                                     color: C.red   },
-            { label: "Monthly Gap",      val: totalIn === 0 ? "—" : $K(gap), sub: totalIn === 0 ? "Add income first" : gap < 0 ? "Deficit" : "Surplus", color: totalIn === 0 ? C.textDim : gap < 0 ? C.red : C.green },
+            { label: "RE Equity",         val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`,  color: C.gold  },
+            { label: "Personal Net",      val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                     color: totalPers < 0 ? C.red : C.green },
+            { label: "Business Equity",   val: $K(totalBiz),   sub: "Kratos + JMF + PRIMA",                                                        color: C.blue  },
+            { label: "Monthly Mortgages", val: $K(totalMtg),   sub: `${$K(totalMtg * 12)}/yr`,                                                     color: C.red   },
+            { label: "Monthly Gap",       val: totalIn === 0 ? "—" : $K(gap), sub: totalIn === 0 ? "Add income first" : gap < 0 ? "Deficit" : "Surplus", color: totalIn === 0 ? C.textDim : gap < 0 ? C.red : C.green },
           ].map((k, i, arr) => (
             <div key={i} style={{ padding: "14px 20px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", minWidth: 140 }}>
               <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5 }}>{k.label}</div>
@@ -805,7 +1007,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         </div>
       </div>
 
-      {/* TABS */}
+      {/* TABS — scrollable on mobile */}
       <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", minWidth: "max-content", padding: "0 20px" }}>
           {TABS.map(t => (
@@ -823,7 +1025,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
           <div>
-            <ApprovalQueue pendingSubs={pendingSubs} individuals={data.individuals} onApprove={handleApprove} onReject={handleReject} />
+            <ApprovalQueue
+              pendingSubs={pendingSubs}
+              profiles={profiles}
+              individuals={data.individuals}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14, marginBottom: 20 }}>
               {[
@@ -884,7 +1092,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                         <div>
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}><span style={{ color: C.textDim }}>Cash</span><span style={{ fontFamily: C.mono, color: C.green }}>{$K(safe(b.cashAccounts))}</span></div>
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}><span style={{ color: C.textDim }}>Liabilities</span><span style={{ fontFamily: C.mono, color: C.red }}>{$K(safe(b.liabilities))}</span></div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, paddingTop: 8, borderTop: `1px solid ${C.border}` }}><span style={{ color: C.textMid, fontWeight: 600 }}>Net equity</span><span style={{ fontFamily: C.mono, fontWeight: 700, color: eq >= 0 ? C.gold : C.red }}>{$K(eq)}</span></div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                            <span style={{ color: C.textMid, fontWeight: 600 }}>Net equity</span>
+                            <span style={{ fontFamily: C.mono, fontWeight: 700, color: eq >= 0 ? C.gold : C.red }}>{$K(eq)}</span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -911,7 +1122,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>Click any property to expand · Gold values are editable · "Est. net if sold" deducts 3.5% realtor fee (HST incl.) + $1,500 legal</div>
+            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+              Click any property to expand · "Est. net if sold" deducts 3.5% realtor (HST incl.) + $1,500 legal
+            </div>
             {data.properties.map(p => <PropCard key={p.id} prop={p} onUpdate={(f, v) => updProp(p.id, f, v)} isAdmin={true} />)}
           </div>
         )}
@@ -925,7 +1138,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               return (
                 <Card key={f.id}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: isPos ? C.goldLight : C.redLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: isPos ? C.goldText : C.redText, flexShrink: 0 }}>{f.initials}</div>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: isPos ? C.goldLight : C.redLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: isPos ? C.goldText : C.redText, flexShrink: 0 }}>
+                      {f.initials}
+                    </div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{f.name}</div>
                       <div style={{ fontSize: 20, fontFamily: C.mono, fontWeight: 800, color: isPos ? C.gold : C.red }}>{$F(net)}</div>
@@ -966,7 +1181,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               ))}
             </div>
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
-              Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all net worth calculations.
+              Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
             {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} isAdmin={true} />)}
           </div>
@@ -979,7 +1194,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 8 }}>Monthly Cash Flow Position</div>
               <div style={{ fontSize: 48, fontFamily: C.mono, fontWeight: 800, color: gap >= 0 ? C.green : C.red }}>{gap >= 0 ? "+" : ""}{$F(gap)}</div>
               <div style={{ fontSize: 13, color: C.textMid, marginTop: 10 }}>
-                {totalIn === 0 ? "Add business income to see your true monthly position." : gap < 0 ? `Need ${$F(Math.abs(gap))} more per month to break even.` : `${$F(gap)}/month surplus.`}
+                {totalIn === 0
+                  ? "Add business income to see your true monthly position."
+                  : gap < 0
+                    ? `Need ${$F(Math.abs(gap))} more per month to break even.`
+                    : `${$F(gap)}/month surplus.`}
               </div>
             </div>
 
@@ -1027,12 +1246,30 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [data, setData]               = useState(null);
-  const [loading, setLoading]         = useState(true);
+  const [session, setSession] = useState(undefined); // undefined = still checking
+  const [profile, setProfile] = useState(null);
+  const [data, setData]       = useState(null);
 
   useEffect(() => {
-    loadFromDB().then(dbData => {
+    let cancelled = false;
+
+    async function bootstrap(s) {
+      if (!s) {
+        if (!cancelled) { setSession(null); setProfile(null); setData(null); }
+        return;
+      }
+
+      // Load profile and dashboard data in parallel
+      const [prof, dbData] = await Promise.all([
+        fetchProfile(s.user.id),
+        loadFromDB(),
+      ]);
+
+      if (cancelled) return;
+
+      setSession(s);
+      setProfile(prof);
+
       if (dbData) {
         setData({
           ...DEFAULT,
@@ -1042,30 +1279,60 @@ export default function App() {
           cashflow:    dbData.cashflow || DEFAULT.cashflow,
         });
       } else {
+        // First run — seed the database with defaults
         saveToDB("individuals", DEFAULT.individuals);
         saveToDB("properties",  DEFAULT.properties);
         saveToDB("businesses",  DEFAULT.businesses);
         saveToDB("cashflow",    DEFAULT.cashflow);
         setData(DEFAULT);
       }
-      setLoading(false);
+    }
+
+    // Restore existing session on page load
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!cancelled) bootstrap(s);
     });
+
+    // React to auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (cancelled) return;
+      if (event === "SIGNED_OUT") {
+        setSession(null); setProfile(null); setData(null);
+      } else if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+        bootstrap(s);
+      } else if (event === "TOKEN_REFRESHED") {
+        setSession(s); // just update token, don't reload everything
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  function updInd(id, f, v) {
-    const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
+  function updInd(id, field, val) {
+    if (!data) return;
+    const arr = data.individuals.map(x => x.id === id ? { ...x, [field]: safe(val) } : x);
     saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
   }
 
-  if (loading) return (
-    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color: C.gold, letterSpacing: "0.08em", marginBottom: 10 }}>JMF</div>
-      <div style={{ fontSize: 12, color: C.textDim }}>Loading financial data…</div>
-    </div>
-  );
+  // Still checking session
+  if (session === undefined) return <LoadingScreen />;
 
-  if (!currentUser) return <LoginScreen onLogin={setCurrentUser} />;
-  if (currentUser.role === "individual") return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={() => setCurrentUser(null)} />;
-  return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={() => setCurrentUser(null)} />;
+  // Not logged in
+  if (!session) return <LoginScreen />;
+
+  // Logged in but profile or data not yet loaded
+  if (!profile || !data) return <LoadingScreen />;
+
+  const currentUser = { ...session.user, profile };
+  const isAdmin     = profile.role === "admin";
+  const logout      = () => supabase.auth.signOut();
+
+  if (isAdmin) {
+    return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout} />;
+  }
+  return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout} />;
 }
