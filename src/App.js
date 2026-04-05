@@ -117,11 +117,11 @@ const DEFAULT = {
   ],
 
   properties: [
-    { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:728135,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:0, tenant:"", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",      notes:"Crown jewel. $1.27M unrealized gain." },
+    { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:728135,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:6000, tenant:"", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",      notes:"Crown jewel. $1.27M unrealized gain." },
     { id:2, name:"3705 Farr Ave.",    status:"STRONG", purchase:250000,  market:1200000, mortgage:0,       monthlyPayment:0,     monthlyTax:0,    rentalIncome:0, tenant:"", lender:"None",           rate:"N/A",    rateType:"Mortgage-free",          maturity:"N/A",      notes:"Fully mortgage-free. Pure equity." },
     { id:3, name:"121 Milky Way",     status:"WATCH",  purchase:3079729, market:2850000, mortgage:1824726, monthlyPayment:15013, monthlyTax:905,  rentalIncome:0, tenant:"", lender:"Equitable Bank", rate:"7.95%",  rateType:"12 Month Fixed Open",   maturity:"Dec 2026", notes:"Fixed Open — can refinance without penalty." },
     { id:4, name:"51 Ahchie Crt.",    status:"RISK",   purchase:2119105, market:1750000, mortgage:1523326, monthlyPayment:9339,  monthlyTax:1235, rentalIncome:0, tenant:"", lender:"Equitable Bank", rate:"P+0.14%",rateType:"36 Month ARM Closed",   maturity:"Mar 2029", notes:"Variable rate ARM. Market significantly below purchase." },
-    { id:5, name:"4 New Seabury Dr.", status:"WATCH",  purchase:349000,  market:958800,  mortgage:894769,  monthlyPayment:5979,  monthlyTax:374,  rentalIncome:0, tenant:"", lender:"Equitable Bank", rate:"5.94%",  rateType:"60 Month Fixed Closed", maturity:"Dec 2029", notes:"Locked in at 5.94%. Thin equity margin." },
+    { id:5, name:"4 New Seabury Dr.", status:"WATCH",  purchase:349000,  market:958800,  mortgage:894769,  monthlyPayment:5979,  monthlyTax:374,  rentalIncome:3900, tenant:"", lender:"Equitable Bank", rate:"5.94%",  rateType:"60 Month Fixed Closed", maturity:"Dec 2029", notes:"Locked in at 5.94%. Thin equity margin." },
   ],
 
   cashflow: {
@@ -129,7 +129,7 @@ const DEFAULT = {
       { label:"Kratos Moving Inc.", amount:0, note:"Add monthly net profit" },
       { label:"JMF Logistics Inc.", amount:0, note:"Add monthly net profit" },
       { label:"PRIMA",              amount:0, note:"Add monthly net profit" },
-      { label:"Rental income",      amount:0, note:"Update when tenants confirmed" },
+      { label:"Rental income",      amount:9900, note:"27 Roytec $6,000 + 4 New Seabury $3,900" },
       { label:"Other income",       amount:0, note:"" },
     ],
     obligations: [
@@ -477,9 +477,9 @@ function LoginScreen() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans, padding: 20 }}>
       <div style={{ marginBottom: 36, textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: C.textDim, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 10 }}>The Jamet Group</div>
         <div style={{ fontSize: 32, fontWeight: 800, color: C.gold, letterSpacing: "0.08em" }}>JMF</div>
-        <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>Family Office · Private & Confidential</div>
+        <div style={{ fontSize: 12, color: C.textMid, marginTop: 6, letterSpacing: "0.04em" }}>Jebrayilli Majidov Family</div>
+        <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>Family Office · Private & Confidential</div>
       </div>
 
       <div style={{ width: "100%", maxWidth: 360, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 28, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
@@ -952,7 +952,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
 
       {/* NAV */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 54, position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 16, fontWeight: 800, color: C.gold, letterSpacing: "0.06em" }}>JMF</span>
           <span style={{ fontSize: 11, color: C.textDim }}>Family Office</span>
@@ -978,13 +978,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       </div>
 
       {/* HERO */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "36px 20px 28px", textAlign: "center" }}>
-        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>JMF Consolidated Net Worth</div>
-        <div style={{ fontSize: 52, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? C.red : C.gold, letterSpacing: -1, lineHeight: 1 }}>
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "44px 28px 36px", textAlign: "center" }}>
+        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 14 }}>JMF Consolidated Net Worth</div>
+        <div style={{ fontSize: 58, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? C.red : C.gold, letterSpacing: -2, lineHeight: 1 }}>
           {$F(totalNW)}
         </div>
-        <div style={{ fontSize: 12, color: C.textDim, marginTop: 10 }}>
-          RE equity + personal + operating corps (ASWC excluded) · {data.lastUpdated}
+        <div style={{ fontSize: 12, color: C.textDim, marginTop: 14, letterSpacing: "0.04em" }}>
+          {data.lastUpdated}
         </div>
       </div>
 
@@ -1009,7 +1009,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
       {/* TABS — scrollable on mobile */}
       <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", minWidth: "max-content", padding: "0 20px" }}>
+        <div style={{ display: "flex", minWidth: "max-content", padding: "0 28px" }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(tabId(t))}
               style={{ padding: "10px 16px 12px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textMid, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans }}>
@@ -1020,7 +1020,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       </div>
 
       {/* PAGE CONTENT */}
-      <div style={{ padding: 20, maxWidth: 1080, margin: "0 auto" }}>
+      <div style={{ padding: "24px 28px", maxWidth: 1200, margin: "0 auto" }}>
 
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
@@ -1033,24 +1033,24 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               onReject={handleReject}
             />
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14, marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
                 { label: "Real Estate Equity",     val: $K(totalREEq),  color: C.gold,  bg: C.goldLight,  sub: `${data.properties.length} properties` },
                 { label: "Personal (all members)", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, bg: totalPers < 0 ? C.redLight : C.greenLight, sub: `${data.individuals.length} individuals` },
                 { label: "Business Equity",        val: $K(totalBiz),   color: C.blue,  bg: C.blueLight,  sub: "Operating corps only" },
                 { label: "Total RE Debt",          val: $K(totalREDbt), color: C.red,   bg: C.redLight,   sub: "Combined mortgages" },
               ].map((s, i) => (
-                <div key={i} style={{ background: s.bg, borderRadius: 12, padding: 18 }}>
-                  <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
-                  <div style={{ fontSize: 26, fontFamily: C.mono, fontWeight: 800, color: s.color }}>{s.val}</div>
-                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>{s.sub}</div>
+                <div key={i} style={{ background: s.bg, borderRadius: 14, padding: "20px 22px" }}>
+                  <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{s.label}</div>
+                  <div style={{ fontSize: 28, fontFamily: C.mono, fontWeight: 800, color: s.color }}>{s.val}</div>
+                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 6 }}>{s.sub}</div>
                 </div>
               ))}
             </div>
 
-            <Card style={{ marginBottom: 14 }}>
+            <Card style={{ marginBottom: 16 }}>
               <Label>Real Estate Portfolio</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
                 {data.properties.map(p => {
                   const eq = safe(p.market) - safe(p.mortgage);
                   return (
@@ -1070,7 +1070,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
             <Card>
               <Label>Business Entities</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(195px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
                 {data.businesses.map(b => {
                   const eq   = safe(b.cashAccounts) - safe(b.liabilities);
                   const isNP = b.type === "nonprofit";
