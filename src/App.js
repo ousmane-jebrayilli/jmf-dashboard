@@ -208,8 +208,9 @@ const DEFAULT = {
       tenant_summary:"Lease signed. Possession: April 20, 2026.",
       vacancy_notes:"Currently vacant. Rent collection begins at possession.",
       sections:[], covenant_notes:"",
+      ownership:0.6667, co_owner:"Abassli family (33.3%)",
       lender:"Equitable Bank",
-      notes:"Fixed 5.94%. Fee balance: $550. Tax escrowed by lender. Original balance $960K — minimal principal reduction.",
+      notes:"Fixed 5.94%. JMF 2/3 share — co-owned with Abassli family. Fee balance: $550. Tax escrowed by lender.",
     },
   ],
 
@@ -218,18 +219,14 @@ const DEFAULT = {
       { label:"Kratos Moving Inc.", amount:0, note:"Add monthly net profit" },
       { label:"JMF Logistics Inc.", amount:0, note:"Add monthly net profit" },
       { label:"PRIMA",              amount:0, note:"Add monthly net profit" },
-      { label:"Rental income",      amount:9900, note:"27 Roytec $6,000 + 4 New Seabury $3,900" },
+      { label:"Rental income",      amount:0, note:"" },
       { label:"Other income",       amount:0, note:"" },
     ],
     obligations: [
       { label:"121 Milky Way mortgage",  amount:15013, note:"7.95% · Equitable · Dec 2026" },
       { label:"51 Ahchie Crt. mortgage", amount:9837,  note:"5.24% · Equitable · renewal due Apr 2026" },
       { label:"4 New Seabury mortgage",  amount:5979,  note:"5.94% · Equitable · Dec 2029" },
-      { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · amount pending confirmation" },
-      { label:"TD Line of Credit",       amount:900,   note:"Interest on $91,793" },
-      { label:"Student debt",            amount:350,   note:"Monthly est." },
-      { label:"Family support",          amount:8000,  note:"Monthly avg" },
-      { label:"Personal lifestyle",      amount:5000,  note:"Personal expenses excl. RE" },
+      { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · pending" },
     ],
   },
 };
@@ -271,6 +268,12 @@ function propMonthlyOut(prop) {
     safe(prop.management_fee_monthly) + safe(prop.maintenance_reserve_monthly) +
     safe(prop.utilities_monthly) + safe(prop.capex_reserve_monthly);
 }
+// Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
+function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
+// Gross equity regardless of ownership split
+function propGrossEquity(prop) { return safe(prop.market) - safe(prop.mortgage); }
+// JMF-attributable equity (gross × ownership share)
+function propJMFEquity(prop) { return propGrossEquity(prop) * propOwnership(prop); }
 
 // ─── AUTH / PROFILE HELPERS ───────────────────────────────────────────────────
 async function fetchProfile(userId) {
@@ -826,17 +829,22 @@ function MemberView({ user, data, onUpdate, onLogout }) {
 // ─── PROPERTY CARD ────────────────────────────────────────────────────────────
 function PropCard({ prop, onUpdate, isAdmin }) {
   const [open, setOpen] = useState(false);
-  const market       = safe(prop.market);
-  const balance      = safe(prop.mortgage);
-  const rawEquity    = market - balance;
-  const sellingCosts = (market * 0.035 * 1.13) + 1500;
-  const netEquity    = rawEquity - sellingCosts;
-  const ltv          = balance > 0 && market > 0 ? (balance / market * 100) : 0;
-  const eqColor      = rawEquity > 500000 ? C.gold : rawEquity > 0 ? C.amber : C.red;
-  const sections     = prop.sections || [];
+  const market        = safe(prop.market);
+  const balance       = safe(prop.mortgage);
+  const rawEquity     = market - balance;
+  const sellingCosts  = (market * 0.035 * 1.13) + 1500;
+  const netEquity     = rawEquity - sellingCosts;
+  const ltv           = balance > 0 && market > 0 ? (balance / market * 100) : 0;
+  const eqColor       = rawEquity > 500000 ? C.gold : rawEquity > 0 ? C.amber : C.red;
+  const sections      = prop.sections || [];
   const effectiveRent = propEffectiveRent(prop);
   const totalOut      = propMonthlyOut(prop);
   const monthlyNCF    = effectiveRent - totalOut;
+  const ownership     = propOwnership(prop);
+  const jmfEquity     = propJMFEquity(prop);
+  const isPartial     = ownership < 0.9999;
+  const displayEquity = isPartial ? jmfEquity : rawEquity;
+  const displayEqColor = displayEquity > 500000 ? C.gold : displayEquity > 0 ? C.amber : C.red;
 
   function updSection(secId, field, val) {
     const updated = sections.map(s => s.id === secId ? { ...s, [field]: field === "rent" ? safe(val) : val } : s);
@@ -851,15 +859,22 @@ function PropCard({ prop, onUpdate, isAdmin }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
           <StatusPill status={prop.status} />
           <OccupancyBadge status={prop.occupancy_status} />
+          {isPartial && (
+            <span style={{ background: C.purpleLight, color: C.purpleText, borderRadius: 20, fontSize: 10, fontWeight: 700, padding: "3px 10px", whiteSpace: "nowrap" }}>
+              JMF {Math.round(ownership * 100)}%
+            </span>
+          )}
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{prop.name}</div>
-            <div style={{ fontSize: 11, color: C.textDim, marginTop: 1 }}>{prop.lender} · {prop.rate}</div>
+            <div style={{ fontSize: 11, color: C.textDim, marginTop: 1 }}>
+              {prop.lender} · {prop.rate}{isPartial ? ` · ${prop.co_owner}` : ""}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Gross equity</div>
-            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: eqColor }}>{$K(rawEquity)}</div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>{isPartial ? "JMF equity" : "Gross equity"}</div>
+            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: displayEqColor }}>{$K(displayEquity)}</div>
           </div>
           <span style={{ color: open ? C.gold : C.textDim, fontSize: 12 }}>{open ? "▲" : "▼"}</span>
         </div>
@@ -1008,7 +1023,15 @@ function PropCard({ prop, onUpdate, isAdmin }) {
                 <Row label="Market value"><EditNum value={market} onChange={v => onUpdate("market", v)} locked={!isAdmin} /></Row>
                 <Row label="Mortgage balance"><EditNum value={balance} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
                 <Row label="Gross equity"><span style={{ color: eqColor, fontWeight: 700, fontFamily: C.mono, fontSize: 14 }}>{$F(rawEquity)}</span></Row>
-                <Row label="Est. net if sold today" last>
+                {isPartial && (
+                  <Row label={`JMF equity (${Math.round(ownership * 100)}%)`}>
+                    <span style={{ color: displayEqColor, fontWeight: 700, fontFamily: C.mono, fontSize: 14 }}>{$F(jmfEquity)}</span>
+                  </Row>
+                )}
+                {isPartial && prop.co_owner && (
+                  <Row label="Co-owner"><span style={{ color: C.textMid, fontSize: 13 }}>{prop.co_owner}</span></Row>
+                )}
+                <Row label="Est. net if sold" last>
                   <span style={{ color: netEquity > 0 ? C.green : C.red, fontFamily: C.mono, fontSize: 13 }} title="3.5% realtor + HST + $1,500 legal">{$F(netEquity)}</span>
                 </Row>
               </div>
@@ -1155,10 +1178,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }, [tab]);
 
   // ── Derived totals (ASWC excluded from business equity) ──
-  const indNet     = f => safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
-  const totalREEq  = data.properties.reduce((s, p) => s + (safe(p.market) - safe(p.mortgage)), 0);
-  const totalREVal = data.properties.reduce((s, p) => s + safe(p.market), 0);
-  const totalREDbt = data.properties.reduce((s, p) => s + safe(p.mortgage), 0);
+  const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+  const totalREEqGross = data.properties.reduce((s, p) => s + propGrossEquity(p), 0);
+  const totalREEq      = data.properties.reduce((s, p) => s + propJMFEquity(p), 0); // JMF-attributable
+  const totalREVal     = data.properties.reduce((s, p) => s + safe(p.market), 0);
+  const totalREDbt     = data.properties.reduce((s, p) => s + safe(p.mortgage), 0);
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalNW    = totalREEq + totalPers + totalBiz;
@@ -1189,6 +1213,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   function updCF(type, idx, v) {
     const a = [...data.cashflow[type]];
     a[idx] = { ...a[idx], amount: safe(v) };
+    const cf = { ...data.cashflow, [type]: a };
+    saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+  }
+  function delCF(type, idx) {
+    const a = data.cashflow[type].filter((_, i) => i !== idx);
     const cf = { ...data.cashflow, [type]: a };
     saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
   }
@@ -1266,7 +1295,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", minWidth: "max-content" }}>
           {[
-            { label: "RE Equity",         val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`,  color: C.gold  },
+            { label: "JMF RE Equity",     val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`,  color: C.gold  },
             { label: "Personal Net",      val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                     color: totalPers < 0 ? C.red : C.green },
             { label: "Business Equity",   val: $K(totalBiz),   sub: "Kratos + JMF + PRIMA",                                                        color: C.blue  },
             { label: "Monthly Mortgages", val: $K(totalMtg),   sub: `${$K(totalMtg * 12)}/yr`,                                                     color: C.red   },
@@ -1309,7 +1338,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
-                { label: "Real Estate Equity",     val: $K(totalREEq),  color: C.gold,  bg: C.goldLight,  sub: `${data.properties.length} properties` },
+                { label: "JMF RE Equity",           val: $K(totalREEq),  color: C.gold,  bg: C.goldLight,  sub: `Ownership-adjusted · ${data.properties.length} properties` },
                 { label: "Personal (all members)", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, bg: totalPers < 0 ? C.redLight : C.greenLight, sub: `${data.individuals.length} individuals` },
                 { label: "Business Equity",        val: $K(totalBiz),   color: C.blue,  bg: C.blueLight,  sub: "Operating corps only" },
                 { label: "Total RE Debt",          val: $K(totalREDbt), color: C.red,   bg: C.redLight,   sub: "Combined mortgages" },
@@ -1388,15 +1417,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Portfolio Value",  val: $K(totalREVal),    color: C.text  },
-                { label: "Total Debt",       val: $K(totalREDbt),    color: C.red   },
-                { label: "Total RE Equity",  val: $K(totalREEq),     color: C.gold  },
-                { label: "Monthly Payments", val: $K(totalMtg),      color: C.red   },
-                { label: "RE Cash Flow",     val: $K(totalRENCF),    color: totalRENCF >= 0 ? C.green : C.red },
+                { label: "Portfolio Value",  val: $K(totalREVal),       color: C.text, sub: "Gross (5 properties)" },
+                { label: "Total Debt",       val: $K(totalREDbt),       color: C.red,  sub: "All mortgages" },
+                { label: "Gross Equity",     val: $K(totalREEqGross),   color: C.amber,sub: "100% of all equity" },
+                { label: "JMF Equity",       val: $K(totalREEq),        color: C.gold, sub: "Ownership-adjusted" },
+                { label: "Monthly Payments", val: $K(totalMtg),         color: C.red,  sub: `${$K(totalMtg * 12)}/yr` },
+                { label: "RE Cash Flow",     val: $K(totalRENCF),       color: totalRENCF >= 0 ? C.green : C.red, sub: "Income − outflows" },
               ].map((s, i) => (
                 <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
                   <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
                   <div style={{ fontSize: 20, fontFamily: C.mono, fontWeight: 700, color: s.color }}>{s.val}</div>
+                  {s.sub && <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>{s.sub}</div>}
                 </div>
               ))}
             </div>
@@ -1426,6 +1457,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   </div>
                   {[
                     { l: "Accounts",        fi: "accounts"       },
+                    { l: "Personal Debt",   fi: "debt"           },
                     { l: "Cash / Vault",    fi: "cash"           },
                     { l: "Securities",      fi: "securities"     },
                     { l: "Crypto",          fi: "crypto"         },
@@ -1436,6 +1468,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       <EditNum value={safe(f[row.fi])} onChange={v => updInd(f.id, row.fi, v)} />
                     </div>
                   ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
+                    <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
+                  </div>
                 </Card>
               );
             })}
@@ -1485,9 +1521,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↑ Monthly Income</div>
                 {data.cashflow.income.map((item, i) => (
                   <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 13, color: C.text }}>{item.label}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
                       <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} />
+                      <button onClick={() => delCF("income", i)} title="Remove row" style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
                     {item.note && <div style={{ fontSize: 10, color: C.amber, marginTop: 2 }}>{item.note}</div>}
                   </div>
@@ -1502,9 +1539,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 <div style={{ fontSize: 11, color: C.red, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↓ Monthly Obligations</div>
                 {data.cashflow.obligations.map((item, i) => (
                   <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 13, color: C.text }}>{item.label}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
                       <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
+                      <button onClick={() => delCF("obligations", i)} title="Remove row" style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
                     {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
                   </div>
