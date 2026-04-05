@@ -117,11 +117,99 @@ const DEFAULT = {
   ],
 
   properties: [
-    { id:1, name:"27 Roytec Rd.",     status:"STRONG", purchase:750000,  market:2000000, mortgage:728135,  monthlyPayment:3200,  monthlyTax:0,    rentalIncome:6000, tenant:"", lender:"TD Bank",        rate:"6.0%",   rateType:"Variable / Floating",   maturity:"TBC",      notes:"Crown jewel. $1.27M unrealized gain." },
-    { id:2, name:"3705 Farr Ave.",    status:"STRONG", purchase:250000,  market:1200000, mortgage:0,       monthlyPayment:0,     monthlyTax:0,    rentalIncome:0, tenant:"", lender:"None",           rate:"N/A",    rateType:"Mortgage-free",          maturity:"N/A",      notes:"Fully mortgage-free. Pure equity." },
-    { id:3, name:"121 Milky Way",     status:"WATCH",  purchase:3079729, market:2850000, mortgage:1824726, monthlyPayment:15013, monthlyTax:905,  rentalIncome:0, tenant:"", lender:"Equitable Bank", rate:"7.95%",  rateType:"12 Month Fixed Open",   maturity:"Dec 2026", notes:"Fixed Open — can refinance without penalty." },
-    { id:4, name:"51 Ahchie Crt.",    status:"RISK",   purchase:2119105, market:1750000, mortgage:1523326, monthlyPayment:9339,  monthlyTax:1235, rentalIncome:0, tenant:"", lender:"Equitable Bank", rate:"P+0.14%",rateType:"36 Month ARM Closed",   maturity:"Mar 2029", notes:"Variable rate ARM. Market significantly below purchase." },
-    { id:5, name:"4 New Seabury Dr.", status:"WATCH",  purchase:349000,  market:958800,  mortgage:894769,  monthlyPayment:5979,  monthlyTax:374,  rentalIncome:3900, tenant:"", lender:"Equitable Bank", rate:"5.94%",  rateType:"60 Month Fixed Closed", maturity:"Dec 2029", notes:"Locked in at 5.94%. Thin equity margin." },
+    {
+      id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial",
+      purchase:750000, market:2000000, mortgage:728134, original_balance:0,
+      interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
+      maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
+      monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0,
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:6000, rental_market_monthly:6000,
+      occupancy_status:"partially_leased",
+      tenant_summary:"8A: Nes Bakery Inc. ($6,000/mo) · 8B: 3 rooms vacant",
+      vacancy_notes:"Section 8B fully vacant. 3 rooms available.",
+      sections:[
+        { id:"8A",   label:"Section 8A",  tenant:"Nes Bakery Inc.", rent:6000, status:"leased" },
+        { id:"8B-1", label:"8B – Room 1", tenant:"",                rent:0,    status:"vacant" },
+        { id:"8B-2", label:"8B – Room 2", tenant:"",                rent:0,    status:"vacant" },
+        { id:"8B-3", label:"8B – Room 3", tenant:"",                rent:0,    status:"vacant" },
+      ],
+      covenant_notes:"DSCR ≥ 1.25× inception · ≥ 1.20× renewal · Min. vacancy factor 5% · Min. mgmt fee 5% · Business interruption ins. ≥ 12 months rent · Fire ins. ≥ $750K · Liability ≥ $2M · Arrangement fee $3,000 · Annual renewal fee $1,000",
+      lender:"TD Bank",
+      notes:"Borrower: PRIMA Centre for Mental Health and Wellness Inc. Floating — 6.25% is a scenario (prime 4.45% + 1.80%). Balance $728,134 confirmed April 1, 2026.",
+    },
+    {
+      id:2, name:"3705 Farr Ave.", status:"STRONG", property_type:"vacant_land",
+      purchase:250000, market:1200000, mortgage:0, original_balance:0,
+      interest_rate:0, rate:"N/A", rateType:"Mortgage-free",
+      maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
+      monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0,
+      tax_notice_outstanding:810.86, tax_notice_penalty:18.91, tax_notice_next_installment:561.61, tax_notice_next_due:"2025-09-29",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:0, rental_market_monthly:0,
+      occupancy_status:"vacant_land",
+      tenant_summary:"", vacancy_notes:"Vacant land. No current use.",
+      sections:[], covenant_notes:"",
+      lender:"None",
+      notes:"Fully mortgage-free. Annual property tax pending full bill — current notice snapshot only.",
+    },
+    {
+      id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
+      purchase:3079729, market:2850000, mortgage:1824726, original_balance:2000000,
+      interest_rate:7.95, rate:"7.95%", rateType:"12 Month Fixed Open",
+      maturity:"Dec 2026", remaining_amortization_months:285, taxes_paid_by:"lender",
+      monthlyPayment:15013, monthly_pi:14108, monthly_payment_tax:905,
+      tax_account_balance:2362, monthlyTax:905, annual_property_tax_estimate:10863,
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:0, rental_market_monthly:0,
+      occupancy_status:"owner_occupied",
+      tenant_summary:"Owner-resided by family", vacancy_notes:"",
+      sections:[], covenant_notes:"",
+      lender:"Equitable Bank",
+      notes:"Fixed Open — refinanceable without penalty. Tax escrowed by lender. Fee balance: $160.",
+    },
+    {
+      id:4, name:"51 Ahchie Crt.", status:"RISK", property_type:"residential",
+      purchase:2119105, market:1750000, mortgage:1523326, original_balance:1553670,
+      interest_rate:5.24, rate:"5.24%", rateType:"36 Month ARM Closed",
+      maturity:"Apr 2026", remaining_amortization_months:336, taxes_paid_by:"lender",
+      monthlyPayment:9837, monthly_pi:8601, monthly_payment_tax:1235,
+      tax_account_balance:21603, monthlyTax:1235, annual_property_tax_estimate:14820,
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:0, rental_market_monthly:0,
+      occupancy_status:"vacant",
+      tenant_summary:"", vacancy_notes:"Currently vacant. Seeking tenant.",
+      sections:[], covenant_notes:"",
+      lender:"Equitable Bank",
+      notes:"ARM matured April 2026 — renewal due immediately. Market $369K below purchase. Tax account $21,603 — review with lender. Fee balance: $430.",
+    },
+    {
+      id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
+      purchase:349000, market:958800, mortgage:894769, original_balance:960000,
+      interest_rate:5.94, rate:"5.94%", rateType:"60 Month Fixed Closed",
+      maturity:"Dec 2029", remaining_amortization_months:311, taxes_paid_by:"lender",
+      monthlyPayment:5979, monthly_pi:5605, monthly_payment_tax:374,
+      tax_account_balance:1458, monthlyTax:374, annual_property_tax_estimate:4484,
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:3900, rental_market_monthly:3900,
+      occupancy_status:"lease_signed_pending_possession",
+      tenant_summary:"Lease signed. Possession: April 20, 2026.",
+      vacancy_notes:"Currently vacant. Rent collection begins at possession.",
+      sections:[], covenant_notes:"",
+      lender:"Equitable Bank",
+      notes:"Fixed 5.94%. Fee balance: $550. Tax escrowed by lender. Original balance $960K — minimal principal reduction.",
+    },
   ],
 
   cashflow: {
@@ -134,9 +222,9 @@ const DEFAULT = {
     ],
     obligations: [
       { label:"121 Milky Way mortgage",  amount:15013, note:"7.95% · Equitable · Dec 2026" },
-      { label:"51 Ahchie Crt. mortgage", amount:9339,  note:"P+0.14% · Equitable · Mar 2029" },
+      { label:"51 Ahchie Crt. mortgage", amount:9837,  note:"5.24% · Equitable · renewal due Apr 2026" },
       { label:"4 New Seabury mortgage",  amount:5979,  note:"5.94% · Equitable · Dec 2029" },
-      { label:"27 Roytec Rd. mortgage",  amount:3200,  note:"~6.0% · TD Bank" },
+      { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · amount pending confirmation" },
       { label:"TD Line of Credit",       amount:900,   note:"Interest on $91,793" },
       { label:"Student debt",            amount:350,   note:"Monthly est." },
       { label:"Family support",          amount:8000,  note:"Monthly avg" },
@@ -164,6 +252,23 @@ function mergeById(defaults, dbArr) {
     const db = (dbArr || []).find(x => x.id === def.id) || {};
     return { ...def, ...db };
   });
+}
+
+// ─── PROPERTY HELPERS ─────────────────────────────────────────────────────────
+// Returns the rent currently being collected based on occupancy status
+function propEffectiveRent(prop) {
+  const secs = prop.sections || [];
+  const st   = prop.occupancy_status;
+  if (!st || st === "vacant" || st === "vacant_land" || st === "owner_occupied" || st === "lease_signed_pending_possession") return 0;
+  if (st === "partially_leased" && secs.length) return secs.filter(s => s.status === "leased").reduce((sum, s) => sum + safe(s.rent), 0);
+  return safe(prop.rentalIncome);
+}
+// Returns total monthly cash outflows for a property
+function propMonthlyOut(prop) {
+  const taxOut = prop.taxes_paid_by === "lender" ? 0 : safe(prop.monthlyTax);
+  return safe(prop.monthlyPayment) + taxOut + safe(prop.monthly_insurance) +
+    safe(prop.management_fee_monthly) + safe(prop.maintenance_reserve_monthly) +
+    safe(prop.utilities_monthly) + safe(prop.capex_reserve_monthly);
 }
 
 // ─── AUTH / PROFILE HELPERS ───────────────────────────────────────────────────
@@ -241,6 +346,18 @@ function StatusPill({ status }) {
   const map = { STRONG: { bg: C.greenLight, color: C.greenText, label: "Strong" }, WATCH: { bg: C.amberLight, color: C.amber, label: "Watch" }, RISK: { bg: C.redLight, color: C.redText, label: "Risk" } };
   const s = map[status] || map.WATCH;
   return <span style={{ background: s.bg, color: s.color, borderRadius: 20, fontSize: 10, fontWeight: 700, padding: "3px 10px", letterSpacing: "0.05em" }}>{s.label}</span>;
+}
+function OccupancyBadge({ status }) {
+  const map = {
+    owner_occupied:                  { label: "Owner Occupied",   color: C.blue,    bg: C.blueLight  },
+    leased:                          { label: "Leased",           color: C.green,   bg: C.greenLight },
+    vacant:                          { label: "Vacant",           color: C.red,     bg: C.redLight   },
+    partially_leased:                { label: "Partial Lease",    color: C.amber,   bg: C.amberLight },
+    vacant_land:                     { label: "Vacant Land",      color: C.textDim, bg: C.border     },
+    lease_signed_pending_possession: { label: "Lease Signed",     color: C.amber,   bg: C.amberLight },
+  };
+  const s = map[status] || { label: status || "—", color: C.textDim, bg: C.bg };
+  return <span style={{ background: s.bg, color: s.color, borderRadius: 20, fontSize: 10, fontWeight: 700, padding: "3px 10px", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{s.label}</span>;
 }
 function EditNum({ value, onChange, locked }) {
   const [editing, setEditing] = useState(false);
@@ -709,88 +826,241 @@ function MemberView({ user, data, onUpdate, onLogout }) {
 function PropCard({ prop, onUpdate, isAdmin }) {
   const [open, setOpen] = useState(false);
   const market       = safe(prop.market);
-  const mortgage     = safe(prop.mortgage);
-  const rawEquity    = market - mortgage;
+  const balance      = safe(prop.mortgage);
+  const rawEquity    = market - balance;
   const sellingCosts = (market * 0.035 * 1.13) + 1500;
   const netEquity    = rawEquity - sellingCosts;
-  const ltv          = mortgage > 0 ? ((mortgage / market) * 100).toFixed(1) : "0";
-  const cf           = safe(prop.rentalIncome) - safe(prop.monthlyPayment) - safe(prop.monthlyTax);
+  const ltv          = balance > 0 && market > 0 ? (balance / market * 100) : 0;
   const eqColor      = rawEquity > 500000 ? C.gold : rawEquity > 0 ? C.amber : C.red;
+  const sections     = prop.sections || [];
+  const effectiveRent = propEffectiveRent(prop);
+  const totalOut      = propMonthlyOut(prop);
+  const monthlyNCF    = effectiveRent - totalOut;
+
+  function updSection(secId, field, val) {
+    const updated = sections.map(s => s.id === secId ? { ...s, [field]: field === "rent" ? safe(val) : val } : s);
+    onUpdate("sections", updated);
+  }
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? C.gold : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10, transition: "border-color 0.15s" }}>
-      <div onClick={() => setOpen(o => !o)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+
+      {/* ── HEADER ── */}
+      <div onClick={() => setOpen(o => !o)} style={{ padding: "14px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
           <StatusPill status={prop.status} />
+          <OccupancyBadge status={prop.occupancy_status} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prop.name}</div>
-            <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{prop.lender} · {prop.rate}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{prop.name}</div>
+            <div style={{ fontSize: 11, color: C.textDim, marginTop: 1 }}>{prop.lender} · {prop.rate}</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Equity</div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Gross equity</div>
             <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: eqColor }}>{$K(rawEquity)}</div>
           </div>
           <span style={{ color: open ? C.gold : C.textDim, fontSize: 12 }}>{open ? "▲" : "▼"}</span>
         </div>
       </div>
 
+      {/* ── EXPANDED PANEL ── */}
       {open && (
-        <div style={{ borderTop: `1px solid ${C.border}`, padding: 20 }}>
-          {prop.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{prop.notes}</div>}
+        <div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 20 }}>
-            <div>
-              <Label>Valuation</Label>
-              <Row label="Purchase price"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 14 }}>{$F(prop.purchase)}</span></Row>
-              <Row label="Market value"><EditNum value={market} onChange={v => onUpdate("market", v)} locked={!isAdmin} /></Row>
-              <Row label="Mortgage balance"><EditNum value={mortgage} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
-              <Row label="Raw equity"><span style={{ color: eqColor, fontWeight: 700, fontFamily: C.mono, fontSize: 14 }}>{$F(rawEquity)}</span></Row>
-              <Row label="Est. net if sold today" last={false}>
-                <span style={{ color: netEquity > 0 ? C.green : C.red, fontFamily: C.mono, fontSize: 13 }} title="3.5% realtor + HST + $1,500 legal">{$F(netEquity)}</span>
-              </Row>
-              <Row label="LTV ratio" last>
-                <span style={{ color: parseFloat(ltv) > 80 ? C.red : parseFloat(ltv) > 65 ? C.amber : C.green, fontFamily: C.mono, fontWeight: 600, fontSize: 14 }}>{ltv}%</span>
-              </Row>
-            </div>
-            <div>
-              <Label>Mortgage</Label>
-              <Row label="Lender"><span style={{ color: C.text, fontSize: 13 }}>{prop.lender}</span></Row>
-              <Row label="Rate"><span style={{ color: C.amber, fontFamily: C.mono }}>{prop.rate}</span></Row>
-              <Row label="Type"><span style={{ color: C.text, fontSize: 12 }}>{prop.rateType}</span></Row>
-              <Row label="Maturity">
-                {isAdmin
-                  ? <EditText value={prop.maturity} onChange={v => onUpdate("maturity", v)} placeholder="e.g. Dec 2026" />
-                  : <span style={{ color: C.text, fontFamily: C.mono, fontSize: 13 }}>{prop.maturity}</span>}
-              </Row>
-              <Row label="Monthly P+I"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-              <Row label="Monthly tax" last><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <Label>Rental</Label>
-            <Row label="Monthly rent"><EditNum value={safe(prop.rentalIncome)} onChange={v => onUpdate("rentalIncome", v)} locked={!isAdmin} /></Row>
-            <Row label="Tenant" last>
-              {isAdmin
-                ? <EditText value={prop.tenant} onChange={v => onUpdate("tenant", v)} placeholder="Tenant name" />
-                : <span style={{ color: C.text, fontSize: 13 }}>{prop.tenant || "—"}</span>}
-            </Row>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10, marginTop: 16 }}>
-            {[
-              { label: "Annual mortgage", val: $F(safe(prop.monthlyPayment) * 12), color: C.red,   bg: C.redLight   },
-              { label: "Annual rental",   val: $F(safe(prop.rentalIncome) * 12),   color: C.green, bg: C.greenLight },
-              { label: "Annual net",      val: $F(cf * 12), color: cf >= 0 ? C.green : C.red, bg: cf >= 0 ? C.greenLight : C.redLight },
-            ].map((chip, i) => (
-              <div key={i} style={{ background: chip.bg, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{chip.label}</div>
-                <div style={{ fontSize: 14, fontFamily: C.mono, fontWeight: 700, color: chip.color }}>{chip.val}</div>
+          {/* MORTGAGE */}
+          <div style={{ padding: "16px 20px 14px", borderTop: `1px solid ${C.border}` }}>
+            <Label>Mortgage</Label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
+              <div>
+                <Row label="Lender"><span style={{ color: C.text, fontSize: 13 }}>{prop.lender}</span></Row>
+                <Row label="Current balance"><EditNum value={balance} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
+                {safe(prop.original_balance) > 0 && (
+                  <Row label="Original balance"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 13 }}>{$F(safe(prop.original_balance))}</span></Row>
+                )}
+                <Row label="Interest rate"><span style={{ color: C.amber, fontFamily: C.mono, fontSize: 14 }}>{prop.rate}</span></Row>
+                <Row label="Rate type"><span style={{ color: C.text, fontSize: 12 }}>{prop.rateType}</span></Row>
+                <Row label="Maturity">
+                  {isAdmin
+                    ? <EditText value={prop.maturity} onChange={v => onUpdate("maturity", v)} placeholder="e.g. Dec 2026" />
+                    : <span style={{ color: C.text, fontFamily: C.mono, fontSize: 13 }}>{prop.maturity}</span>}
+                </Row>
+                {safe(prop.remaining_amortization_months) > 0 && (
+                  <Row label="Remaining amort." last>
+                    <span style={{ color: C.textMid, fontSize: 13 }}>{safe(prop.remaining_amortization_months)} months</span>
+                  </Row>
+                )}
               </div>
-            ))}
+              <div>
+                <Label>Monthly payment</Label>
+                <Row label="Total"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                {safe(prop.monthly_pi) > 0 && <Row label="↳ Principal + interest"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 13 }}>{$F(safe(prop.monthly_pi))}</span></Row>}
+                {safe(prop.monthly_payment_tax) > 0 && <Row label="↳ Tax escrow"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 13 }}>{$F(safe(prop.monthly_payment_tax))}</span></Row>}
+                <Row label="Taxes paid by" last>
+                  <span style={{ fontSize: 12, color: C.text }}>{prop.taxes_paid_by === "lender" ? "Lender (escrowed)" : "Owner (separate)"}</span>
+                </Row>
+              </div>
+            </div>
           </div>
+
+          {/* OCCUPANCY & INCOME */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <Label>Occupancy & Income</Label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              <OccupancyBadge status={prop.occupancy_status} />
+              {prop.tenant_summary && <span style={{ fontSize: 11, color: C.textMid }}>{prop.tenant_summary}</span>}
+            </div>
+            {prop.vacancy_notes && <div style={{ fontSize: 11, color: C.textDim, marginBottom: 10 }}>{prop.vacancy_notes}</div>}
+
+            {/* Commercial sections (Roytec) */}
+            {sections.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 80px", gap: "4px 8px", padding: "0 0 6px", borderBottom: `1px solid ${C.border}`, fontSize: 9, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  <span>Unit</span><span>Tenant</span><span>Rent / mo</span><span>Status</span>
+                </div>
+                {sections.map(sec => (
+                  <div key={sec.id} style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 80px", gap: "4px 8px", padding: "8px 0", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{sec.label}</span>
+                    <span>
+                      {isAdmin
+                        ? <EditText value={sec.tenant} onChange={v => updSection(sec.id, "tenant", v)} placeholder="Tenant name" />
+                        : <span style={{ color: sec.tenant ? C.text : C.textDim, fontSize: 13 }}>{sec.tenant || "—"}</span>}
+                    </span>
+                    <span>
+                      {isAdmin
+                        ? <EditNum value={safe(sec.rent)} onChange={v => updSection(sec.id, "rent", v)} />
+                        : <span style={{ fontFamily: C.mono, fontSize: 13 }}>{$F(safe(sec.rent))}</span>}
+                    </span>
+                    <span style={{ background: sec.status === "leased" ? C.greenLight : C.redLight, color: sec.status === "leased" ? C.greenText : C.redText, borderRadius: 12, fontSize: 9, fontWeight: 700, padding: "2px 8px", textAlign: "center", display: "inline-block" }}>
+                      {sec.status === "leased" ? "Leased" : "Vacant"}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0" }}>
+                  <span style={{ fontSize: 13, color: C.textMid, fontWeight: 600 }}>Occupied income</span>
+                  <span style={{ fontFamily: C.mono, fontWeight: 700, color: C.green, fontSize: 15 }}>{$F(effectiveRent)}/mo</span>
+                </div>
+              </div>
+            )}
+
+            {/* Standard residential income */}
+            {sections.length === 0 && (
+              <div>
+                <Row label="Monthly rent (agreed)"><EditNum value={safe(prop.rentalIncome)} onChange={v => onUpdate("rentalIncome", v)} locked={!isAdmin} /></Row>
+                <Row label="Currently collecting">
+                  <span style={{ fontFamily: C.mono, fontSize: 14, color: effectiveRent > 0 ? C.green : C.textDim, fontWeight: 600 }}>
+                    {$F(effectiveRent)}{effectiveRent === 0 && safe(prop.rentalIncome) > 0 ? " (not yet)" : ""}
+                  </span>
+                </Row>
+                {isAdmin && (
+                  <Row label="Market rent (est.)" last>
+                    <EditNum value={safe(prop.rental_market_monthly)} onChange={v => onUpdate("rental_market_monthly", v)} />
+                  </Row>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* OPERATING EXPENSES */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <Label>Monthly Operating Expenses</Label>
+            <Row label="Mortgage payment (total)"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+            {prop.taxes_paid_by !== "lender" && (
+              <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>
+            )}
+            <Row label="Insurance / month (estimate)"><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
+            <Row label="Management fee"><EditNum value={safe(prop.management_fee_monthly)} onChange={v => onUpdate("management_fee_monthly", v)} locked={!isAdmin} /></Row>
+            <Row label="Maintenance reserve"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
+            <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
+            <Row label="CapEx reserve" last><EditNum value={safe(prop.capex_reserve_monthly)} onChange={v => onUpdate("capex_reserve_monthly", v)} locked={!isAdmin} /></Row>
+            <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 2, borderTop: `2px solid ${C.border}` }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Total out / month</span>
+              <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: C.red }}>{$F(totalOut)}</span>
+            </div>
+          </div>
+
+          {/* CASH FLOW SUMMARY */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <Label>Cash Flow</Label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+              {[
+                { label: "Rent agreed",    val: $F(safe(prop.rentalIncome)),                                                  color: C.textMid,                              bg: C.bg         },
+                { label: "Collecting now", val: $F(effectiveRent),                                                             color: effectiveRent > 0 ? C.green : C.textDim, bg: effectiveRent > 0 ? C.greenLight : C.bg },
+                { label: "Total outflows", val: $F(totalOut),                                                                   color: C.red,                                  bg: C.redLight   },
+                { label: "Net / month",    val: `${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF)}`,                              color: monthlyNCF >= 0 ? C.green : C.red,       bg: monthlyNCF >= 0 ? C.greenLight : C.redLight },
+                { label: "Net / year",     val: `${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF * 12)}`,                        color: monthlyNCF >= 0 ? C.green : C.red,       bg: monthlyNCF >= 0 ? C.greenLight : C.redLight },
+              ].map((chip, i) => (
+                <div key={i} style={{ background: chip.bg, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{chip.label}</div>
+                  <div style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: chip.color }}>{chip.val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* EQUITY & LEVERAGE */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <Label>Equity & Leverage</Label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
+              <div>
+                <Row label="Purchase price"><span style={{ color: C.textMid, fontFamily: C.mono, fontSize: 14 }}>{$F(prop.purchase)}</span></Row>
+                <Row label="Market value"><EditNum value={market} onChange={v => onUpdate("market", v)} locked={!isAdmin} /></Row>
+                <Row label="Mortgage balance"><EditNum value={balance} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
+                <Row label="Gross equity"><span style={{ color: eqColor, fontWeight: 700, fontFamily: C.mono, fontSize: 14 }}>{$F(rawEquity)}</span></Row>
+                <Row label="Est. net if sold today" last>
+                  <span style={{ color: netEquity > 0 ? C.green : C.red, fontFamily: C.mono, fontSize: 13 }} title="3.5% realtor + HST + $1,500 legal">{$F(netEquity)}</span>
+                </Row>
+              </div>
+              <div>
+                <Row label="LTV">
+                  <span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily: C.mono, fontWeight: 600, fontSize: 14 }}>{ltv.toFixed(1)}%</span>
+                </Row>
+                {safe(prop.tax_account_balance) > 0 && (
+                  <Row label="Tax account (lender)"><span style={{ fontFamily: C.mono, color: C.textMid, fontSize: 13 }}>{$F(safe(prop.tax_account_balance))}</span></Row>
+                )}
+                {safe(prop.annual_property_tax_estimate) > 0 && (
+                  <Row label="Annual tax (est.)">
+                    {isAdmin
+                      ? <EditNum value={safe(prop.annual_property_tax_estimate)} onChange={v => onUpdate("annual_property_tax_estimate", v)} />
+                      : <span style={{ fontFamily: C.mono, fontSize: 13 }}>{$F(safe(prop.annual_property_tax_estimate))}</span>}
+                  </Row>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* TAX NOTICE SNAPSHOT (Farr only) */}
+          {safe(prop.tax_notice_outstanding) > 0 && (
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+              <Label color={C.amber}>Tax Notice Snapshot</Label>
+              <div style={{ background: C.amberLight, borderRadius: 8, padding: "10px 14px", fontSize: 11, color: C.amber, marginBottom: 10, lineHeight: 1.7 }}>
+                Partial notice only — annual tax not confirmed. Keep editable until full bill is reviewed.
+              </div>
+              <Row label="Current outstanding"><span style={{ fontFamily: C.mono, color: C.amber, fontSize: 14 }}>{$F(safe(prop.tax_notice_outstanding))}</span></Row>
+              <Row label="Penalty & interest"><span style={{ fontFamily: C.mono, color: C.red, fontSize: 13 }}>{$F(safe(prop.tax_notice_penalty))}</span></Row>
+              {safe(prop.tax_notice_next_installment) > 0 && (
+                <Row label={`Next installment${prop.tax_notice_next_due ? " (due " + prop.tax_notice_next_due + ")" : ""}`} last>
+                  <span style={{ fontFamily: C.mono, color: C.text, fontSize: 13 }}>{$F(safe(prop.tax_notice_next_installment))}</span>
+                </Row>
+              )}
+            </div>
+          )}
+
+          {/* LOAN COVENANTS */}
+          {prop.covenant_notes && (
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+              <Label color={C.blue}>Loan Covenants</Label>
+              <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.8, background: C.blueLight, borderRadius: 8, padding: "12px 14px" }}>{prop.covenant_notes}</div>
+            </div>
+          )}
+
+          {/* NOTES */}
+          {prop.notes && (
+            <div style={{ padding: "10px 20px 18px", borderTop: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", lineHeight: 1.6 }}>{prop.notes}</div>
+            </div>
+          )}
+
         </div>
       )}
     </div>
@@ -894,14 +1164,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalIn    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
   const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
   const gap        = totalIn - totalOut;
-  const totalMtg   = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
+  const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
+  const totalREIncome = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
+  const totalREOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+  const totalRENCF    = totalREIncome - totalREOut;
   const aj         = data.individuals.find(f => f.id === 1);
   const cashStale  = safe(aj?.cash) === 0;
 
   // ── Update helpers ──
   function updProp(id, f, v) {
-    const isText = f === "maturity" || f === "tenant";
-    const arr = data.properties.map(p => p.id === id ? { ...p, [f]: isText ? v : safe(v) } : p);
+    const val = Array.isArray(v) || typeof v === "string" ? v : safe(v);
+    const arr = data.properties.map(p => p.id === id ? { ...p, [f]: val } : p);
     saveToDB("properties", arr); setData(d => ({ ...d, properties: arr })); showSaved();
   }
   function updInd(id, f, v) {
@@ -1059,7 +1332,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       onMouseEnter={e => e.currentTarget.style.borderColor = C.gold}
                       onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 6 }}>{p.name}</div>
-                      <StatusPill status={p.status} />
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        <StatusPill status={p.status} />
+                        <OccupancyBadge status={p.occupancy_status} />
+                      </div>
                       <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, marginTop: 10, color: eq > 500000 ? C.gold : eq > 0 ? C.amber : C.red }}>{$K(eq)}</div>
                       <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>{p.rate}</div>
                     </div>
@@ -1111,10 +1387,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Portfolio Value",  val: $K(totalREVal), color: C.text },
-                { label: "Total Debt",       val: $K(totalREDbt), color: C.red  },
-                { label: "Total Equity",     val: $K(totalREEq),  color: C.gold },
-                { label: "Monthly Payments", val: $K(totalMtg),   color: C.red  },
+                { label: "Portfolio Value",  val: $K(totalREVal),    color: C.text  },
+                { label: "Total Debt",       val: $K(totalREDbt),    color: C.red   },
+                { label: "Total RE Equity",  val: $K(totalREEq),     color: C.gold  },
+                { label: "Monthly Payments", val: $K(totalMtg),      color: C.red   },
+                { label: "RE Cash Flow",     val: $K(totalRENCF),    color: totalRENCF >= 0 ? C.green : C.red },
               ].map((s, i) => (
                 <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
                   <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
