@@ -119,7 +119,7 @@ const DEFAULT = {
   properties: [
     {
       id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial",
-      purchase:750000, market:2000000, mortgage:728134, original_balance:0,
+      purchase:1020000, market:2000000, mortgage:728134, original_balance:0, ownership:1,
       interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
       maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
       monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
@@ -155,8 +155,9 @@ const DEFAULT = {
       occupancy_status:"vacant_land",
       tenant_summary:"", vacancy_notes:"Vacant land. No current use.",
       sections:[], covenant_notes:"",
+      ownership:0.5, co_owner:"Jamal (50%)",
       lender:"None",
-      notes:"Fully mortgage-free. Annual property tax pending full bill — current notice snapshot only.",
+      notes:"Fully mortgage-free. JMF 50% share — co-owned with Jamal. Annual property tax pending full bill.",
     },
     {
       id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
