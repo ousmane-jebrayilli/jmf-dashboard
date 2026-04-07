@@ -102,11 +102,11 @@ const DEFAULT = {
   lastUpdated: "April 1, 2026",
 
   individuals: [
-    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:-143474, securities:46610, crypto:1466, physicalAssets:0 },
-    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0,       securities:39939, crypto:0,    physicalAssets:0 },
-    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0,       securities:0,     crypto:0,    physicalAssets:0 },
-    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0,       securities:0,     crypto:0,    physicalAssets:0 },
-    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:-3014,   securities:0,     crypto:0,    physicalAssets:0 },
+    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0 },
+    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0 },
+    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0 },
+    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0 },
+    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0 },
   ],
 
   businesses: [
@@ -398,10 +398,10 @@ function EditText({ value, onChange, placeholder }) {
     </span>
   );
 }
-function Row({ label, children, last }) {
+function Row({ label, children, last, labelStyle }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: last ? "none" : `1px solid ${C.border}` }}>
-      <span style={{ fontSize: 13, color: C.textMid }}>{label}</span>
+      <span style={{ fontSize: 13, color: C.textMid, ...labelStyle }}>{label}</span>
       <span>{children}</span>
     </div>
   );
@@ -687,7 +687,7 @@ function MemberView({ user, data, onUpdate, onLogout }) {
   const f = data.individuals.find(x => x.id === individualId);
   if (!f) return <LoadingScreen />;
 
-  const net        = safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+  const net        = safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
   const isPositive = net >= 0;
   const cashStale  = isAhmed && safe(f.cash) === 0;
 
@@ -1146,10 +1146,10 @@ function BizCard({ biz, onUpdate, isAdmin }) {
               </div>
               <div>
                 <Label>Liabilities</Label>
-                <Row label="Total liabilities"><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.liabilities))}</span></Row>
+                <Row label="Total liabilities" labelStyle={{ fontWeight: 700, color: C.text }}><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.liabilities))}</span></Row>
                 <Row label="CRA tax payable"><EditNum value={safe(biz.taxPayable)} onChange={v => onUpdate("taxPayable", v)} locked={!isAdmin} /></Row>
                 <Row label="Credit cards"><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.creditCards))}</span></Row>
-                <Row label="Net equity" last><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
+                <Row label="Net equity" last labelStyle={{ fontWeight: 700, background: C.gold, color: "#FFF", borderRadius: 4, padding: "2px 8px" }}><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
               </div>
             </div>
           )}
@@ -1178,14 +1178,19 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }, [tab]);
 
   // ── Derived totals (ASWC excluded from business equity) ──
-  const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.debt) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+  const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
   const totalREEqGross = data.properties.reduce((s, p) => s + propGrossEquity(p), 0);
-  const totalREEq      = data.properties.reduce((s, p) => s + propJMFEquity(p), 0); // JMF-attributable
+  const totalREEq      = data.properties.reduce((s, p) => s + propJMFEquity(p), 0); // JMF-attributable gross equity
+  const totalRENetSale = data.properties.reduce((s, p) => {
+    const mkt = safe(p.market);
+    const selling = (mkt * 0.035 * 1.13) + 1500;
+    return s + ((mkt - safe(p.mortgage) - selling) * propOwnership(p));
+  }, 0); // JMF net proceeds if all RE sold
   const totalREVal     = data.properties.reduce((s, p) => s + safe(p.market), 0);
   const totalREDbt     = data.properties.reduce((s, p) => s + safe(p.mortgage), 0);
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
-  const totalNW    = totalREEq + totalPers + totalBiz;
+  const totalNW    = totalRENetSale + totalPers + totalBiz;
   const totalIn    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
   const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
   const gap        = totalIn - totalOut;
@@ -1457,7 +1462,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   </div>
                   {[
                     { l: "Accounts",        fi: "accounts"       },
-                    { l: "Personal Debt",   fi: "debt"           },
                     { l: "Cash / Vault",    fi: "cash"           },
                     { l: "Securities",      fi: "securities"     },
                     { l: "Crypto",          fi: "crypto"         },
