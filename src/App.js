@@ -97,6 +97,28 @@ const $K = (n) => {
 const $F = (n, d = 0) =>
   new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: d }).format(safe(n));
 
+// ─── TIME HELPERS ─────────────────────────────────────────────────────────────
+const SYSTEM_START = "2026-04"; // April 2026 — first tracking month
+function currentYM() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function monthsBetween(startYM, endYM) {
+  const months = [];
+  let [sy, sm] = startYM.split("-").map(Number);
+  const [ey, em] = endYM.split("-").map(Number);
+  while (sy < ey || (sy === ey && sm <= em)) {
+    months.push(`${sy}-${String(sm).padStart(2, "0")}`);
+    sm++; if (sm > 12) { sm = 1; sy++; }
+  }
+  return months;
+}
+function monthLabel(ym) {
+  if (!ym) return "";
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-CA", { month: "short", year: "numeric" });
+}
+
 // ─── DEFAULT DATA — April 1, 2026 ─────────────────────────────────────────────
 const DEFAULT = {
   lastUpdated: "April 1, 2026",
@@ -110,10 +132,10 @@ const DEFAULT = {
   ],
 
   businesses: [
-    { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
-    { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
-    { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
-    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
+    { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, monthlyProfits:[], notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
+    { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
+    { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, monthlyProfits:[], notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
+    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
   ],
 
   properties: [
@@ -186,10 +208,14 @@ const DEFAULT = {
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
-      rentalIncome:0, rental_market_monthly:0,
-      occupancy_status:"vacant",
-      tenant_summary:"", vacancy_notes:"Currently vacant. Seeking tenant.",
-      sections:[], covenant_notes:"",
+      rentalIncome:3300, rental_market_monthly:3300,
+      occupancy_status:"partially_leased",
+      tenant_summary:"Upper level: $3,300/mo (leased) · Lower level: vacant",
+      vacancy_notes:"Lower level vacant. Upper level lease commenced April 2026.",
+      sections:[
+        { id:"upper", label:"Upper Level", tenant:"", rent:3300, status:"leased" },
+        { id:"lower", label:"Lower Level", tenant:"", rent:0,    status:"vacant" },
+      ], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"ARM matured April 2026 — renewal due immediately. Market $369K below purchase. Tax account $21,603 — review with lender. Fee balance: $430.",
     },
@@ -216,11 +242,7 @@ const DEFAULT = {
 
   cashflow: {
     income: [
-      { label:"Kratos Moving Inc.", amount:0, note:"Add monthly net profit" },
-      { label:"JMF Logistics Inc.", amount:0, note:"Add monthly net profit" },
-      { label:"PRIMA",              amount:0, note:"Add monthly net profit" },
-      { label:"Rental income",      amount:0, note:"" },
-      { label:"Other income",       amount:0, note:"" },
+      { label:"Other income", amount:0, note:"" },
     ],
     obligations: [
       { label:"121 Milky Way mortgage",  amount:15013, note:"7.95% · Equitable · Dec 2026" },
@@ -229,6 +251,8 @@ const DEFAULT = {
       { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · pending" },
     ],
   },
+
+  rentPayments: [], // { propertyId, month:"YYYY-MM", received, note }
 };
 
 // ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
@@ -274,6 +298,13 @@ function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && 
 function propGrossEquity(prop) { return safe(prop.market) - safe(prop.mortgage); }
 // JMF-attributable equity (gross × ownership share)
 function propJMFEquity(prop) { return propGrossEquity(prop) * propOwnership(prop); }
+// Expected monthly rent for ledger (shows agreed rent even pre-possession)
+function propLedgerExpected(prop) {
+  const secs = prop.sections || [];
+  if (prop.occupancy_status === "partially_leased" && secs.length)
+    return secs.filter(s => s.status === "leased").reduce((sum, s) => sum + safe(s.rent), 0);
+  return safe(prop.rentalIncome);
+}
 
 // ─── AUTH / PROFILE HELPERS ───────────────────────────────────────────────────
 async function fetchProfile(userId) {
@@ -438,6 +469,89 @@ function CashModal({ current, onSave, onClose }) {
           <button onClick={onClose} style={{ flex: 1, padding: "12px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textMid, fontSize: 14, cursor: "pointer" }}>Cancel</button>
         </div>
         <div style={{ fontSize: 11, color: C.textDim, marginTop: 14, textAlign: "center" }}>Last recorded: $34,770 (March 2026)</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RENT LOG MODAL ───────────────────────────────────────────────────────────
+function RentLogModal({ propertyName, month, current, onSave, onClose }) {
+  const [received, setReceived] = useState(safe(current?.received));
+  const [note, setNote]         = useState(current?.note || "");
+  const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:14, fontFamily:C.mono, outline:"none", boxSizing:"border-box", marginBottom:14 };
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, width:"100%", maxWidth:360, boxShadow:"0 8px 48px rgba(0,0,0,0.14)" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Log Rent Payment</div>
+        <div style={{ fontSize:13, color:C.textDim, marginBottom:20 }}>{propertyName} · {monthLabel(month)}</div>
+        <Label>Amount received (CAD)</Label>
+        <input type="number" autoFocus value={received} onChange={e => setReceived(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { onSave(safe(received), note); onClose(); } if (e.key === "Escape") onClose(); }}
+          style={inp} />
+        <Label>Note (optional)</Label>
+        <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. e-transfer received April 15"
+          style={{ ...inp, fontFamily:C.sans, fontSize:13 }} />
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={() => { onSave(safe(received), note); onClose(); }}
+            style={{ flex:1, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer" }}>Save</button>
+          <button onClick={onClose}
+            style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer" }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REMINDER MODAL ───────────────────────────────────────────────────────────
+function ReminderModal({ missingRent, missingProfits, onDismiss, onGoToRE, onGoToBiz }) {
+  const total = missingRent.length + missingProfits.length;
+  if (total === 0) return null;
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onDismiss(); }}>
+      <div style={{ background:C.surface, border:`1.5px solid ${C.amber}`, borderRadius:16, padding:28, width:"100%", maxWidth:420, boxShadow:"0 8px 48px rgba(0,0,0,0.16)" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Monthly Entries Required</div>
+        <div style={{ fontSize:13, color:C.textDim, marginBottom:20 }}>
+          {monthLabel(currentYM())} — the following items haven't been logged yet.
+        </div>
+
+        {missingRent.length > 0 && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:8 }}>Rent Not Logged</div>
+            {missingRent.map(p => (
+              <div key={p.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                <span style={{ fontSize:13, color:C.text }}>{p.name}</span>
+                <span style={{ fontSize:13, fontFamily:C.mono, color:C.red }}>—</span>
+              </div>
+            ))}
+            <button onClick={onGoToRE}
+              style={{ marginTop:10, fontSize:12, padding:"7px 14px", background:C.goldLight, border:`1px solid ${C.gold}`, borderRadius:7, color:C.goldText, cursor:"pointer", fontWeight:600 }}>
+              Go to Real Estate →
+            </button>
+          </div>
+        )}
+
+        {missingProfits.length > 0 && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:8 }}>Net Profit Not Logged</div>
+            {missingProfits.map(b => (
+              <div key={b.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                <span style={{ fontSize:13, color:C.text }}>{b.name}</span>
+                <span style={{ fontSize:13, fontFamily:C.mono, color:C.red }}>—</span>
+              </div>
+            ))}
+            <button onClick={onGoToBiz}
+              style={{ marginTop:10, fontSize:12, padding:"7px 14px", background:C.blueLight, border:`1px solid ${C.blue}`, borderRadius:7, color:C.blueText, cursor:"pointer", fontWeight:600 }}>
+              Go to Businesses →
+            </button>
+          </div>
+        )}
+
+        <button onClick={onDismiss}
+          style={{ width:"100%", padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer", marginTop:4 }}>
+          Dismiss
+        </button>
       </div>
     </div>
   );
@@ -1092,11 +1206,10 @@ function PropCard({ prop, onUpdate, isAdmin }) {
 }
 
 // ─── BUSINESS CARD ────────────────────────────────────────────────────────────
-function BizCard({ biz, onUpdate, isAdmin }) {
+function BizCard({ biz, onUpdate, onUpdateProfit, isAdmin }) {
   const [open, setOpen] = useState(false);
   const isNonProfit = biz.type === "nonprofit";
   const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
-  const netProfit   = safe(biz.revenue) - safe(biz.expenses);
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
@@ -1136,13 +1249,27 @@ function BizCard({ biz, onUpdate, isAdmin }) {
               <Row label="Cash balance" last><span style={{ fontFamily: C.mono, color: C.purple, fontWeight: 700, fontSize: 14 }}>{$F(safe(biz.cashAccounts))}</span></Row>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
               <div>
-                <Label>Assets</Label>
+                <Label>Balance Sheet</Label>
                 <Row label="Cash & accounts"><EditNum value={safe(biz.cashAccounts)} onChange={v => onUpdate("cashAccounts", v)} locked={!isAdmin} /></Row>
-                <Row label="Monthly revenue"><EditNum value={safe(biz.revenue)} onChange={v => onUpdate("revenue", v)} locked={!isAdmin} /></Row>
-                <Row label="Monthly expenses"><EditNum value={safe(biz.expenses)} onChange={v => onUpdate("expenses", v)} locked={!isAdmin} /></Row>
-                <Row label="Net profit / mo" last><span style={{ color: netProfit >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netProfit)}</span></Row>
+
+                <div style={{ marginTop: 16 }}>
+                  <Label>Monthly Net Profit Log</Label>
+                  {monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse().map(m => {
+                    const entry  = (biz.monthlyProfits || []).find(p => p.month === m);
+                    const profit = safe(entry?.profit);
+                    return (
+                      <div key={m} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 0", borderBottom:`1px solid ${C.border}` }}>
+                        <span style={{ fontSize:12, color:C.textMid, minWidth:76 }}>{monthLabel(m)}</span>
+                        {isAdmin
+                          ? <EditNum value={profit} onChange={v => onUpdateProfit && onUpdateProfit(m, v)} />
+                          : <span style={{ fontFamily:C.mono, fontSize:13, color: entry ? (profit >= 0 ? C.gold : C.red) : C.textDim }}>{entry ? $F(profit) : "—"}</span>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div>
                 <Label>Liabilities</Label>
@@ -1167,6 +1294,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [cashModal, setCashModal]   = useState(false);
   const [pendingSubs, setPendingSubs] = useState([]);
   const [profiles, setProfiles]     = useState([]);
+  const [rentLogModal, setRentLogModal] = useState(null); // { propertyId, propertyName, month }
+  const [showReminder, setShowReminder] = useState(false);
+  const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
+  const [cfMonth, setCFMonth]       = useState(currentYM());
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
 
   useEffect(() => {
@@ -1176,6 +1307,24 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       setProfiles(profs);
     });
   }, [tab]);
+
+  // ── One-time reminder check on mount ──
+  useEffect(() => {
+    const ym = currentYM();
+    const missingRent = data.properties
+      .filter(p => ["leased", "partially_leased", "lease_signed_pending_possession"].includes(p.occupancy_status))
+      .filter(p => {
+        const entry = (data.rentPayments || []).find(r => r.propertyId === p.id && r.month === ym);
+        return !entry || safe(entry.received) === 0;
+      });
+    const missingProfits = data.businesses
+      .filter(b => b.type !== "nonprofit")
+      .filter(b => !(b.monthlyProfits || []).find(p => p.month === ym));
+    if (missingRent.length > 0 || missingProfits.length > 0) {
+      setReminderData({ missingRent, missingProfits });
+      setShowReminder(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived totals (ASWC excluded from business equity) ──
   const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
@@ -1191,7 +1340,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalNW    = totalRENetSale + totalPers + totalBiz;
-  const totalIn    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
+  // Monthly income = current-month biz profits + current-month rent collected + other
+  const curYM      = currentYM();
+  const curBizIn   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
+    const e = (b.monthlyProfits || []).find(p => p.month === curYM);
+    return s + safe(e?.profit);
+  }, 0);
+  const curRentIn  = (data.rentPayments || []).filter(r => r.month === curYM).reduce((s, r) => s + safe(r.received), 0);
+  const totalIn    = curBizIn + curRentIn + data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
   const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
   const gap        = totalIn - totalOut;
   const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
@@ -1214,6 +1370,27 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   function updBiz(id, f, v) {
     const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
+  function updBizProfit(bizId, month, profit) {
+    const arr = data.businesses.map(b => {
+      if (b.id !== bizId) return b;
+      const existing = b.monthlyProfits || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? { ...p, profit: safe(profit) } : p)
+        : [...existing, { month, profit: safe(profit) }];
+      return { ...b, monthlyProfits: updated };
+    });
+    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
+  function updRentPayment(propertyId, month, received, note) {
+    const existing = data.rentPayments || [];
+    const idx = existing.findIndex(r => r.propertyId === propertyId && r.month === month);
+    const entry = { propertyId, month, received: safe(received), note: note || "" };
+    const updated = idx >= 0
+      ? existing.map((r, i) => i === idx ? entry : r)
+      : [...existing, entry];
+    saveToDB("rentPayments", updated); setData(d => ({ ...d, rentPayments: updated })); showSaved();
   }
   function updCF(type, idx, v) {
     const a = [...data.cashflow[type]];
@@ -1258,7 +1435,24 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
-
+      {rentLogModal && (
+        <RentLogModal
+          propertyName={rentLogModal.propertyName}
+          month={rentLogModal.month}
+          current={(data.rentPayments || []).find(r => r.propertyId === rentLogModal.propertyId && r.month === rentLogModal.month)}
+          onSave={(received, note) => updRentPayment(rentLogModal.propertyId, rentLogModal.month, received, note)}
+          onClose={() => setRentLogModal(null)}
+        />
+      )}
+      {showReminder && (
+        <ReminderModal
+          missingRent={reminderData.missingRent}
+          missingProfits={reminderData.missingProfits}
+          onDismiss={() => setShowReminder(false)}
+          onGoToRE={() => { setTab("realestate"); setShowReminder(false); }}
+          onGoToBiz={() => { setTab("businesses"); setShowReminder(false); }}
+        />
+      )}
       {/* NAV */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1440,6 +1634,61 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               Click any property to expand · "Est. net if sold" deducts 3.5% realtor (HST incl.) + $1,500 legal
             </div>
             {data.properties.map(p => <PropCard key={p.id} prop={p} onUpdate={(f, v) => updProp(p.id, f, v)} isAdmin={true} />)}
+
+            {/* ── RENT COLLECTION LEDGER ── */}
+            <div style={{ marginTop: 32 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Rent Collection Ledger</div>
+              <div style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>Tracking from April 2026 · Click Log / Edit to record each payment</div>
+              {data.properties
+                .filter(p => ["leased", "partially_leased", "lease_signed_pending_possession"].includes(p.occupancy_status))
+                .map(prop => {
+                  const months  = monthsBetween(SYSTEM_START, currentYM());
+                  const expRent = propLedgerExpected(prop);
+                  const totalCollected = (data.rentPayments || []).filter(r => r.propertyId === prop.id).reduce((s, r) => s + safe(r.received), 0);
+                  return (
+                    <Card key={prop.id} style={{ marginBottom: 12 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{prop.name}</div>
+                          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>Expected: {$F(expRent)}/mo</div>
+                        </div>
+                        <OccupancyBadge status={prop.occupancy_status} />
+                      </div>
+                      {/* header row */}
+                      <div style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 80px", gap:"4px 8px", padding:"0 0 6px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>
+                        <span>Month</span><span>Expected</span><span>Received</span><span></span>
+                      </div>
+                      {months.map((m, i) => {
+                        const payment = (data.rentPayments || []).find(r => r.propertyId === prop.id && r.month === m);
+                        const received = safe(payment?.received);
+                        const isPaid = received > 0;
+                        const isCurrent = m === currentYM();
+                        return (
+                          <div key={m} style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 80px", gap:"4px 8px", padding:"8px 0", borderBottom: i < months.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                            <span style={{ fontSize: 12, color: C.textMid }}>{monthLabel(m)}</span>
+                            <span style={{ fontSize: 12, fontFamily: C.mono, color: C.textDim }}>{$F(expRent)}</span>
+                            <div>
+                              <span style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 600, color: isPaid ? C.green : (isCurrent ? C.amber : C.red) }}>
+                                {isPaid ? $F(received) : (isCurrent ? "Pending" : "Not received")}
+                              </span>
+                              {payment?.note && <div style={{ fontSize: 10, color: C.textDim, fontStyle:"italic", marginTop: 1 }}>{payment.note}</div>}
+                            </div>
+                            <button
+                              onClick={() => setRentLogModal({ propertyId: prop.id, propertyName: prop.name, month: m })}
+                              style={{ fontSize: 11, padding:"4px 10px", background: isPaid ? C.bg : C.goldLight, border:`1px solid ${isPaid ? C.border : C.gold}`, borderRadius: 6, color: isPaid ? C.textMid : C.goldText, cursor:"pointer", fontWeight: 600, textAlign:"center" }}>
+                              {isPaid ? "Edit" : "Log"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <div style={{ display:"flex", justifyContent:"space-between", paddingTop: 10, marginTop: 4, borderTop:`2px solid ${C.border}` }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Total collected (all months)</span>
+                        <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: C.green }}>{$F(totalCollected)}</span>
+                      </div>
+                    </Card>
+                  );
+                })}
+            </div>
           </div>
         )}
 
@@ -1501,64 +1750,116 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
               Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} isAdmin={true} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} isAdmin={true} />)}
           </div>
         )}
 
         {/* ── CASH FLOW ── */}
-        {tab === "cashflow" && (
-          <div>
-            <div style={{ borderRadius: 12, padding: "24px 20px", marginBottom: 20, textAlign: "center", background: gap >= 0 ? C.greenLight : C.redLight, border: `1px solid ${gap >= 0 ? "#A8D8B8" : "#F5C6C3"}` }}>
-              <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 8 }}>Monthly Cash Flow Position</div>
-              <div style={{ fontSize: 48, fontFamily: C.mono, fontWeight: 800, color: gap >= 0 ? C.green : C.red }}>{gap >= 0 ? "+" : ""}{$F(gap)}</div>
-              <div style={{ fontSize: 13, color: C.textMid, marginTop: 10 }}>
-                {totalIn === 0
-                  ? "Add business income to see your true monthly position."
-                  : gap < 0
-                    ? `Need ${$F(Math.abs(gap))} more per month to break even.`
-                    : `${$F(gap)}/month surplus.`}
+        {tab === "cashflow" && (() => {
+          // Computed income for selected month
+          const cfBizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
+            const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
+            return s + safe(e?.profit);
+          }, 0);
+          const cfRentIn = (data.rentPayments || []).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.received), 0);
+          const cfOther  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
+          const cfTotalIn  = cfBizIn + cfRentIn + cfOther;
+          const cfTotalOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+          const cfGap      = cfTotalIn - cfTotalOut;
+          return (
+            <div>
+              {/* Month selector */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+                <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>Viewing month:</span>
+                <select value={cfMonth} onChange={e => setCFMonth(e.target.value)}
+                  style={{ padding:"7px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:13, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
+                  {[...monthsBetween(SYSTEM_START, currentYM())].reverse().map(m => (
+                    <option key={m} value={m}>{monthLabel(m)}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Summary banner */}
+              <div style={{ borderRadius: 12, padding: "24px 20px", marginBottom: 20, textAlign: "center", background: cfGap >= 0 ? C.greenLight : C.redLight, border: `1px solid ${cfGap >= 0 ? "#A8D8B8" : "#F5C6C3"}` }}>
+                <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 8 }}>Cash Flow — {monthLabel(cfMonth)}</div>
+                <div style={{ fontSize: 48, fontFamily: C.mono, fontWeight: 800, color: cfGap >= 0 ? C.green : C.red }}>{cfGap >= 0 ? "+" : ""}{$F(cfGap)}</div>
+                <div style={{ fontSize: 13, color: C.textMid, marginTop: 10 }}>
+                  {cfTotalIn === 0
+                    ? "Log business profits and rent to see your true monthly position."
+                    : cfGap < 0
+                      ? `Need ${$F(Math.abs(cfGap))} more to break even.`
+                      : `${$F(cfGap)} surplus.`}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+                <Card>
+                  <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↑ Income — {monthLabel(cfMonth)}</div>
+
+                  {/* Business net profits */}
+                  {data.businesses.filter(b => b.type !== "nonprofit").map(b => {
+                    const entry  = (b.monthlyProfits || []).find(p => p.month === cfMonth);
+                    const profit = safe(entry?.profit);
+                    return (
+                      <div key={b.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <span style={{ fontSize: 13, color: C.text }}>{b.name}</span>
+                          <span style={{ fontFamily: C.mono, fontSize: 14, color: entry ? (profit >= 0 ? C.gold : C.red) : C.textDim }}>
+                            {entry ? $F(profit) : "—"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net profit · log in Businesses tab</div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Rental income from ledger */}
+                  <div style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize: 13, color: C.text }}>Rental income</span>
+                      <span style={{ fontFamily: C.mono, fontSize: 14, color: cfRentIn > 0 ? C.gold : C.textDim }}>{cfRentIn > 0 ? $F(cfRentIn) : "—"}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>From rent ledger · log in Real Estate tab</div>
+                  </div>
+
+                  {/* Other static income */}
+                  {data.cashflow.income.map((item, i) => (
+                    <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
+                        <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
+                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} />
+                        <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
+                    <span style={{ color: C.textMid }}>Total in</span>
+                    <span style={{ fontFamily: C.mono, fontSize: 15, color: C.green }}>{$F(cfTotalIn)}</span>
+                  </div>
+                </Card>
+
+                <Card>
+                  <div style={{ fontSize: 11, color: C.red, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↓ Monthly Obligations</div>
+                  {data.cashflow.obligations.map((item, i) => (
+                    <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
+                        <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
+                        <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
+                        <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                      </div>
+                      {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
+                    </div>
+                  ))}
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
+                    <span style={{ color: C.textMid }}>Total out</span>
+                    <span style={{ fontFamily: C.mono, fontSize: 15, color: C.red }}>{$F(cfTotalOut)}</span>
+                  </div>
+                </Card>
               </div>
             </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-              <Card>
-                <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↑ Monthly Income</div>
-                {data.cashflow.income.map((item, i) => (
-                  <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                      <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} />
-                      <button onClick={() => delCF("income", i)} title="Remove row" style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>×</button>
-                    </div>
-                    {item.note && <div style={{ fontSize: 10, color: C.amber, marginTop: 2 }}>{item.note}</div>}
-                  </div>
-                ))}
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0 0", fontWeight: 700 }}>
-                  <span style={{ color: C.textMid }}>Total in</span>
-                  <span style={{ fontFamily: C.mono, fontSize: 15, color: C.green }}>{$F(totalIn)}</span>
-                </div>
-              </Card>
-
-              <Card>
-                <div style={{ fontSize: 11, color: C.red, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↓ Monthly Obligations</div>
-                {data.cashflow.obligations.map((item, i) => (
-                  <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                      <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
-                      <button onClick={() => delCF("obligations", i)} title="Remove row" style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>×</button>
-                    </div>
-                    {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
-                  </div>
-                ))}
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0 0", fontWeight: 700 }}>
-                  <span style={{ color: C.textMid }}>Total out</span>
-                  <span style={{ fontFamily: C.mono, fontSize: 15, color: C.red }}>{$F(totalOut)}</span>
-                </div>
-              </Card>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
@@ -1593,17 +1894,19 @@ export default function App() {
       if (dbData) {
         setData({
           ...DEFAULT,
-          individuals: mergeById(DEFAULT.individuals, dbData.individuals),
-          properties:  mergeById(DEFAULT.properties,  dbData.properties),
-          businesses:  mergeById(DEFAULT.businesses,  dbData.businesses),
-          cashflow:    dbData.cashflow || DEFAULT.cashflow,
+          individuals:  mergeById(DEFAULT.individuals, dbData.individuals),
+          properties:   mergeById(DEFAULT.properties,  dbData.properties),
+          businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
+          cashflow:     dbData.cashflow     || DEFAULT.cashflow,
+          rentPayments: dbData.rentPayments || DEFAULT.rentPayments,
         });
       } else {
         // First run — seed the database with defaults
-        saveToDB("individuals", DEFAULT.individuals);
-        saveToDB("properties",  DEFAULT.properties);
-        saveToDB("businesses",  DEFAULT.businesses);
-        saveToDB("cashflow",    DEFAULT.cashflow);
+        saveToDB("individuals",  DEFAULT.individuals);
+        saveToDB("properties",   DEFAULT.properties);
+        saveToDB("businesses",   DEFAULT.businesses);
+        saveToDB("cashflow",     DEFAULT.cashflow);
+        saveToDB("rentPayments", DEFAULT.rentPayments);
         setData(DEFAULT);
       }
     }
