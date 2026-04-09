@@ -57,11 +57,14 @@ const supabase = createClient(
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const C = {
-  bg:          "#F7F7F5",
+  bg:          "#ECF0F6",
   surface:     "#FFFFFF",
   card:        "#FFFFFF",
-  border:      "#E8E8E4",
-  borderDark:  "#D0D0CA",
+  border:      "#DFE4ED",
+  borderDark:  "#C4CCDA",
+  nav:         "#0B1829",
+  navBorder:   "rgba(255,255,255,0.06)",
+  navText:     "rgba(255,255,255,0.45)",
   gold:        "#B8962E",
   goldLight:   "#F5F0E4",
   goldText:    "#8A6F1E",
@@ -79,9 +82,11 @@ const C = {
   purple:      "#6C3483",
   purpleLight: "#F4ECF7",
   purpleText:  "#512E5F",
-  text:        "#1A1A1A",
-  textMid:     "#555550",
-  textDim:     "#999992",
+  text:        "#0F1923",
+  textMid:     "#4A5568",
+  textDim:     "#8A96A8",
+  shadow:      "0 1px 3px rgba(11,24,41,0.06), 0 4px 16px rgba(11,24,41,0.04)",
+  shadowMd:    "0 4px 12px rgba(11,24,41,0.10), 0 8px 32px rgba(11,24,41,0.06)",
   mono:        "'SF Mono', 'Courier New', monospace",
   sans:        "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
@@ -124,11 +129,11 @@ const DEFAULT = {
   lastUpdated: "April 1, 2026",
 
   individuals: [
-    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0 },
-    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0 },
-    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0 },
-    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0 },
-    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0 },
+    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[] },
+    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0, monthlyIncome:[] },
+    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
+    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
+    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
   ],
 
   businesses: [
@@ -208,13 +213,13 @@ const DEFAULT = {
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
-      rentalIncome:3300, rental_market_monthly:3300,
+      rentalIncome:4900, rental_market_monthly:4900,
       occupancy_status:"partially_leased",
-      tenant_summary:"Upper level: $3,300/mo (leased) · Lower level: vacant",
-      vacancy_notes:"Lower level vacant. Upper level lease commenced April 2026.",
+      tenant_summary:"Unit A (Upper): $3,300/mo · Unit B (Lower): $1,600/mo · Both leased April 2026",
+      vacancy_notes:"Both units leased. Lump sum payment (~6 mo) may arrive for Unit A.",
       sections:[
-        { id:"upper", label:"Upper Level", tenant:"", rent:3300, status:"leased" },
-        { id:"lower", label:"Lower Level", tenant:"", rent:0,    status:"vacant" },
+        { id:"A", label:"Unit A (Upper)", tenant:"", rent:3300, status:"leased" },
+        { id:"B", label:"Unit B (Lower)", tenant:"", rent:1600, status:"leased" },
       ], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"ARM matured April 2026 — renewal due immediately. Market $369K below purchase. Tax account $21,603 — review with lender. Fee balance: $430.",
@@ -374,8 +379,13 @@ async function rejectSubmission(id, reviewerUserId, note) {
 function Label({ children, color }) {
   return <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: color || C.textDim, marginBottom: 6, fontFamily: C.sans }}>{children}</div>;
 }
-function Card({ children, style }) {
-  return <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, ...style }}>{children}</div>;
+function Card({ children, style, accent }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, boxShadow: C.shadow, overflow: "hidden", position: "relative", ...style }}>
+      {accent && <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background: accent, borderRadius:"14px 14px 0 0" }} />}
+      {children}
+    </div>
+  );
 }
 function StatusPill({ status }) {
   const map = { STRONG: { bg: C.greenLight, color: C.greenText, label: "Strong" }, WATCH: { bg: C.amberLight, color: C.amber, label: "Watch" }, RISK: { bg: C.redLight, color: C.redText, label: "Risk" } };
@@ -439,10 +449,85 @@ function Row({ label, children, last, labelStyle }) {
 }
 function LoadingScreen() {
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color: C.gold, letterSpacing: "0.08em", marginBottom: 10 }}>JMF</div>
-      <div style={{ fontSize: 12, color: C.textDim }}>Loading…</div>
+    <div style={{ minHeight: "100vh", background: C.nav, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color: C.gold, letterSpacing: "0.1em", marginBottom: 10 }}>JMF</div>
+      <div style={{ fontSize: 11, color: C.navText, letterSpacing: "0.06em" }}>Loading…</div>
     </div>
+  );
+}
+
+// ─── CASH FLOW GRAPH ──────────────────────────────────────────────────────────
+function CashFlowGraph({ data }) {
+  const months  = monthsBetween(SYSTEM_START, currentYM());
+  const values  = months.map(m => {
+    const bizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
+      const e = (b.monthlyProfits || []).find(p => p.month === m); return s + safe(e?.profit);
+    }, 0);
+    const rentIn = (data.rentPayments || []).filter(r => r.month === m).reduce((s, r) => s + safe(r.received), 0);
+    const indIn  = data.individuals.reduce((s, ind) => {
+      const e = (ind.monthlyIncome || []).find(p => p.month === m); return s + safe(e?.income);
+    }, 0);
+    const other  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
+    const tIn    = bizIn + rentIn + indIn + other;
+    const tOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+    return { month: m, ncf: tIn - tOut, tIn, tOut };
+  });
+  const maxAbs   = Math.max(1, ...values.map(v => Math.abs(v.ncf)));
+  const BAR_W    = Math.max(52, Math.min(90, Math.floor(560 / Math.max(1, months.length))));
+  const MID_Y    = 72;
+  const MAX_H    = 56;
+  const SVG_H    = 150;
+  const SVG_W    = Math.max(BAR_W * months.length, 260);
+  return (
+    <Card accent={C.gold} style={{ marginTop: 20, paddingTop: 24 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Cash Flow</div>
+          <div style={{ fontSize: 13, color: C.textMid, marginTop: 2 }}>Monthly income vs. obligations · from April 2026</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize: 9, color: C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Latest month</div>
+          <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: values[values.length-1]?.ncf >= 0 ? C.green : C.red }}>
+            {values.length ? (values[values.length-1].ncf >= 0 ? "+" : "") + $K(values[values.length-1].ncf) : "—"}
+          </div>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", marginRight: -4 }}>
+        <svg width={SVG_W} height={SVG_H} style={{ display:"block", overflow:"visible" }}>
+          {/* zero line */}
+          <line x1={0} y1={MID_Y} x2={SVG_W} y2={MID_Y} stroke={C.borderDark} strokeWidth={1} strokeDasharray="3 4" />
+          {values.map((v, i) => {
+            const hPx   = Math.max(3, (Math.abs(v.ncf) / maxAbs) * MAX_H);
+            const isPos = v.ncf >= 0;
+            const bY    = isPos ? MID_Y - hPx : MID_Y;
+            const bX    = i * BAR_W + BAR_W * 0.12;
+            const bW    = BAR_W * 0.76;
+            return (
+              <g key={v.month}>
+                <rect x={bX} y={bY} width={bW} height={hPx} rx={4}
+                  fill={isPos ? C.green : C.red} opacity={0.85} />
+                <text x={i * BAR_W + BAR_W / 2} y={SVG_H - 4}
+                  textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>
+                  {monthLabel(v.month).split(" ")[0]}
+                </text>
+                {v.ncf !== 0 && (
+                  <text x={i * BAR_W + BAR_W / 2} y={isPos ? bY - 5 : bY + hPx + 12}
+                    textAnchor="middle" fontSize={9} fontWeight={700}
+                    fill={isPos ? C.green : C.red} fontFamily={C.mono}>
+                    {(v.ncf > 0 ? "+" : "") + $K(v.ncf)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {values.every(v => v.tIn === 0) && (
+        <div style={{ textAlign:"center", fontSize: 12, color: C.textDim, marginTop: 8 }}>
+          Log business profits, rent, and income to see your cash flow trend.
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -504,54 +589,98 @@ function RentLogModal({ propertyName, month, current, onSave, onClose }) {
 }
 
 // ─── REMINDER MODAL ───────────────────────────────────────────────────────────
-function ReminderModal({ missingRent, missingProfits, onDismiss, onGoToRE, onGoToBiz }) {
-  const total = missingRent.length + missingProfits.length;
-  if (total === 0) return null;
+function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, onDismiss }) {
+  const ym = currentYM();
+  const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(p => [p.id, ""])));
+  const [profitVals, setProfitVals] = useState(() => Object.fromEntries(missingProfits.map(b => [b.id, ""])));
+  const [saving, setSaving]         = useState(false);
+
+  if (missingRent.length === 0 && missingProfits.length === 0) return null;
+
+  const handleSave = async () => {
+    setSaving(true);
+    missingRent.forEach(p => { if (rentVals[p.id] !== "") onSaveRent(p.id, safe(rentVals[p.id]), ""); });
+    missingProfits.forEach(b => { if (profitVals[b.id] !== "") onSaveProfit(b.id, safe(profitVals[b.id])); });
+    onDismiss();
+  };
+
+  const inp = {
+    width: "100%", padding: "9px 12px", background: C.bg, border: `1.5px solid ${C.border}`,
+    borderRadius: 8, color: C.text, fontSize: 14, fontFamily: C.mono, outline: "none",
+    boxSizing: "border-box", transition: "border-color 0.15s",
+  };
+
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}
-      onClick={e => { if (e.target === e.currentTarget) onDismiss(); }}>
-      <div style={{ background:C.surface, border:`1.5px solid ${C.amber}`, borderRadius:16, padding:28, width:"100%", maxWidth:420, boxShadow:"0 8px 48px rgba(0,0,0,0.16)" }}>
-        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Monthly Entries Required</div>
-        <div style={{ fontSize:13, color:C.textDim, marginBottom:20 }}>
-          {monthLabel(currentYM())} — the following items haven't been logged yet.
+    <div style={{ position:"fixed", inset:0, background:"rgba(7,15,30,0.55)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding:20 }}>
+      <div style={{ background:C.surface, borderRadius:20, width:"100%", maxWidth:460, boxShadow:"0 24px 80px rgba(0,0,0,0.28)", overflow:"hidden" }}>
+        {/* Gold accent header */}
+        <div style={{ background:`linear-gradient(135deg, ${C.nav} 0%, #1A2E52 100%)`, padding:"22px 28px 20px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:C.gold, boxShadow:`0 0 8px ${C.gold}` }} />
+            <div style={{ fontSize:11, fontWeight:700, color:C.gold, letterSpacing:"0.12em", textTransform:"uppercase" }}>Monthly Update Required</div>
+          </div>
+          <div style={{ fontSize:22, fontWeight:800, color:"#FFFFFF", letterSpacing:-0.5 }}>Please Update</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginTop:4 }}>
+            {monthLabel(ym)} — {missingRent.length + missingProfits.length} item{missingRent.length + missingProfits.length > 1 ? "s" : ""} pending
+          </div>
         </div>
 
-        {missingRent.length > 0 && (
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:8 }}>Rent Not Logged</div>
-            {missingRent.map(p => (
-              <div key={p.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:13, color:C.text }}>{p.name}</span>
-                <span style={{ fontSize:13, fontFamily:C.mono, color:C.red }}>—</span>
+        <div style={{ padding:"24px 28px 28px", maxHeight:"60vh", overflowY:"auto" }}>
+          {/* Rent section */}
+          {missingRent.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+                <div style={{ width:3, height:14, background:C.gold, borderRadius:2 }} />
+                <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.08em", textTransform:"uppercase" }}>Rent Collected</div>
               </div>
-            ))}
-            <button onClick={onGoToRE}
-              style={{ marginTop:10, fontSize:12, padding:"7px 14px", background:C.goldLight, border:`1px solid ${C.gold}`, borderRadius:7, color:C.goldText, cursor:"pointer", fontWeight:600 }}>
-              Go to Real Estate →
+              {missingRent.map(p => (
+                <div key={p.id} style={{ marginBottom:12 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                    <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{p.name}</span>
+                    <span style={{ fontSize:11, color:C.textDim }}>Expected: {$F(propLedgerExpected(p))}/mo</span>
+                  </div>
+                  <input type="number" placeholder="Amount received (CAD)"
+                    value={rentVals[p.id]} onChange={e => setRentVals(v => ({ ...v, [p.id]: e.target.value }))}
+                    style={inp} onFocus={e => e.target.style.borderColor = C.gold} onBlur={e => e.target.style.borderColor = C.border} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Profit section */}
+          {missingProfits.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+                <div style={{ width:3, height:14, background:C.blue, borderRadius:2 }} />
+                <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.08em", textTransform:"uppercase" }}>Net Profit — {monthLabel(ym)}</div>
+              </div>
+              {missingProfits.map(b => (
+                <div key={b.id} style={{ marginBottom:12 }}>
+                  <div style={{ marginBottom:5 }}>
+                    <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{b.name}</span>
+                  </div>
+                  <input type="number" placeholder="Net profit this month (CAD)"
+                    value={profitVals[b.id]} onChange={e => setProfitVals(v => ({ ...v, [b.id]: e.target.value }))}
+                    style={inp} onFocus={e => e.target.style.borderColor = C.blue} onBlur={e => e.target.style.borderColor = C.border} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={handleSave} disabled={saving}
+              style={{ flex:2, padding:"13px", background:`linear-gradient(135deg, #C8A235 0%, ${C.gold} 100%)`, border:"none", borderRadius:10, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer", boxShadow:`0 4px 16px rgba(184,150,46,0.35)`, opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Saving…" : "Save & Close"}
+            </button>
+            <button onClick={onDismiss}
+              style={{ flex:1, padding:"13px", background:"transparent", border:`1.5px solid ${C.border}`, borderRadius:10, color:C.textMid, fontSize:14, cursor:"pointer" }}>
+              Dismiss
             </button>
           </div>
-        )}
-
-        {missingProfits.length > 0 && (
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:8 }}>Net Profit Not Logged</div>
-            {missingProfits.map(b => (
-              <div key={b.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:13, color:C.text }}>{b.name}</span>
-                <span style={{ fontSize:13, fontFamily:C.mono, color:C.red }}>—</span>
-              </div>
-            ))}
-            <button onClick={onGoToBiz}
-              style={{ marginTop:10, fontSize:12, padding:"7px 14px", background:C.blueLight, border:`1px solid ${C.blue}`, borderRadius:7, color:C.blueText, cursor:"pointer", fontWeight:600 }}>
-              Go to Businesses →
-            </button>
+          <div style={{ fontSize:11, color:C.textDim, marginTop:12, textAlign:"center" }}>
+            This prompt will reappear each session until all fields are filled.
           </div>
-        )}
-
-        <button onClick={onDismiss}
-          style={{ width:"100%", padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer", marginTop:4 }}>
-          Dismiss
-        </button>
+        </div>
       </div>
     </div>
   );
@@ -758,7 +887,7 @@ function LoginScreen() {
 
 // ─── MEMBER VIEW ──────────────────────────────────────────────────────────────
 // user.id = auth UUID  |  user.profile.individual_id = individuals[].id
-function MemberView({ user, data, onUpdate, onLogout }) {
+function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
   const [saved, setSaved]               = useState(false);
   const [cashModal, setCashModal]       = useState(false);
   const [showSubModal, setShowSubModal] = useState(false);
@@ -858,22 +987,25 @@ function MemberView({ user, data, onUpdate, onLogout }) {
       )}
 
       {/* Nav */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, gap: 8 }}>
+      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 800, color: C.gold, flexShrink: 0 }}>JMF</span>
-          <span style={{ fontSize: 12, color: C.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-          {saved && <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✓ Saved</span>}
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:5, height:5, borderRadius:"50%", background:C.gold }} />
+            <span style={{ fontSize: 15, fontWeight: 800, color: C.gold, letterSpacing:"0.08em", flexShrink: 0 }}>JMF</span>
+          </div>
+          <span style={{ fontSize: 12, color: C.navText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✓ SAVED</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {subStatusBadge()}
           {cashStale && (
             <button onClick={() => setCashModal(true)}
-              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
               Cash not updated
             </button>
           )}
           <button onClick={onLogout}
-            style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMid, fontSize: 11, padding: "4px 12px", cursor: "pointer" }}>
+            style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 11, padding: "4px 12px", cursor: "pointer" }}>
             Sign out
           </button>
         </div>
@@ -927,6 +1059,35 @@ function MemberView({ user, data, onUpdate, onLogout }) {
             <span style={{ fontSize: 14, fontWeight: 700, color: C.textMid }}>Net Worth</span>
             <span style={{ fontSize: 22, fontFamily: C.mono, fontWeight: 800, color: isPositive ? C.gold : C.red }}>{$F(net)}</span>
           </div>
+        </Card>
+
+        {/* Monthly Income submission */}
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly Income</div>
+            <span style={{ fontSize:10, color:C.textDim }}>{monthLabel(currentYM())}</span>
+          </div>
+          <div style={{ fontSize:12, color:C.textDim, marginBottom:16 }}>
+            Enter your total personal income for this month — salary, distributions, etc. This is reported to admin.
+          </div>
+          {(() => {
+            const entry = (f.monthlyIncome || []).find(p => p.month === currentYM());
+            const income = safe(entry?.income);
+            return (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+                <span style={{ fontSize:13, color:C.text }}>Income this month</span>
+                <EditNum value={income} onChange={v => {
+                  const ym = currentYM();
+                  const existing = f.monthlyIncome || [];
+                  const has = existing.find(p => p.month === ym);
+                  const updated = has
+                    ? existing.map(p => p.month === ym ? { ...p, income: safe(v) } : p)
+                    : [...existing, { month: ym, income: safe(v) }];
+                  if (onSaveIncome) onSaveIncome(f.id, ym, safe(v));
+                }} />
+              </div>
+            );
+          })()}
         </Card>
 
         <Card>
@@ -1340,14 +1501,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalNW    = totalRENetSale + totalPers + totalBiz;
-  // Monthly income = current-month biz profits + current-month rent collected + other
+  // Monthly income = current-month biz profits + rent + individual payroll + other
   const curYM      = currentYM();
   const curBizIn   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
     const e = (b.monthlyProfits || []).find(p => p.month === curYM);
     return s + safe(e?.profit);
   }, 0);
   const curRentIn  = (data.rentPayments || []).filter(r => r.month === curYM).reduce((s, r) => s + safe(r.received), 0);
-  const totalIn    = curBizIn + curRentIn + data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
+  const curIndIn   = data.individuals.reduce((s, ind) => {
+    const e = (ind.monthlyIncome || []).find(p => p.month === curYM);
+    return s + safe(e?.income);
+  }, 0);
+  const totalIn    = curBizIn + curRentIn + curIndIn + data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
   const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
   const gap        = totalIn - totalOut;
   const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
@@ -1370,6 +1535,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   function updBiz(id, f, v) {
     const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
+  function updIndIncome(indId, month, income) {
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.monthlyIncome || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? { ...p, income: safe(income) } : p)
+        : [...existing, { month, income: safe(income) }];
+      return { ...x, monthlyIncome: updated };
+    });
+    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
   }
   function updBizProfit(bizId, month, profit) {
     const arr = data.businesses.map(b => {
@@ -1448,73 +1625,74 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         <ReminderModal
           missingRent={reminderData.missingRent}
           missingProfits={reminderData.missingProfits}
+          onSaveRent={(propertyId, received, note) => updRentPayment(propertyId, currentYM(), received, note)}
+          onSaveProfit={(bizId, profit) => updBizProfit(bizId, currentYM(), profit)}
           onDismiss={() => setShowReminder(false)}
-          onGoToRE={() => { setTab("realestate"); setShowReminder(false); }}
-          onGoToBiz={() => { setTab("businesses"); setShowReminder(false); }}
         />
       )}
       {/* NAV */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 16, fontWeight: 800, color: C.gold, letterSpacing: "0.06em" }}>JMF</span>
-          <span style={{ fontSize: 11, color: C.textDim }}>Family Office</span>
-          {saved && <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 4, padding: "2px 8px" }}>✓ Saved</span>}
+      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{ width:6, height:6, borderRadius:"50%", background:C.gold, boxShadow:`0 0 8px ${C.gold}` }} />
+            <span style={{ fontSize: 17, fontWeight: 800, color: C.gold, letterSpacing: "0.1em" }}>JMF</span>
+          </div>
+          <span style={{ fontSize: 11, color: C.navText, letterSpacing:"0.05em" }}>Family Office</span>
+          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 8px", letterSpacing:"0.04em" }}>✓ SAVED</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {pendingSubs.length > 0 && (
             <button onClick={() => setTab("overview")}
-              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
+              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
               {pendingSubs.length} pending review
             </button>
           )}
           {cashStale && (
             <button onClick={() => setCashModal(true)}
-              style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
+              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
               Cash not updated
             </button>
           )}
-          <span style={{ fontSize: 10, fontWeight: 700, color: C.goldText, background: C.goldLight, borderRadius: 4, padding: "3px 8px" }}>ADMIN</span>
-          <span style={{ fontSize: 12, color: C.textMid }}>{user.profile?.display_name || user.email}</span>
-          <button onClick={onLogout} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMid, fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>Sign out</button>
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, background: "rgba(184,150,46,0.15)", border:`1px solid rgba(184,150,46,0.25)`, borderRadius: 4, padding: "3px 8px", letterSpacing:"0.06em" }}>ADMIN</span>
+          <span style={{ fontSize: 12, color: C.navText }}>{user.profile?.display_name || user.email}</span>
+          <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>Sign out</button>
         </div>
       </div>
 
       {/* HERO */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "44px 28px 36px", textAlign: "center" }}>
-        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 14 }}>JMF Consolidated Net Worth</div>
-        <div style={{ fontSize: 58, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? C.red : C.gold, letterSpacing: -2, lineHeight: 1 }}>
+      <div style={{ background: `linear-gradient(160deg, ${C.nav} 0%, #152238 100%)`, padding: "52px 28px 44px", textAlign: "center" }}>
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 16 }}>JMF Consolidated Net Worth</div>
+        <div style={{ fontSize: 62, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? "#FF6B6B" : C.gold, letterSpacing: -2, lineHeight: 1, textShadow: totalNW >= 0 ? `0 0 40px rgba(184,150,46,0.3)` : "none" }}>
           {$F(totalNW)}
         </div>
-        <div style={{ fontSize: 12, color: C.textDim, marginTop: 14, letterSpacing: "0.04em" }}>
-          {data.lastUpdated}
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 16, letterSpacing: "0.06em" }}>
+          Est. net if sold · {data.lastUpdated}
         </div>
       </div>
 
-      {/* KPI STRIP — scrollable on mobile */}
-      <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", minWidth: "max-content" }}>
+      {/* KPI STRIP — 3 clean stats */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", maxWidth: 800, margin: "0 auto" }}>
           {[
-            { label: "JMF RE Equity",     val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`,  color: C.gold  },
-            { label: "Personal Net",      val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                     color: totalPers < 0 ? C.red : C.green },
-            { label: "Business Equity",   val: $K(totalBiz),   sub: "Kratos + JMF + PRIMA",                                                        color: C.blue  },
-            { label: "Monthly Mortgages", val: $K(totalMtg),   sub: `${$K(totalMtg * 12)}/yr`,                                                     color: C.red   },
-            { label: "Monthly Gap",       val: totalIn === 0 ? "—" : $K(gap), sub: totalIn === 0 ? "Add income first" : gap < 0 ? "Deficit" : "Surplus", color: totalIn === 0 ? C.textDim : gap < 0 ? C.red : C.green },
+            { label: "JMF RE Equity",      val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`, color: C.gold  },
+            { label: "Net of Individuals",  val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                   color: totalPers < 0 ? C.red : C.green },
+            { label: "Business Equity",     val: $K(totalBiz),   sub: "Operating corps only",                                                       color: C.blue  },
           ].map((k, i, arr) => (
-            <div key={i} style={{ padding: "14px 20px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", minWidth: 140 }}>
-              <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5 }}>{k.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: C.mono, color: k.color }}>{k.val}</div>
-              <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>{k.sub}</div>
+            <div key={i} style={{ flex:1, padding: "18px 24px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", textAlign:"center" }}>
+              <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 8 }}>{k.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: C.mono, color: k.color }}>{k.val}</div>
+              <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>{k.sub}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* TABS — scrollable on mobile */}
-      <div style={{ overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", minWidth: "max-content", padding: "0 28px" }}>
+      {/* TABS */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", overflowX:"auto", padding: "0 28px" }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(tabId(t))}
-              style={{ padding: "10px 16px 12px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textMid, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans }}>
+              style={{ padding: "12px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textDim, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans, transition:"color 0.15s" }}>
               {t}
             </button>
           ))}
@@ -1527,45 +1705,39 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
           <div>
-            <ApprovalQueue
-              pendingSubs={pendingSubs}
-              profiles={profiles}
-              individuals={data.individuals}
-              onApprove={handleApprove}
-              onReject={handleReject}
-            />
+            <ApprovalQueue pendingSubs={pendingSubs} profiles={profiles} individuals={data.individuals} onApprove={handleApprove} onReject={handleReject} />
 
+            {/* 3 summary cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
-                { label: "JMF RE Equity",           val: $K(totalREEq),  color: C.gold,  bg: C.goldLight,  sub: `Ownership-adjusted · ${data.properties.length} properties` },
-                { label: "Personal (all members)", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, bg: totalPers < 0 ? C.redLight : C.greenLight, sub: `${data.individuals.length} individuals` },
-                { label: "Business Equity",        val: $K(totalBiz),   color: C.blue,  bg: C.blueLight,  sub: "Operating corps only" },
-                { label: "Total RE Debt",          val: $K(totalREDbt), color: C.red,   bg: C.redLight,   sub: "Combined mortgages" },
+                { label: "JMF RE Equity",      val: $K(totalREEq),  color: C.gold,  accent: C.gold,  sub: `Ownership-adjusted · ${data.properties.length} properties`, bg: C.goldLight },
+                { label: "Net of Individuals", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, accent: totalPers < 0 ? C.red : C.green, sub: `${data.individuals.length} members`, bg: totalPers < 0 ? C.redLight : C.greenLight },
+                { label: "Business Equity",    val: $K(totalBiz),   color: C.blue,  accent: C.blue,  sub: "Operating corps only", bg: C.blueLight },
               ].map((s, i) => (
-                <div key={i} style={{ background: s.bg, borderRadius: 14, padding: "20px 22px" }}>
-                  <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{s.label}</div>
-                  <div style={{ fontSize: 28, fontFamily: C.mono, fontWeight: 800, color: s.color }}>{s.val}</div>
-                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 6 }}>{s.sub}</div>
+                <div key={i} style={{ background: s.bg, borderRadius: 14, padding: "22px 24px", borderTop: `3px solid ${s.accent}`, boxShadow: C.shadow }}>
+                  <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>{s.label}</div>
+                  <div style={{ fontSize: 30, fontFamily: C.mono, fontWeight: 800, color: s.color, letterSpacing: -0.5 }}>{s.val}</div>
+                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 8 }}>{s.sub}</div>
                 </div>
               ))}
             </div>
 
-            <Card style={{ marginBottom: 16 }}>
+            {/* RE portfolio mini-cards */}
+            <Card accent={C.gold} style={{ marginBottom: 16, paddingTop: 24 }}>
               <Label>Real Estate Portfolio</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
                 {data.properties.map(p => {
                   const eq = safe(p.market) - safe(p.mortgage);
                   return (
-                    <div key={p.id} onClick={() => setTab("realestate")}
-                      style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = C.gold}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 6 }}>{p.name}</div>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    <div key={p.id} onClick={() => setTab("realestate")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.boxShadow = C.shadowMd; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 7 }}>{p.name}</div>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                         <StatusPill status={p.status} />
                         <OccupancyBadge status={p.occupancy_status} />
                       </div>
-                      <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, marginTop: 10, color: eq > 500000 ? C.gold : eq > 0 ? C.amber : C.red }}>{$K(eq)}</div>
+                      <div style={{ fontSize: 19, fontFamily: C.mono, fontWeight: 800, color: eq > 500000 ? C.gold : eq > 0 ? C.amber : C.red }}>{$K(eq)}</div>
                       <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>{p.rate}</div>
                     </div>
                   );
@@ -1573,33 +1745,30 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               </div>
             </Card>
 
-            <Card>
+            {/* Business entity mini-cards */}
+            <Card accent={C.blue} style={{ marginBottom: 16, paddingTop: 24 }}>
               <Label>Business Entities</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
                 {data.businesses.map(b => {
-                  const eq   = safe(b.cashAccounts) - safe(b.liabilities);
+                  const eq = safe(b.cashAccounts) - safe(b.liabilities);
                   const isNP = b.type === "nonprofit";
                   return (
-                    <div key={b.id} onClick={() => setTab("businesses")}
-                      style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = isNP ? "#9B59B6" : C.gold}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                        <div style={{ background: isNP ? C.purpleLight : C.blueLight, color: isNP ? C.purpleText : C.blueText, borderRadius: 4, fontSize: 9, fontWeight: 700, padding: "2px 6px" }}>{isNP ? "NON-PROFIT" : "CORP"}</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{b.name}</div>
+                    <div key={b.id} onClick={() => setTab("businesses")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = isNP ? C.purple : C.blue; e.currentTarget.style.boxShadow = C.shadowMd; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:8 }}>
+                        <div style={{ background: isNP ? C.purpleLight : C.blueLight, color: isNP ? C.purpleText : C.blueText, borderRadius:4, fontSize:9, fontWeight:700, padding:"2px 6px" }}>{isNP ? "NON-PROFIT" : "CORP"}</div>
+                        <div style={{ fontSize:12, fontWeight:600, color:C.text }}>{b.name}</div>
                       </div>
                       {isNP ? (
-                        <div>
-                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 5 }}>Not in consolidated NW</div>
-                          <div style={{ fontFamily: C.mono, fontWeight: 700, color: C.purple, fontSize: 16 }}>{$K(safe(b.cashAccounts))}</div>
-                        </div>
+                        <div style={{ fontFamily:C.mono, fontWeight:700, color:C.purple, fontSize:16 }}>{$K(safe(b.cashAccounts))}</div>
                       ) : (
                         <div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}><span style={{ color: C.textDim }}>Cash</span><span style={{ fontFamily: C.mono, color: C.green }}>{$K(safe(b.cashAccounts))}</span></div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}><span style={{ color: C.textDim }}>Liabilities</span><span style={{ fontFamily: C.mono, color: C.red }}>{$K(safe(b.liabilities))}</span></div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-                            <span style={{ color: C.textMid, fontWeight: 600 }}>Net equity</span>
-                            <span style={{ fontFamily: C.mono, fontWeight: 700, color: eq >= 0 ? C.gold : C.red }}>{$K(eq)}</span>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}><span style={{ color:C.textDim }}>Cash</span><span style={{ fontFamily:C.mono, color:C.green }}>{$K(safe(b.cashAccounts))}</span></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:8 }}><span style={{ color:C.textDim }}>Liabilities</span><span style={{ fontFamily:C.mono, color:C.red }}>{$K(safe(b.liabilities))}</span></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+                            <span style={{ color:C.textMid, fontWeight:600 }}>Net equity</span>
+                            <span style={{ fontFamily:C.mono, fontWeight:700, color: eq >= 0 ? C.gold : C.red }}>{$K(eq)}</span>
                           </div>
                         </div>
                       )}
@@ -1608,12 +1777,61 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 })}
               </div>
             </Card>
+
+            {/* Individuals mini-cards */}
+            <Card accent={C.green} style={{ marginBottom: 16, paddingTop: 24 }}>
+              <Label>Individuals</Label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
+                {data.individuals.map(f => {
+                  const net = indNet(f);
+                  const isPos = net >= 0;
+                  const curInc = (f.monthlyIncome || []).find(p => p.month === curYM)?.income;
+                  return (
+                    <div key={f.id} onClick={() => setTab("individuals")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = C.green; e.currentTarget.style.boxShadow = C.shadowMd; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                        <div style={{ width:30, height:30, borderRadius:"50%", background: isPos ? C.goldLight : C.redLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color: isPos ? C.goldText : C.redText, flexShrink:0 }}>{f.initials}</div>
+                        <div style={{ fontSize:12, fontWeight:600, color:C.text, lineHeight:1.3 }}>{f.name}</div>
+                      </div>
+                      <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:800, color: isPos ? C.gold : C.red }}>{$K(net)}</div>
+                      {curInc != null && <div style={{ fontSize:10, color:C.textDim, marginTop:4 }}>Income {monthLabel(curYM)}: {$K(curInc)}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+
+            {/* Cash flow graph */}
+            <CashFlowGraph data={data} />
           </div>
         )}
 
         {/* ── REAL ESTATE ── */}
-        {tab === "realestate" && (
+        {tab === "realestate" && (() => {
+          // Missed rent alert: past months with no logged payment for leased properties
+          const pastMonths = monthsBetween(SYSTEM_START, currentYM()).slice(0, -1);
+          const missedRents = data.properties
+            .filter(p => ["leased", "partially_leased"].includes(p.occupancy_status))
+            .flatMap(p => pastMonths.filter(m => {
+              const e = (data.rentPayments || []).find(r => r.propertyId === p.id && r.month === m);
+              return !e || safe(e.received) === 0;
+            }).map(m => ({ prop: p, month: m })));
+          return (
           <div>
+            {missedRents.length > 0 && (
+              <div style={{ background:`linear-gradient(135deg, ${C.red} 0%, #922B21 100%)`, borderRadius:12, padding:"14px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:14, boxShadow:`0 4px 16px rgba(192,57,43,0.3)` }}>
+                <div style={{ width:8, height:8, borderRadius:"50%", background:"#FFF", flexShrink:0, boxShadow:"0 0 8px rgba(255,255,255,0.8)" }} />
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:"#FFF", marginBottom:2 }}>
+                    Attention — {missedRents.length} missed rent payment{missedRents.length > 1 ? "s" : ""}
+                  </div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.7)" }}>
+                    {missedRents.map(r => `${r.prop.name} · ${monthLabel(r.month)}`).join(" · ")}
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
                 { label: "Portfolio Value",  val: $K(totalREVal),       color: C.text, sub: "Gross (5 properties)" },
@@ -1690,7 +1908,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 })}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── INDIVIDUALS ── */}
         {tab === "individuals" && (
@@ -1724,6 +1943,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
                     <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
+                  </div>
+                  {/* Monthly income log */}
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom: 8 }}>Monthly Income Log</div>
+                    {monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse().map(m => {
+                      const entry  = (f.monthlyIncome || []).find(p => p.month === m);
+                      const income = safe(entry?.income);
+                      return (
+                        <div key={m} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                          <span style={{ fontSize:11, color:C.textMid, minWidth:72 }}>{monthLabel(m)}</span>
+                          <EditNum value={income} onChange={v => updIndIncome(f.id, m, v)} />
+                        </div>
+                      );
+                    })}
                   </div>
                 </Card>
               );
@@ -1761,9 +1994,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
             return s + safe(e?.profit);
           }, 0);
-          const cfRentIn = (data.rentPayments || []).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.received), 0);
+          const cfRentIn  = (data.rentPayments || []).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.received), 0);
+          const cfPayroll = data.individuals.reduce((s, ind) => {
+            const e = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
+            return s + safe(e?.income);
+          }, 0);
           const cfOther  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
-          const cfTotalIn  = cfBizIn + cfRentIn + cfOther;
+          const cfTotalIn  = cfBizIn + cfRentIn + cfPayroll + cfOther;
           const cfTotalOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
           const cfGap      = cfTotalIn - cfTotalOut;
           return (
@@ -1820,6 +2057,25 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       <span style={{ fontFamily: C.mono, fontSize: 14, color: cfRentIn > 0 ? C.gold : C.textDim }}>{cfRentIn > 0 ? $F(cfRentIn) : "—"}</span>
                     </div>
                     <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>From rent ledger · log in Real Estate tab</div>
+                  </div>
+
+                  {/* Payroll — per individual */}
+                  <div style={{ padding: "9px 0 4px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom: 8 }}>Payroll Income</div>
+                    {data.individuals.map(ind => {
+                      const entry  = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
+                      const income = safe(entry?.income);
+                      return (
+                        <div key={ind.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0" }}>
+                          <span style={{ fontSize:12, color:C.text }}>{ind.name}</span>
+                          <EditNum value={income} onChange={v => updIndIncome(ind.id, cfMonth, v)} />
+                        </div>
+                      );
+                    })}
+                    <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
+                      <span style={{ fontSize:11, color:C.textMid }}>Total payroll</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color: cfPayroll > 0 ? C.gold : C.textDim }}>{cfPayroll > 0 ? $F(cfPayroll) : "—"}</span>
+                    </div>
                   </div>
 
                   {/* Other static income */}
@@ -1957,5 +2213,17 @@ export default function App() {
   if (isAdmin) {
     return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout} />;
   }
-  return <MemberView user={currentUser} data={data} onUpdate={updInd} onLogout={logout} />;
+  return <MemberView user={currentUser} data={data} onUpdate={updInd} onSaveIncome={(indId, month, income) => {
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.monthlyIncome || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? { ...p, income } : p)
+        : [...existing, { month, income }];
+      return { ...x, monthlyIncome: updated };
+    });
+    saveToDB("individuals", arr);
+    setData(d => ({ ...d, individuals: arr }));
+  }} onLogout={logout} />;
 }
