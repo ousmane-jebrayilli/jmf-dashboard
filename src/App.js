@@ -1496,20 +1496,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalNW    = totalRENetSale + totalPers + totalBiz;
-  // Monthly income = current-month biz profits + rent + individual payroll + other
   const curYM      = currentYM();
-  const curBizIn   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
-    const e = (b.monthlyProfits || []).find(p => p.month === curYM);
-    return s + safe(e?.profit);
-  }, 0);
-  const curRentIn  = (data.rentPayments || []).filter(r => r.month === curYM).reduce((s, r) => s + safe(r.received), 0);
-  const curIndIn   = data.individuals.reduce((s, ind) => {
-    const e = (ind.monthlyIncome || []).find(p => p.month === curYM);
-    return s + safe(e?.income);
-  }, 0);
-  const totalIn    = curBizIn + curRentIn + curIndIn + data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
-  const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
-  // const gap = totalIn - totalOut; // reserved for future use
   const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
   const totalREIncome = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
   const totalREOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
