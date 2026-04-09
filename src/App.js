@@ -1078,11 +1078,6 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
                 <span style={{ fontSize:13, color:C.text }}>Income this month</span>
                 <EditNum value={income} onChange={v => {
                   const ym = currentYM();
-                  const existing = f.monthlyIncome || [];
-                  const has = existing.find(p => p.month === ym);
-                  const updated = has
-                    ? existing.map(p => p.month === ym ? { ...p, income: safe(v) } : p)
-                    : [...existing, { month: ym, income: safe(v) }];
                   if (onSaveIncome) onSaveIncome(f.id, ym, safe(v));
                 }} />
               </div>
@@ -1514,7 +1509,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }, 0);
   const totalIn    = curBizIn + curRentIn + curIndIn + data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
   const totalOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
-  const gap        = totalIn - totalOut;
+  // const gap = totalIn - totalOut; // reserved for future use
   const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
   const totalREIncome = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
   const totalREOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
