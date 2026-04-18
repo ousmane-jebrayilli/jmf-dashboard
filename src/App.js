@@ -308,7 +308,7 @@ const DEFAULT = {
       sections:[
         { id:"A", label:"Unit A (Upper)", tenant:"", rent:3300, status:"leased" },
         { id:"B", label:"Unit B (Lower)", tenant:"", rent:1600, status:"leased" },
-      ], covenant_notes:"",
+      ],
       units:[
         makeUnit({
           id:"level-a", label:"Level A", status:"leased", market_rent:3300,
