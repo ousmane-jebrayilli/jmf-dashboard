@@ -630,8 +630,7 @@ function propEffectiveRent(prop) {
 function propMonthlyOut(prop) {
   const taxOut = prop.taxes_paid_by === "lender" ? 0 : safe(prop.monthlyTax);
   return safe(prop.monthlyPayment) + taxOut + safe(prop.monthly_insurance) +
-    safe(prop.management_fee_monthly) + safe(prop.maintenance_reserve_monthly) +
-    safe(prop.utilities_monthly) + safe(prop.capex_reserve_monthly);
+    safe(prop.maintenance_reserve_monthly) + safe(prop.utilities_monthly);
 }
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
 function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
@@ -1831,15 +1830,13 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                     <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
                   )}
                 </Row>
-                <Row label={`Tracked balance (${mortgage.anchorMonth})`}><EditNum value={safe(prop.mortgage)} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
-                <Row label="Manual override balance" last><EditNum value={safe(prop.mortgage_manual_override)} onChange={v => onUpdate("mortgage_manual_override", v)} locked={!isAdmin} /></Row>
+                <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
               </div>
               <div>
                 <Row label={`Calculated balance (${currentYM()})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
                 <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
                 <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
-                <Row label="Projected next balance"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
-                <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                <Row label="Projected next balance" last><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
               </div>
             </div>
           </div>
@@ -1850,13 +1847,11 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
               <div>
                 <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
                 {prop.taxes_paid_by !== "lender" && <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>}
-                <Row label="Insurance"><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
-                <Row label="Management fee" last><EditNum value={safe(prop.management_fee_monthly)} onChange={v => onUpdate("management_fee_monthly", v)} locked={!isAdmin} /></Row>
+                <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
               </div>
               <div>
-                <Row label="Maintenance reserve"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
+                <Row label="Maintenance fees"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
                 <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
-                <Row label="CapEx reserve"><EditNum value={safe(prop.capex_reserve_monthly)} onChange={v => onUpdate("capex_reserve_monthly", v)} locked={!isAdmin} /></Row>
                 <Row label="Total monthly outflow" last><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(totalOut)}</span></Row>
               </div>
             </div>
