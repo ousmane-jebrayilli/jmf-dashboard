@@ -222,7 +222,7 @@ const DEFAULT = {
       interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
       maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
       monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
-      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0, tax_account_note:"",
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -260,7 +260,7 @@ const DEFAULT = {
       interest_rate:0, rate:"N/A", rateType:"Mortgage-free",
       maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
       monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
-      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0, tax_account_note:"",
       tax_notice_outstanding:810.86, tax_notice_penalty:18.91, tax_notice_next_installment:561.61, tax_notice_next_due:"2025-09-29",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -279,7 +279,7 @@ const DEFAULT = {
       interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
       maturity:"Apr 1, 2027", remaining_amortization_months:285, taxes_paid_by:"lender",
       monthlyPayment:12628.05, monthly_pi:11722.76, monthly_payment_tax:905.29,
-      tax_account_balance:2361.89, monthlyTax:905.29, annual_property_tax_estimate:10864,
+      tax_account_balance:2361.89, monthlyTax:905.29, annual_property_tax_estimate:10864, tax_account_note:"",
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -297,7 +297,7 @@ const DEFAULT = {
       interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
       maturity:"Apr 1, 2027", remaining_amortization_months:337, taxes_paid_by:"lender",
       monthlyPayment:10342.14, monthly_pi:9107, monthly_payment_tax:1235.14,
-      tax_account_balance:21602.52, monthlyTax:1235.14, annual_property_tax_estimate:14821,
+      tax_account_balance:21602.52, monthlyTax:1235.14, annual_property_tax_estimate:14821, tax_account_note:"",
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -356,7 +356,7 @@ const DEFAULT = {
       interest_rate:5.94, rate:"5.94%", rateType:"60 Month Fixed Closed",
       maturity:"Dec 2029", remaining_amortization_months:311, taxes_paid_by:"lender",
       monthlyPayment:5979, monthly_pi:5605, monthly_payment_tax:374,
-      tax_account_balance:1458, monthlyTax:374, annual_property_tax_estimate:4484,
+      tax_account_balance:1458, monthlyTax:374, annual_property_tax_estimate:4484, tax_account_note:"",
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -1902,15 +1902,25 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
                   <div>
                     <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-                    {prop.taxes_paid_by === "lender" ? (
-                      <Row label="Property tax (escrowed)">
-                        <span style={{fontFamily:C.mono,fontSize:13,color:C.text}}>{$F(safe(prop.monthlyTax))}<span style={{color:C.muted,marginLeft:6,fontSize:11}}>/ mo · paid by lender{safe(prop.tax_account_balance) > 0 ? ` · acct $${safe(prop.tax_account_balance).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2})}` : ""}</span></span>
+                    <Row label={prop.taxes_paid_by === "lender" ? "Property tax (escrowed)" : "Property tax"}>
+                      <EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} />
+                    </Row>
+                    {prop.taxes_paid_by === "lender" && (
+                      <Row label="Tax account balance">
+                        <EditNum value={safe(prop.tax_account_balance)} onChange={v => onUpdate("tax_account_balance", v)} locked={!isAdmin} />
                       </Row>
-                    ) : prop.taxes_paid_by === "owner" ? (
-                      <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>
-                    ) : (
-                      <Row label="Property tax"><span style={{color:C.muted,fontFamily:C.mono,fontSize:13}}>—</span></Row>
                     )}
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,color:C.muted,marginBottom:4,fontFamily:C.sans}}>Tax account notes</div>
+                      <input
+                        type="text"
+                        value={prop.tax_account_note || ""}
+                        onChange={e => onUpdate("tax_account_note", e.target.value)}
+                        disabled={!isAdmin}
+                        placeholder="e.g. Equitable escrowed · balance as of Apr 18 2026"
+                        style={{width:"100%",padding:"7px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12,fontFamily:C.sans,outline:"none",boxSizing:"border-box",opacity:!isAdmin?0.6:1}}
+                      />
+                    </div>
                     <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
                   </div>
                   <div>
