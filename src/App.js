@@ -806,25 +806,7 @@ function EditNum({ value, onChange, locked }) {
   );
   return <span onClick={() => { setV(safe(value)); setEditing(true); }} title="Click to edit" style={{ cursor: "pointer", color: col, fontFamily: C.mono, fontSize: 14, borderBottom: `1.5px dashed ${C.borderDark}`, paddingBottom: 1 }}>{$F(num)}</span>;
 }
-function EditText({ value, onChange, placeholder }) {
-  const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(value || "");
-  if (editing) return (
-    <input autoFocus type="text" value={v}
-      onChange={e => setV(e.target.value)}
-      onBlur={() => { onChange(v); setEditing(false); }}
-      onKeyDown={e => { if (e.key === "Enter") { onChange(v); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
-      placeholder={placeholder}
-      style={{ background: C.goldLight, border: `1.5px solid ${C.gold}`, borderRadius: 6, color: C.goldText, padding: "4px 10px", width: 140, fontSize: 13, fontFamily: C.sans, outline: "none" }}
-    />
-  );
-  return (
-    <span onClick={() => { setV(value || ""); setEditing(true); }} title="Click to edit"
-      style={{ cursor: "pointer", color: value ? C.text : C.textDim, fontSize: 13, fontFamily: C.sans, borderBottom: `1.5px dashed ${C.borderDark}`, paddingBottom: 1 }}>
-      {value || placeholder || "—"}
-    </span>
-  );
-}
+
 function Row({ label, children, last, labelStyle }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: last ? "none" : `1px solid ${C.border}` }}>
