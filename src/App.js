@@ -123,6 +123,77 @@ function monthLabel(ym) {
   const [y, m] = ym.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-CA", { month: "short", year: "numeric" });
 }
+function monthIndex(ym) {
+  const [y, m] = (ym || SYSTEM_START).split("-").map(Number);
+  return (y * 12) + (m - 1);
+}
+function monthDiff(fromYM, toYM) {
+  return monthIndex(toYM) - monthIndex(fromYM);
+}
+function ymFromDate(value) {
+  return value ? value.slice(0, 7) : "";
+}
+function parseDateParts(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return { y, m, d };
+}
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
+}
+function addMonthsToDate(value, months) {
+  const parts = parseDateParts(value);
+  if (!parts) return "";
+  const dt = new Date(parts.y, parts.m - 1 + months, parts.d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function monthsInLeaseWindow(startDate, endDate) {
+  const start = parseDateParts(startDate);
+  const end = parseDateParts(endDate);
+  if (!start || !end) return 0;
+  let months = ((end.y - start.y) * 12) + (end.m - start.m);
+  if (end.d >= start.d - 1) months += 1;
+  return Math.max(months, 0);
+}
+function makeId(prefix = "id") {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+function makeLease(lease = {}) {
+  const start = lease.lease_start_date || "";
+  const end = lease.lease_end_date || "";
+  const termMonths = safe(lease.lease_term_months) || monthsInLeaseWindow(start, end);
+  return {
+    id: lease.id || makeId("lease"),
+    tenant_full_name: lease.tenant_full_name || "",
+    phone_number: lease.phone_number || "",
+    email: lease.email || "",
+    unit_label: lease.unit_label || "",
+    lease_start_date: start,
+    lease_end_date: end,
+    lease_term_months: termMonths,
+    monthly_rent: safe(lease.monthly_rent),
+    deposit_received: safe(lease.deposit_received),
+    deposit_date: lease.deposit_date || "",
+    payment_frequency: lease.payment_frequency || "monthly",
+    lease_notes: lease.lease_notes || "",
+    lease_status: lease.lease_status || "vacant",
+    deposit_applies_to_rent: lease.deposit_applies_to_rent !== false,
+  };
+}
+function makeUnit(unit = {}) {
+  return {
+    id: unit.id || makeId("unit"),
+    label: unit.label || unit.unit_label || "Unit",
+    status: unit.status || "vacant",
+    market_rent: safe(unit.market_rent ?? unit.rent),
+    notes: unit.notes || "",
+    lease: unit.lease ? makeLease({ ...unit.lease, unit_label: unit.lease.unit_label || unit.label || unit.unit_label || "Unit" }) : null,
+  };
+}
 
 // ─── DEFAULT DATA — April 1, 2026 ─────────────────────────────────────────────
 const DEFAULT = {
@@ -147,6 +218,7 @@ const DEFAULT = {
     {
       id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial",
       purchase:1020000, market:2000000, mortgage:728134, original_balance:0, ownership:1,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
       maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
       monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
@@ -164,6 +236,19 @@ const DEFAULT = {
         { id:"8B-2", label:"8B – Room 2", tenant:"",                rent:0,    status:"vacant" },
         { id:"8B-3", label:"8B – Room 3", tenant:"",                rent:0,    status:"vacant" },
       ],
+      units:[
+        makeUnit({
+          id:"8A", label:"Section 8A", status:"leased", market_rent:6000,
+          lease: {
+            id:"roytec-8a", tenant_full_name:"Nes Bakery Inc.", unit_label:"Section 8A",
+            monthly_rent:6000, payment_frequency:"monthly", lease_status:"active",
+            lease_notes:"Commercial tenant in place. Exact lease dates pending confirmation."
+          }
+        }),
+        makeUnit({ id:"8B-1", label:"8B - Room 1", status:"vacant", market_rent:0 }),
+        makeUnit({ id:"8B-2", label:"8B - Room 2", status:"vacant", market_rent:0 }),
+        makeUnit({ id:"8B-3", label:"8B - Room 3", status:"vacant", market_rent:0 }),
+      ],
       covenant_notes:"DSCR ≥ 1.25× inception · ≥ 1.20× renewal · Min. vacancy factor 5% · Min. mgmt fee 5% · Business interruption ins. ≥ 12 months rent · Fire ins. ≥ $750K · Liability ≥ $2M · Arrangement fee $3,000 · Annual renewal fee $1,000",
       lender:"TD Bank",
       notes:"Borrower: PRIMA Centre for Mental Health and Wellness Inc. Floating — 6.25% is a scenario (prime 4.45% + 1.80%). Balance $728,134 confirmed April 1, 2026.",
@@ -171,6 +256,7 @@ const DEFAULT = {
     {
       id:2, name:"3705 Farr Ave.", status:"STRONG", property_type:"vacant_land",
       purchase:250000, market:1200000, mortgage:0, original_balance:0,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:0, rate:"N/A", rateType:"Mortgage-free",
       maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
       monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
@@ -189,6 +275,7 @@ const DEFAULT = {
     {
       id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
       purchase:3079729, market:2850000, mortgage:1824726, original_balance:2000000,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:7.95, rate:"7.95%", rateType:"12 Month Fixed Open",
       maturity:"Dec 2026", remaining_amortization_months:285, taxes_paid_by:"lender",
       monthlyPayment:15013, monthly_pi:14108, monthly_payment_tax:905,
@@ -206,6 +293,7 @@ const DEFAULT = {
     {
       id:4, name:"51 Ahchie Crt.", status:"RISK", property_type:"residential",
       purchase:2119105, market:1750000, mortgage:1523326, original_balance:1553670,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.24, rate:"5.24%", rateType:"36 Month ARM Closed",
       maturity:"Apr 2026", remaining_amortization_months:336, taxes_paid_by:"lender",
       monthlyPayment:9837, monthly_pi:8601, monthly_payment_tax:1235,
@@ -221,12 +309,50 @@ const DEFAULT = {
         { id:"A", label:"Unit A (Upper)", tenant:"", rent:3300, status:"leased" },
         { id:"B", label:"Unit B (Lower)", tenant:"", rent:1600, status:"leased" },
       ], covenant_notes:"",
+      units:[
+        makeUnit({
+          id:"level-a", label:"Level A", status:"leased", market_rent:3300,
+          lease:{
+            id:"ahchie-level-a-2026",
+            tenant_full_name:"",
+            unit_label:"Level A",
+            lease_start_date:"2026-04-27",
+            lease_end_date:"2027-04-26",
+            lease_term_months:12,
+            monthly_rent:3300,
+            deposit_received:20000,
+            deposit_date:"2026-04-27",
+            payment_frequency:"monthly",
+            lease_status:"active",
+            lease_notes:"Deposit is currently treated as prepaid rent credit unless manually overridden later."
+          }
+        }),
+        makeUnit({
+          id:"level-b", label:"Level B", status:"leased", market_rent:1600,
+          lease:{
+            id:"ahchie-level-b-2026",
+            tenant_full_name:"",
+            unit_label:"Level B",
+            lease_start_date:"2026-04-01",
+            lease_end_date:"2027-03-31",
+            lease_term_months:12,
+            monthly_rent:1600,
+            deposit_received:0,
+            deposit_date:"",
+            payment_frequency:"monthly",
+            lease_status:"active",
+            lease_notes:"Lower level lease placeholder. Tenant details can be added inline."
+          }
+        }),
+        makeUnit({ id:"level-c", label:"Level C", status:"vacant", market_rent:0, notes:"Available for future tenancy." }),
+      ], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"ARM matured April 2026 — renewal due immediately. Market $369K below purchase. Tax account $21,603 — review with lender. Fee balance: $430.",
     },
     {
       id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
       purchase:349000, market:958800, mortgage:894769, original_balance:960000,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.94, rate:"5.94%", rateType:"60 Month Fixed Closed",
       maturity:"Dec 2029", remaining_amortization_months:311, taxes_paid_by:"lender",
       monthlyPayment:5979, monthly_pi:5605, monthly_payment_tax:374,
@@ -238,7 +364,17 @@ const DEFAULT = {
       occupancy_status:"lease_signed_pending_possession",
       tenant_summary:"Lease signed. Possession: April 20, 2026.",
       vacancy_notes:"Currently vacant. Rent collection begins at possession.",
-      sections:[], covenant_notes:"",
+      sections:[],
+      units:[
+        makeUnit({
+          id:"main", label:"Main", status:"lease_signed_pending_possession", market_rent:3900,
+          lease:{
+            id:"new-seabury-main", tenant_full_name:"", unit_label:"Main",
+            monthly_rent:3900, payment_frequency:"monthly", lease_status:"signed_pending",
+            lease_notes:"Lease signed. Possession begins April 20, 2026."
+          }
+        }),
+      ], covenant_notes:"",
       ownership:0.6667, co_owner:"Abassli family (33.3%)",
       lender:"Equitable Bank",
       notes:"Fixed 5.94%. JMF 2/3 share — co-owned with Abassli family. Fee balance: $550. Tax escrowed by lender.",
@@ -257,7 +393,7 @@ const DEFAULT = {
     ],
   },
 
-  rentPayments: [], // { propertyId, month:"YYYY-MM", received, note }
+  rentPayments: [], // { id, propertyId, unitId, leaseId, month:"YYYY-MM", amount, date, type:"payment", note }
 };
 
 // ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
@@ -282,13 +418,220 @@ function mergeById(defaults, dbArr) {
 }
 
 // ─── PROPERTY HELPERS ─────────────────────────────────────────────────────────
-// Returns the rent currently being collected based on occupancy status
+function deriveUnitsFromSections(prop) {
+  const sections = prop.sections || [];
+  if (!sections.length) return [];
+  return sections.map(sec => makeUnit({
+    id: sec.id,
+    label: sec.label,
+    status: sec.status,
+    market_rent: safe(sec.rent),
+    lease: sec.tenant || safe(sec.rent) > 0 ? {
+      id: `${prop.id}-${sec.id}-lease`,
+      tenant_full_name: sec.tenant || "",
+      unit_label: sec.label,
+      monthly_rent: safe(sec.rent),
+      payment_frequency: "monthly",
+      lease_status: sec.status === "leased" ? "active" : "vacant",
+      lease_notes: "",
+    } : null,
+  }));
+}
+function normalizeProperty(prop) {
+  const units = (prop.units && prop.units.length ? prop.units : deriveUnitsFromSections(prop)).map(makeUnit);
+  const occupancy = prop.occupancy_status || (units.some(u => u.lease?.lease_status === "active") ? "partially_leased" : "vacant");
+  return {
+    ...prop,
+    mortgage_as_of_month: prop.mortgage_as_of_month || SYSTEM_START,
+    payment_structure: prop.payment_structure || "amortizing",
+    mortgage_manual_override: safe(prop.mortgage_manual_override),
+    mortgage_manual_override_month: prop.mortgage_manual_override_month || "",
+    units,
+    occupancy_status: occupancy,
+  };
+}
+function normalizeRentPayment(payment) {
+  return {
+    id: payment.id || makeId("rent"),
+    propertyId: payment.propertyId,
+    unitId: payment.unitId || "",
+    leaseId: payment.leaseId || "",
+    month: payment.month || ymFromDate(payment.date) || currentYM(),
+    amount: safe(payment.amount ?? payment.received),
+    date: payment.date || `${payment.month || currentYM()}-01`,
+    type: payment.type || "payment",
+    note: payment.note || "",
+  };
+}
+function getPropertyUnits(prop) {
+  return (prop.units || []).map(makeUnit);
+}
+function getActiveLease(unit) {
+  return unit?.lease?.lease_status && !["vacant", "expired"].includes(unit.lease.lease_status) ? makeLease(unit.lease) : null;
+}
+function getMortgagePI(prop) {
+  return safe(prop.monthly_pi) || Math.max(0, safe(prop.monthlyPayment) - safe(prop.monthly_payment_tax));
+}
+function calculateMortgageSnapshot(prop, targetYM = currentYM()) {
+  const anchorMonth = prop.mortgage_manual_override_month || prop.mortgage_as_of_month || SYSTEM_START;
+  const openingBalance = safe(prop.mortgage_manual_override_month ? prop.mortgage_manual_override : prop.mortgage);
+  const elapsedMonths = Math.max(0, monthDiff(anchorMonth, targetYM));
+  const monthlyRate = safe(prop.interest_rate) / 100 / 12;
+  const piPayment = getMortgagePI(prop);
+  const paymentStructure = prop.payment_structure || "amortizing";
+  let balance = openingBalance;
+  let remainingAmortization = Math.max(0, safe(prop.remaining_amortization_months));
+
+  for (let i = 0; i < elapsedMonths; i += 1) {
+    const interest = monthlyRate > 0 ? balance * monthlyRate : 0;
+    const rawPrincipal = paymentStructure === "interest_only" ? 0 : (piPayment - interest);
+    const principal = Math.max(0, Math.min(balance, rawPrincipal));
+    balance = Math.max(0, balance - principal);
+    remainingAmortization = Math.max(0, remainingAmortization - 1);
+  }
+
+  const currentInterest = monthlyRate > 0 ? balance * monthlyRate : 0;
+  const currentPrincipal = paymentStructure === "interest_only" ? 0 : Math.max(0, Math.min(balance, piPayment - currentInterest));
+  const nextBalance = Math.max(0, balance - currentPrincipal);
+
+  return {
+    anchorMonth,
+    openingBalance,
+    displayedBalance: balance,
+    currentInterest,
+    currentPrincipal,
+    nextBalance,
+    paymentStructure,
+    monthlyPI: piPayment,
+    remainingAmortization,
+    hasManualOverride: !!prop.mortgage_manual_override_month,
+  };
+}
+function getLeaseTermMonths(lease) {
+  return safe(lease.lease_term_months) || monthsInLeaseWindow(lease.lease_start_date, lease.lease_end_date);
+}
+function buildLeaseSchedule(lease) {
+  if (!lease?.lease_start_date || safe(lease.monthly_rent) <= 0) return [];
+  const termMonths = getLeaseTermMonths(lease);
+  if (!termMonths) return [];
+  return Array.from({ length: termMonths }, (_, idx) => {
+    const dueDate = addMonthsToDate(lease.lease_start_date, idx);
+    return {
+      month: ymFromDate(dueDate),
+      dueDate,
+      amount: safe(lease.monthly_rent),
+    };
+  });
+}
+function getLeasePayments(rentPayments, propertyId, unitId, leaseId) {
+  return (rentPayments || [])
+    .map(normalizeRentPayment)
+    .filter(entry =>
+      entry.propertyId === propertyId &&
+      entry.type === "payment" &&
+      (!unitId || entry.unitId === unitId) &&
+      (!leaseId || entry.leaseId === leaseId)
+    );
+}
+function buildLeaseLedger(unit, prop, rentPayments) {
+  const lease = getActiveLease(unit);
+  if (!lease) return null;
+  const schedule = buildLeaseSchedule(lease);
+  const payments = getLeasePayments(rentPayments, prop.id, unit.id, lease.id);
+  const paymentByMonth = payments.reduce((acc, entry) => {
+    acc[entry.month] = (acc[entry.month] || 0) + safe(entry.amount);
+    return acc;
+  }, {});
+  let remainingCredit = lease.deposit_applies_to_rent ? safe(lease.deposit_received) : 0;
+  const rows = schedule.map(item => {
+    const paid = safe(paymentByMonth[item.month]);
+    const creditApplied = Math.min(Math.max(item.amount - paid, 0), remainingCredit);
+    remainingCredit = Math.max(0, remainingCredit - creditApplied);
+    const outstanding = Math.max(0, item.amount - paid - creditApplied);
+    return { ...item, paid, creditApplied, outstanding };
+  });
+  const totalDue = rows.reduce((sum, row) => sum + row.amount, 0);
+  const totalPaid = rows.reduce((sum, row) => sum + row.paid, 0);
+  const totalCredited = rows.reduce((sum, row) => sum + row.creditApplied, 0);
+  const totalOutstanding = rows.reduce((sum, row) => sum + row.outstanding, 0);
+  const remainingLeaseValue = rows
+    .filter(row => row.month >= currentYM())
+    .reduce((sum, row) => sum + row.outstanding, 0);
+  return {
+    lease,
+    rows,
+    payments,
+    totalDue,
+    totalPaid,
+    totalCredited,
+    totalOutstanding,
+    remainingLeaseValue,
+    unusedCredit: remainingCredit,
+  };
+}
+function propertyLeaseLedgers(prop, rentPayments) {
+  return getPropertyUnits(prop)
+    .map(unit => ({ unit, ledger: buildLeaseLedger(unit, prop, rentPayments) }))
+    .filter(item => item.ledger);
+}
+function propertyExpectedRentForMonth(prop, month) {
+  return propertyLeaseLedgers(prop, []).reduce((sum, item) => {
+    const row = item.ledger.rows.find(r => r.month === month);
+    return sum + safe(row?.amount);
+  }, 0);
+}
+function propertyCollectedRentForMonth(prop, rentPayments, month) {
+  return (rentPayments || [])
+    .map(normalizeRentPayment)
+    .filter(entry => entry.propertyId === prop.id && entry.type === "payment" && entry.month === month)
+    .reduce((sum, entry) => sum + safe(entry.amount), 0);
+}
+function propertyCollectedRentTotal(prop, rentPayments) {
+  return (rentPayments || [])
+    .map(normalizeRentPayment)
+    .filter(entry => entry.propertyId === prop.id && entry.type === "payment")
+    .reduce((sum, entry) => sum + safe(entry.amount), 0);
+}
+function propertyOutstandingForMonth(prop, rentPayments, month) {
+  return propertyLeaseLedgers(prop, rentPayments).reduce((sum, item) => {
+    const row = item.ledger.rows.find(r => r.month === month);
+    return sum + safe(row?.outstanding);
+  }, 0);
+}
+function propertyLeaseSummary(prop, rentPayments = []) {
+  const ledgers = propertyLeaseLedgers(prop, rentPayments);
+  const occupiedUnits = ledgers.length;
+  const monthlyRent = ledgers.reduce((sum, item) => sum + safe(item.ledger.lease.monthly_rent), 0);
+  const outstanding = ledgers.reduce((sum, item) => sum + item.ledger.totalOutstanding, 0);
+  return { occupiedUnits, monthlyRent, outstanding, ledgers };
+}
+function propertyOccupancyStatus(prop) {
+  const units = getPropertyUnits(prop);
+  if (!units.length) return prop.occupancy_status;
+  const active = units.filter(unit => {
+    const status = unit.lease?.lease_status || unit.status;
+    return ["active", "signed_pending", "leased", "lease_signed_pending_possession"].includes(status);
+  }).length;
+  const hasPending = units.some(unit => (unit.lease?.lease_status || unit.status) === "signed_pending");
+  if (!active) return prop.property_type === "vacant_land" ? "vacant_land" : "vacant";
+  if (hasPending && active === units.length) return "lease_signed_pending_possession";
+  if (active === units.length) return "leased";
+  return "partially_leased";
+}
+function buildTenantSummary(units) {
+  const active = (units || []).filter(unit => unit.lease && ["active", "signed_pending"].includes(unit.lease.lease_status));
+  if (!active.length) return "";
+  return active.map(unit => `${unit.label}: ${unit.lease.tenant_full_name || "Tenant TBD"} (${ $F(unit.lease.monthly_rent) }/mo)`).join(" · ");
+}
+// Returns the rent currently being collected based on active leases
 function propEffectiveRent(prop) {
-  const secs = prop.sections || [];
-  const st   = prop.occupancy_status;
-  if (!st || st === "vacant" || st === "vacant_land" || st === "owner_occupied" || st === "lease_signed_pending_possession") return 0;
-  if (st === "partially_leased" && secs.length) return secs.filter(s => s.status === "leased").reduce((sum, s) => sum + safe(s.rent), 0);
-  return safe(prop.rentalIncome);
+  const units = getPropertyUnits(prop);
+  if (!units.length) return safe(prop.rentalIncome);
+  return units.reduce((sum, unit) => {
+    const lease = getActiveLease(unit);
+    if (!lease || !["active", "signed_pending"].includes(lease.lease_status)) return sum;
+    return sum + safe(lease.monthly_rent);
+  }, 0);
 }
 // Returns total monthly cash outflows for a property
 function propMonthlyOut(prop) {
@@ -300,15 +643,13 @@ function propMonthlyOut(prop) {
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
 function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
 // Gross equity regardless of ownership split
-function propGrossEquity(prop) { return safe(prop.market) - safe(prop.mortgage); }
+function propCurrentMortgageBalance(prop, targetYM = currentYM()) { return calculateMortgageSnapshot(prop, targetYM).displayedBalance; }
+function propGrossEquity(prop) { return safe(prop.market) - propCurrentMortgageBalance(prop); }
 // JMF-attributable equity (gross × ownership share)
 function propJMFEquity(prop) { return propGrossEquity(prop) * propOwnership(prop); }
 // Expected monthly rent for ledger (shows agreed rent even pre-possession)
 function propLedgerExpected(prop) {
-  const secs = prop.sections || [];
-  if (prop.occupancy_status === "partially_leased" && secs.length)
-    return secs.filter(s => s.status === "leased").reduce((sum, s) => sum + safe(s.rent), 0);
-  return safe(prop.rentalIncome);
+  return propertyExpectedRentForMonth(prop, currentYM()) || propEffectiveRent(prop) || safe(prop.rentalIncome);
 }
 
 // ─── AUTH / PROFILE HELPERS ───────────────────────────────────────────────────
@@ -548,7 +889,7 @@ function CashFlowGraph({ data }) {
     const bizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
       const e = (b.monthlyProfits || []).find(p => p.month === m); return s + safe(e?.profit);
     }, 0);
-    const rentIn = (data.rentPayments || []).filter(r => r.month === m).reduce((s, r) => s + safe(r.received), 0);
+    const rentIn = (data.rentPayments || []).map(normalizeRentPayment).filter(r => r.month === m).reduce((s, r) => s + safe(r.amount), 0);
     const indIn  = data.individuals.reduce((s, ind) => {
       const e = (ind.monthlyIncome || []).find(p => p.month === m); return s + safe(e?.income);
     }, 0);
@@ -645,25 +986,33 @@ function CashModal({ current, onSave, onClose }) {
 }
 
 // ─── RENT LOG MODAL ───────────────────────────────────────────────────────────
-function RentLogModal({ propertyName, month, current, onSave, onClose }) {
-  const [received, setReceived] = useState(safe(current?.received));
-  const [note, setNote]         = useState(current?.note || "");
+function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditApplied, current, onSave, onClose }) {
+  const [received, setReceived] = useState(safe(current?.amount));
+  const [note, setNote] = useState(current?.note || "");
+  const [date, setDate] = useState(current?.date || `${month}-01`);
   const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:14, fontFamily:C.mono, outline:"none", boxSizing:"border-box", marginBottom:14 };
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, width:"100%", maxWidth:360, boxShadow:"0 8px 48px rgba(0,0,0,0.14)" }}>
         <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Log Rent Payment</div>
-        <div style={{ fontSize:13, color:C.textDim, marginBottom:20 }}>{propertyName} · {monthLabel(month)}</div>
+        <div style={{ fontSize:13, color:C.textDim, marginBottom:8 }}>{propertyName} · {unitLabel} · {monthLabel(month)}</div>
+        <div style={{ background:C.bg, borderRadius:10, padding:"10px 12px", marginBottom:18, fontSize:12, color:C.textMid, lineHeight:1.6 }}>
+          <div>Tenant: <strong style={{ color:C.text }}>{lease?.tenant_full_name || "Tenant TBD"}</strong></div>
+          <div>Rent due: <strong style={{ color:C.text }}>{$F(expected)}</strong></div>
+          <div>Deposit credit applied: <strong style={{ color:creditApplied > 0 ? C.gold : C.textDim }}>{$F(creditApplied)}</strong></div>
+        </div>
         <Label>Amount received (CAD)</Label>
         <input type="number" autoFocus value={received} onChange={e => setReceived(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { onSave(safe(received), note); onClose(); } if (e.key === "Escape") onClose(); }}
+          onKeyDown={e => { if (e.key === "Enter") { onSave(safe(received), note, date); onClose(); } if (e.key === "Escape") onClose(); }}
           style={inp} />
+        <Label>Payment date</Label>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inp, fontFamily:C.sans, fontSize:13 }} />
         <Label>Note (optional)</Label>
         <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. e-transfer received April 15"
           style={{ ...inp, fontFamily:C.sans, fontSize:13 }} />
         <div style={{ display:"flex", gap:10 }}>
-          <button onClick={() => { onSave(safe(received), note); onClose(); }}
+          <button onClick={() => { onSave(safe(received), note, date); onClose(); }}
             style={{ flex:1, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer" }}>Save</button>
           <button onClick={onClose}
             style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer" }}>Cancel</button>
@@ -1411,7 +1760,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
 }
 
 // ─── PROPERTY CARD ────────────────────────────────────────────────────────────
-function PropCard({ prop, onUpdate, isAdmin, userId }) {
+function LegacyPropCard({ prop, onUpdate, isAdmin, userId }) {
   const [open, setOpen]               = useState(false);
   const [expenses, setExpenses]       = useState([]);
   const [reminders, setReminders]     = useState([]);
@@ -1815,6 +2164,444 @@ function PropCard({ prop, onUpdate, isAdmin, userId }) {
             </div>
           )}
 
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
+  const existing = unit?.lease ? makeLease(unit.lease) : makeLease({ unit_label: unit?.label || "", lease_status: "active" });
+  const [tenantFullName, setTenantFullName] = useState(existing.tenant_full_name);
+  const [phoneNumber, setPhoneNumber] = useState(existing.phone_number);
+  const [email, setEmail] = useState(existing.email);
+  const [leaseStartDate, setLeaseStartDate] = useState(existing.lease_start_date);
+  const [leaseEndDate, setLeaseEndDate] = useState(existing.lease_end_date);
+  const [monthlyRent, setMonthlyRent] = useState(safe(existing.monthly_rent));
+  const [depositReceived, setDepositReceived] = useState(safe(existing.deposit_received));
+  const [depositDate, setDepositDate] = useState(existing.deposit_date);
+  const [paymentFrequency, setPaymentFrequency] = useState(existing.payment_frequency || "monthly");
+  const [leaseNotes, setLeaseNotes] = useState(existing.lease_notes);
+  const [leaseStatus, setLeaseStatus] = useState(existing.lease_status || "active");
+  const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", boxSizing:"border-box" };
+
+  const save = () => {
+    const nextLease = leaseStatus === "vacant" ? null : makeLease({
+      ...existing,
+      tenant_full_name: tenantFullName,
+      phone_number: phoneNumber,
+      email,
+      unit_label: unit.label,
+      lease_start_date: leaseStartDate,
+      lease_end_date: leaseEndDate,
+      lease_term_months: monthsInLeaseWindow(leaseStartDate, leaseEndDate),
+      monthly_rent: safe(monthlyRent),
+      deposit_received: safe(depositReceived),
+      deposit_date: depositDate,
+      payment_frequency: paymentFrequency,
+      lease_notes: leaseNotes,
+      lease_status: leaseStatus,
+    });
+    onSave({
+      ...unit,
+      status: leaseStatus === "vacant" ? "vacant" : leaseStatus,
+      market_rent: safe(monthlyRent),
+      lease: nextLease,
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(7,15,30,0.42)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1300, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:28, width:"100%", maxWidth:700, boxShadow:"0 18px 60px rgba(11,24,41,0.18)", maxHeight:"92vh", overflowY:"auto" }}>
+        <div style={{ marginBottom:18 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>{propertyName}</div>
+          <div style={{ fontSize:22, fontWeight:700, color:C.text, marginTop:4 }}>{unit.label} Lease</div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:14 }}>
+          <div>
+            <Label>Tenant Full Name</Label>
+            <input value={tenantFullName} onChange={e => setTenantFullName(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Phone Number</Label>
+            <input value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Email</Label>
+            <input value={email} onChange={e => setEmail(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Unit / Level</Label>
+            <input value={unit.label} disabled style={{ ...inp, color:C.textMid }} />
+          </div>
+          <div>
+            <Label>Lease Start Date</Label>
+            <input type="date" value={leaseStartDate} onChange={e => setLeaseStartDate(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Lease End Date</Label>
+            <input type="date" value={leaseEndDate} onChange={e => setLeaseEndDate(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Monthly Rent</Label>
+            <input type="number" value={monthlyRent} onChange={e => setMonthlyRent(e.target.value)} style={{ ...inp, fontFamily:C.mono }} />
+          </div>
+          <div>
+            <Label>Deposit Received</Label>
+            <input type="number" value={depositReceived} onChange={e => setDepositReceived(e.target.value)} style={{ ...inp, fontFamily:C.mono }} />
+          </div>
+          <div>
+            <Label>Deposit Date</Label>
+            <input type="date" value={depositDate} onChange={e => setDepositDate(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Payment Frequency</Label>
+            <select value={paymentFrequency} onChange={e => setPaymentFrequency(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+              {["monthly", "bi-weekly", "weekly", "quarterly"].map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label>Lease Status</Label>
+            <select value={leaseStatus} onChange={e => setLeaseStatus(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+              <option value="active">Active</option>
+              <option value="signed_pending">Signed / Pending</option>
+              <option value="expired">Expired</option>
+              <option value="vacant">Vacant</option>
+            </select>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <Label>Lease Notes / Terms</Label>
+            <textarea value={leaseNotes} onChange={e => setLeaseNotes(e.target.value)} rows={4}
+              style={{ ...inp, resize:"vertical", minHeight:100 }} />
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, marginTop:22 }}>
+          <button onClick={save} style={{ flex:1, padding:"12px 16px", background:C.gold, border:"none", borderRadius:10, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer" }}>Save Tenant & Lease</button>
+          <button onClick={onClose} style={{ flex:1, padding:"12px 16px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:10, color:C.textMid, fontSize:14, cursor:"pointer" }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) {
+  const [open, setOpen] = useState(false);
+  const [editingUnit, setEditingUnit] = useState(null);
+  const [loggingRent, setLoggingRent] = useState(null);
+
+  const mortgage = calculateMortgageSnapshot(prop, currentYM());
+  const market = safe(prop.market);
+  const balance = mortgage.displayedBalance;
+  const rawEquity = market - balance;
+  const sellingCosts = (market * 0.035 * 1.13) + 1500;
+  const netEquity = rawEquity - sellingCosts;
+  const ltv = balance > 0 && market > 0 ? (balance / market * 100) : 0;
+  const units = getPropertyUnits(prop);
+  const occupancyStatus = propertyOccupancyStatus(prop);
+  const effectiveRent = propEffectiveRent(prop);
+  const totalOut = propMonthlyOut(prop);
+  const monthlyNCF = effectiveRent - totalOut;
+  const ownership = propOwnership(prop);
+  const jmfEquity = propJMFEquity(prop);
+  const isPartial = ownership < 0.9999;
+  const displayEquity = isPartial ? jmfEquity : rawEquity;
+  const displayEqColor = displayEquity > 500000 ? C.gold : displayEquity > 0 ? C.amber : C.red;
+  const ledgers = propertyLeaseLedgers(prop, rentPayments);
+  const nextExpected = propertyExpectedRentForMonth(prop, currentYM());
+  const collectedThisMonth = propertyCollectedRentForMonth(prop, rentPayments, currentYM());
+  const collectedTotal = propertyCollectedRentTotal(prop, rentPayments);
+
+  function updateUnits(nextUnits) {
+    const normalized = nextUnits.map(makeUnit);
+    const nextProp = { ...prop, units: normalized };
+    onUpdate("units", normalized);
+    onUpdate("occupancy_status", propertyOccupancyStatus(nextProp));
+    onUpdate("tenant_summary", buildTenantSummary(normalized));
+    onUpdate("rentalIncome", propEffectiveRent(nextProp));
+  }
+
+  function saveUnit(unit) {
+    updateUnits(units.map(item => item.id === unit.id ? makeUnit(unit) : item));
+  }
+
+  return (
+    <div style={{ background:C.card, border:`1px solid ${open ? C.gold : C.border}`, borderRadius:18, overflow:"hidden", marginBottom:16, boxShadow: open ? C.shadowMd : C.shadow, transition:"border-color 0.18s, box-shadow 0.18s" }}>
+      {editingUnit && <LeaseEditorModal propertyName={prop.name} unit={editingUnit} onSave={saveUnit} onClose={() => setEditingUnit(null)} />}
+      {loggingRent && (
+        <RentLogModal
+          propertyName={prop.name}
+          unitLabel={loggingRent.unit.label}
+          lease={loggingRent.ledger.lease}
+          month={loggingRent.month}
+          expected={loggingRent.row.amount}
+          creditApplied={loggingRent.row.creditApplied}
+          current={loggingRent.current}
+          onSave={(amount, note, date) => {
+            onSaveRentPayment({
+              propertyId: prop.id,
+              unitId: loggingRent.unit.id,
+              leaseId: loggingRent.ledger.lease.id,
+              month: loggingRent.month,
+              amount,
+              note,
+              date,
+            });
+          }}
+          onClose={() => setLoggingRent(null)}
+        />
+      )}
+
+      <div onClick={() => setOpen(o => !o)} style={{ padding:"18px 22px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", gap:14 }}>
+        <div style={{ minWidth:0, flex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+            <StatusPill status={prop.status} />
+            <OccupancyBadge status={occupancyStatus} />
+            {isPartial && <span style={{ background:C.purpleLight, color:C.purpleText, borderRadius:20, fontSize:10, fontWeight:700, padding:"3px 10px" }}>JMF {Math.round(ownership * 100)}%</span>}
+          </div>
+          <div style={{ fontSize:21, fontWeight:700, color:C.text, letterSpacing:-0.4 }}>{prop.name}</div>
+          <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>{prop.lender} · {prop.rate}{isPartial ? ` · ${prop.co_owner}` : ""}</div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(96px, 1fr))", gap:10, minWidth:300 }}>
+          {[
+            { label:"Market", value:$K(market), color:C.text },
+            { label:"Debt", value:$K(balance), color:C.red },
+            { label:isPartial ? "JMF Equity" : "Equity", value:$K(displayEquity), color:displayEqColor },
+          ].map(item => (
+            <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 12px", textAlign:"right" }}>
+              <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>{item.label}</div>
+              <div style={{ fontSize:16, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ borderTop:`1px solid ${C.border}` }}>
+          <div style={{ padding:"22px" }}>
+            <Label>Property Overview</Label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12, marginTop:12 }}>
+              {[
+                { label:"Purchase", value:$F(prop.purchase), color:C.text },
+                { label:"Market Value", value:$F(market), color:C.text },
+                { label:"Current Debt", value:$F(balance), color:C.red },
+                { label:"Gross Equity", value:$F(rawEquity), color:rawEquity >= 0 ? C.gold : C.red },
+                { label:"Expected Rent", value:$F(nextExpected || effectiveRent), color:C.green },
+                { label:"Monthly Cash Flow", value:`${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF)}`, color:monthlyNCF >= 0 ? C.green : C.red },
+              ].map(item => (
+                <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
+                  <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{item.label}</div>
+                  <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:18 }}>
+              <div>
+                <Row label="Occupancy"><span style={{ fontSize:13, color:C.text }}>{units.length ? `${units.filter(u => getActiveLease(u)).length}/${units.length} units with leases` : "No tracked units"}</span></Row>
+                <Row label="Tenant Summary"><span style={{ fontSize:13, color: prop.tenant_summary ? C.text : C.textDim, textAlign:"right" }}>{prop.tenant_summary || "No active tenants yet"}</span></Row>
+                <Row label="Est. net if sold" last><span style={{ fontFamily:C.mono, color:netEquity >= 0 ? C.green : C.red }}>{$F(netEquity)}</span></Row>
+              </div>
+              <div>
+                <Row label="LTV"><span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily:C.mono, fontWeight:700 }}>{ltv.toFixed(1)}%</span></Row>
+                {prop.co_owner && <Row label="Co-owner"><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
+                <Row label="Notes" last><span style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, textAlign:"right" }}>{prop.notes || "—"}</span></Row>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+            <Label>Mortgage</Label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:20, marginTop:12 }}>
+              <div>
+                <Row label="Lender"><span style={{ fontSize:13, color:C.text }}>{prop.lender}</span></Row>
+                <Row label="Rate"><span style={{ fontFamily:C.mono, color:C.amber }}>{prop.rate}</span></Row>
+                <Row label="Payment structure">
+                  {isAdmin ? (
+                    <select value={prop.payment_structure || "amortizing"} onChange={e => onUpdate("payment_structure", e.target.value)}
+                      style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12 }}>
+                      <option value="amortizing">Amortizing</option>
+                      <option value="interest_only">Interest only</option>
+                    </select>
+                  ) : (
+                    <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
+                  )}
+                </Row>
+                <Row label={`Tracked balance (${mortgage.anchorMonth})`}><EditNum value={safe(prop.mortgage)} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
+                <Row label="Tracked as-of month">
+                  {isAdmin ? <EditText value={prop.mortgage_as_of_month} onChange={v => onUpdate("mortgage_as_of_month", v)} placeholder="YYYY-MM" /> : <span style={{ fontFamily:C.mono, fontSize:13 }}>{prop.mortgage_as_of_month}</span>}
+                </Row>
+                <Row label="Manual override balance"><EditNum value={safe(prop.mortgage_manual_override)} onChange={v => onUpdate("mortgage_manual_override", v)} locked={!isAdmin} /></Row>
+                <Row label="Override month" last>
+                  {isAdmin ? <EditText value={prop.mortgage_manual_override_month} onChange={v => onUpdate("mortgage_manual_override_month", v)} placeholder="YYYY-MM" /> : <span style={{ fontFamily:C.mono, fontSize:13 }}>{prop.mortgage_manual_override_month || "—"}</span>}
+                </Row>
+              </div>
+              <div>
+                <Row label={`Calculated balance (${currentYM()})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
+                <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
+                <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
+                <Row label="Projected next balance"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
+                <Row label="Monthly payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                <Row label="P&I portion"><EditNum value={safe(prop.monthly_pi)} onChange={v => onUpdate("monthly_pi", v)} locked={!isAdmin} /></Row>
+                <Row label="Remaining amortization" last><EditNum value={safe(mortgage.remainingAmortization)} onChange={v => onUpdate("remaining_amortization_months", v)} locked={!isAdmin} /></Row>
+              </div>
+            </div>
+            <div style={{ marginTop:12, fontSize:11, color:C.textDim }}>
+              The mortgage balance now rolls forward from the tracked balance month using the payment, rate, and amortization. Use the manual override fields when the lender statement differs from the schedule.
+            </div>
+          </div>
+
+          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+            <Label>Monthly Operating Expenses</Label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
+              <div>
+                <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                {prop.taxes_paid_by !== "lender" && <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>}
+                <Row label="Insurance"><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
+                <Row label="Management fee" last><EditNum value={safe(prop.management_fee_monthly)} onChange={v => onUpdate("management_fee_monthly", v)} locked={!isAdmin} /></Row>
+              </div>
+              <div>
+                <Row label="Maintenance reserve"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
+                <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
+                <Row label="CapEx reserve"><EditNum value={safe(prop.capex_reserve_monthly)} onChange={v => onUpdate("capex_reserve_monthly", v)} locked={!isAdmin} /></Row>
+                <Row label="Total monthly outflow" last><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(totalOut)}</span></Row>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+            <div style={{ marginBottom:12 }}>
+              <Label>Tenants / Leases</Label>
+              <div style={{ fontSize:12, color:C.textDim }}>Tenants now live at the unit or level level so each property is easier to manage.</div>
+            </div>
+            {units.length === 0 ? (
+              <div style={{ fontSize:13, color:C.textDim }}>This property does not currently have tracked rental units.</div>
+            ) : (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:14 }}>
+                {units.map(unit => {
+                  const lease = getActiveLease(unit);
+                  return (
+                    <div key={unit.id} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
+                        <div>
+                          <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{unit.label}</div>
+                          <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>{lease?.tenant_full_name || "No tenant assigned"}</div>
+                        </div>
+                        <span style={{ background: lease ? C.greenLight : C.border, color: lease ? C.greenText : C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px" }}>
+                          {lease ? (lease.lease_status === "signed_pending" ? "Pending" : "Leased") : "Vacant"}
+                        </span>
+                      </div>
+                      <div style={{ display:"grid", gap:8 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                          <span style={{ color:C.textDim }}>Monthly rent</span>
+                          <span style={{ fontFamily:C.mono, color:C.text }}>{$F(lease?.monthly_rent || unit.market_rent)}</span>
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                          <span style={{ color:C.textDim }}>Lease window</span>
+                          <span style={{ color:C.text }}>{lease ? `${formatDate(lease.lease_start_date)} - ${formatDate(lease.lease_end_date)}` : "—"}</span>
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                          <span style={{ color:C.textDim }}>Deposit</span>
+                          <span style={{ fontFamily:C.mono, color:safe(lease?.deposit_received) > 0 ? C.gold : C.textDim }}>{$F(lease?.deposit_received || 0)}</span>
+                        </div>
+                        {lease?.phone_number && <div style={{ fontSize:12, color:C.textMid }}>{lease.phone_number}</div>}
+                        {lease?.email && <div style={{ fontSize:12, color:C.textMid }}>{lease.email}</div>}
+                        {lease?.lease_notes && <div style={{ fontSize:12, color:C.textMid, lineHeight:1.55 }}>{lease.lease_notes}</div>}
+                      </div>
+                      {isAdmin && (
+                        <button onClick={() => setEditingUnit(unit)}
+                          style={{ width:"100%", marginTop:14, padding:"10px 12px", background:lease ? C.surface : C.goldLight, border:`1px solid ${lease ? C.border : C.gold}`, borderRadius:10, color:lease ? C.textMid : C.goldText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                          {lease ? "Edit Tenant / Lease" : "Add Tenant"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+              <div>
+                <Label>Rent Ledger</Label>
+                <div style={{ fontSize:12, color:C.textDim }}>Lease-aware rent due, payments, deposit credit, and remaining value through expiry.</div>
+              </div>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Due this month: <strong style={{ color:C.text }}>{$F(nextExpected)}</strong></span>
+                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected this month: <strong style={{ color:collectedThisMonth > 0 ? C.green : C.text }}>{$F(collectedThisMonth)}</strong></span>
+                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected total: <strong style={{ color:C.green }}>{$F(collectedTotal)}</strong></span>
+              </div>
+            </div>
+            {ledgers.length === 0 ? (
+              <div style={{ fontSize:13, color:C.textDim }}>Add a tenant lease to generate a rent ledger for this property.</div>
+            ) : (
+              <div style={{ display:"grid", gap:14 }}>
+                {ledgers.map(({ unit, ledger }) => (
+                  <div key={unit.id} style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
+                    <div style={{ padding:"14px 16px", background:C.bg, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                      <div>
+                        <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{unit.label} · {ledger.lease.tenant_full_name || "Tenant TBD"}</div>
+                        <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{formatDate(ledger.lease.lease_start_date)} - {formatDate(ledger.lease.lease_end_date)} · {ledger.lease.payment_frequency}</div>
+                      </div>
+                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                        {[
+                          { label:"Lease Value", value:$F(ledger.totalDue), color:C.text },
+                          { label:"Paid", value:$F(ledger.totalPaid), color:C.green },
+                          { label:"Credited", value:$F(ledger.totalCredited), color:C.gold },
+                          { label:"Outstanding", value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
+                          { label:"Remaining", value:$F(ledger.remainingLeaseValue), color:ledger.remainingLeaseValue > 0 ? C.amber : C.green },
+                        ].map(item => (
+                          <div key={item.label} style={{ textAlign:"right" }}>
+                            <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{item.label}</div>
+                            <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {safe(ledger.lease.deposit_received) > 0 && (
+                      <div style={{ padding:"10px 16px", borderTop:`1px solid ${C.border}`, background:C.goldLight, fontSize:12, color:C.goldText }}>
+                        Deposit recorded: {$F(ledger.lease.deposit_received)} on {formatDate(ledger.lease.deposit_date)}. This amount is currently being applied as prepaid rent credit.
+                      </div>
+                    )}
+                    <div style={{ padding:"0 16px 14px" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                        <span>Month</span>
+                        <span>Due Date</span>
+                        <span>Rent Due</span>
+                        <span>Paid</span>
+                        <span>Credit / Owing</span>
+                        <span></span>
+                      </div>
+                      {ledger.rows.map((row, idx) => {
+                        const current = ledger.payments.find(entry => entry.month === row.month);
+                        return (
+                          <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                            <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
+                            <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
+                            <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
+                            <div>
+                              <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                              {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
+                            </div>
+                            <div>
+                              <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 ? C.gold : (row.outstanding > 0 ? C.red : C.green) }}>
+                                {row.creditApplied > 0 ? `Credit ${$F(row.creditApplied)}` : row.outstanding > 0 ? `Owing ${$F(row.outstanding)}` : "Settled"}
+                              </div>
+                            </div>
+                            <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
+                              style={{ fontSize:11, padding:"6px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, cursor:"pointer", fontWeight:700 }}>
+                              {current ? "Edit" : "Log"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -2297,7 +3084,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [cashModal, setCashModal]   = useState(false);
   const [pendingSubs, setPendingSubs] = useState([]);
   const [profiles, setProfiles]     = useState([]);
-  const [rentLogModal, setRentLogModal] = useState(null); // { propertyId, propertyName, month }
   const [showReminder, setShowReminder] = useState(false);
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
   const [cfMonth, setCFMonth]       = useState(currentYM());
@@ -2315,11 +3101,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   useEffect(() => {
     const ym = currentYM();
     const missingRent = data.properties
-      .filter(p => ["leased", "partially_leased", "lease_signed_pending_possession"].includes(p.occupancy_status))
-      .filter(p => {
-        const entry = (data.rentPayments || []).find(r => r.propertyId === p.id && r.month === ym);
-        return !entry || safe(entry.received) === 0;
-      });
+      .filter(p => propertyOutstandingForMonth(p, data.rentPayments || [], ym) > 0);
     const missingProfits = data.businesses
       .filter(b => b.type !== "nonprofit")
       .filter(b => !(b.monthlyProfits || []).find(p => p.month === ym));
@@ -2336,10 +3118,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalRENetSale = data.properties.reduce((s, p) => {
     const mkt = safe(p.market);
     const selling = (mkt * 0.035 * 1.13) + 1500;
-    return s + ((mkt - safe(p.mortgage) - selling) * propOwnership(p));
+    return s + ((mkt - propCurrentMortgageBalance(p) - selling) * propOwnership(p));
   }, 0); // JMF net proceeds if all RE sold
   const totalREVal     = data.properties.reduce((s, p) => s + safe(p.market), 0);
-  const totalREDbt     = data.properties.reduce((s, p) => s + safe(p.mortgage), 0);
+  const totalREDbt     = data.properties.reduce((s, p) => s + propCurrentMortgageBalance(p), 0);
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalNW    = totalRENetSale + totalPers + totalBiz;
@@ -2389,10 +3171,24 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
-  function updRentPayment(propertyId, month, received, note) {
-    const existing = data.rentPayments || [];
-    const idx = existing.findIndex(r => r.propertyId === propertyId && r.month === month);
-    const entry = { propertyId, month, received: safe(received), note: note || "" };
+  function updRentPayment(payloadOrPropertyId, month, received, note) {
+    const payload = typeof payloadOrPropertyId === "object"
+      ? payloadOrPropertyId
+      : { propertyId: payloadOrPropertyId, month, amount: received, note };
+    const existing = (data.rentPayments || []).map(normalizeRentPayment);
+    const idx = existing.findIndex(r =>
+      r.propertyId === payload.propertyId &&
+      r.unitId === (payload.unitId || "") &&
+      r.leaseId === (payload.leaseId || "") &&
+      r.month === payload.month &&
+      r.type === "payment"
+    );
+    const entry = normalizeRentPayment({
+      ...payload,
+      type: "payment",
+      amount: safe(payload.amount),
+      date: payload.date || `${payload.month}-01`,
+    });
     const updated = idx >= 0
       ? existing.map((r, i) => i === idx ? entry : r)
       : [...existing, entry];
@@ -2441,15 +3237,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
-      {rentLogModal && (
-        <RentLogModal
-          propertyName={rentLogModal.propertyName}
-          month={rentLogModal.month}
-          current={(data.rentPayments || []).find(r => r.propertyId === rentLogModal.propertyId && r.month === rentLogModal.month)}
-          onSave={(received, note) => updRentPayment(rentLogModal.propertyId, rentLogModal.month, received, note)}
-          onClose={() => setRentLogModal(null)}
-        />
-      )}
       {showReminder && (
         <ReminderModal
           missingRent={reminderData.missingRent}
@@ -2518,13 +3305,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
       {/* TABS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", overflowX:"auto", padding: "0 28px" }}>
+        <div style={{ display: "flex", justifyContent:"center", padding: "0 28px" }}>
+          <div style={{ display: "flex", overflowX:"auto", justifyContent:"center", width:"100%", maxWidth:860 }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(tabId(t))}
               style={{ padding: "12px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textDim, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans, transition:"color 0.15s" }}>
               {t}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -2559,7 +3348,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               <Label>Real Estate Portfolio</Label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
                 {data.properties.map(p => {
-                  const eq = safe(p.market) - safe(p.mortgage);
+                  const eq = safe(p.market) - propCurrentMortgageBalance(p);
                   return (
                     <div key={p.id} onClick={() => setTab("realestate")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.boxShadow = C.shadowMd; }}
@@ -2641,13 +3430,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
         {/* ── REAL ESTATE ── */}
         {tab === "realestate" && (() => {
-          // Missed rent alert: past months with no logged payment for leased properties
           const pastMonths = monthsBetween(SYSTEM_START, currentYM()).slice(0, -1);
           const missedRents = data.properties
-            .filter(p => ["leased", "partially_leased"].includes(p.occupancy_status))
+            .filter(p => pastMonths.some(m => propertyOutstandingForMonth(p, data.rentPayments || [], m) > 0))
             .flatMap(p => pastMonths.filter(m => {
-              const e = (data.rentPayments || []).find(r => r.propertyId === p.id && r.month === m);
-              return !e || safe(e.received) === 0;
+              return propertyOutstandingForMonth(p, data.rentPayments || [], m) > 0;
             }).map(m => ({ prop: p, month: m })));
           return (
           <div>
@@ -2681,64 +3468,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               ))}
             </div>
             <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-              Click any property to expand · "Est. net if sold" deducts 3.5% realtor (HST incl.) + $1,500 legal
+              Click any property to expand. The real estate view now focuses on overview, mortgage, operating expenses, leases, and a lease-aware ledger.
             </div>
-            {data.properties.map(p => <PropCard key={p.id} prop={p} onUpdate={(f, v) => updProp(p.id, f, v)} isAdmin={true} userId={user.id} />)}
-
-            {/* ── RENT COLLECTION LEDGER ── */}
-            <div style={{ marginTop: 32 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Rent Collection Ledger</div>
-              <div style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>Tracking from April 2026 · Click Log / Edit to record each payment</div>
-              {data.properties
-                .filter(p => ["leased", "partially_leased", "lease_signed_pending_possession"].includes(p.occupancy_status))
-                .map(prop => {
-                  const months  = monthsBetween(SYSTEM_START, currentYM());
-                  const expRent = propLedgerExpected(prop);
-                  const totalCollected = (data.rentPayments || []).filter(r => r.propertyId === prop.id).reduce((s, r) => s + safe(r.received), 0);
-                  return (
-                    <Card key={prop.id} style={{ marginBottom: 12 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12 }}>
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{prop.name}</div>
-                          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>Expected: {$F(expRent)}/mo</div>
-                        </div>
-                        <OccupancyBadge status={prop.occupancy_status} />
-                      </div>
-                      {/* header row */}
-                      <div style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 80px", gap:"4px 8px", padding:"0 0 6px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>
-                        <span>Month</span><span>Expected</span><span>Received</span><span></span>
-                      </div>
-                      {months.map((m, i) => {
-                        const payment = (data.rentPayments || []).find(r => r.propertyId === prop.id && r.month === m);
-                        const received = safe(payment?.received);
-                        const isPaid = received > 0;
-                        const isCurrent = m === currentYM();
-                        return (
-                          <div key={m} style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 80px", gap:"4px 8px", padding:"8px 0", borderBottom: i < months.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
-                            <span style={{ fontSize: 12, color: C.textMid }}>{monthLabel(m)}</span>
-                            <span style={{ fontSize: 12, fontFamily: C.mono, color: C.textDim }}>{$F(expRent)}</span>
-                            <div>
-                              <span style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 600, color: isPaid ? C.green : (isCurrent ? C.amber : C.red) }}>
-                                {isPaid ? $F(received) : (isCurrent ? "Pending" : "Not received")}
-                              </span>
-                              {payment?.note && <div style={{ fontSize: 10, color: C.textDim, fontStyle:"italic", marginTop: 1 }}>{payment.note}</div>}
-                            </div>
-                            <button
-                              onClick={() => setRentLogModal({ propertyId: prop.id, propertyName: prop.name, month: m })}
-                              style={{ fontSize: 11, padding:"4px 10px", background: isPaid ? C.bg : C.goldLight, border:`1px solid ${isPaid ? C.border : C.gold}`, borderRadius: 6, color: isPaid ? C.textMid : C.goldText, cursor:"pointer", fontWeight: 600, textAlign:"center" }}>
-                              {isPaid ? "Edit" : "Log"}
-                            </button>
-                          </div>
-                        );
-                      })}
-                      <div style={{ display:"flex", justifyContent:"space-between", paddingTop: 10, marginTop: 4, borderTop:`2px solid ${C.border}` }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Total collected (all months)</span>
-                        <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: C.green }}>{$F(totalCollected)}</span>
-                      </div>
-                    </Card>
-                  );
-                })}
-            </div>
+            {data.properties.map(p => (
+              <PropCard
+                key={p.id}
+                prop={p}
+                rentPayments={data.rentPayments || []}
+                onUpdate={(f, v) => updProp(p.id, f, v)}
+                onSaveRentPayment={updRentPayment}
+                isAdmin={true}
+              />
+            ))}
           </div>
           );
         })()}
@@ -2831,7 +3572,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
             return s + safe(e?.profit);
           }, 0);
-          const cfRentIn  = (data.rentPayments || []).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.received), 0);
+          const cfRentIn  = (data.rentPayments || []).map(normalizeRentPayment).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.amount), 0);
           const cfPayroll = data.individuals.reduce((s, ind) => {
             const e = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
             return s + safe(e?.income);
@@ -2985,13 +3726,15 @@ export default function App() {
       setProfile(prof);
 
       if (dbData) {
+        const mergedProperties = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
+        const mergedRentPayments = (dbData.rentPayments || DEFAULT.rentPayments).map(normalizeRentPayment);
         setData({
           ...DEFAULT,
           individuals:  mergeById(DEFAULT.individuals, dbData.individuals),
-          properties:   mergeById(DEFAULT.properties,  dbData.properties),
+          properties:   mergedProperties,
           businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
           cashflow:     dbData.cashflow     || DEFAULT.cashflow,
-          rentPayments: dbData.rentPayments || DEFAULT.rentPayments,
+          rentPayments: mergedRentPayments,
         });
       } else {
         // First run — seed the database with defaults
@@ -3000,7 +3743,11 @@ export default function App() {
         saveToDB("businesses",   DEFAULT.businesses);
         saveToDB("cashflow",     DEFAULT.cashflow);
         saveToDB("rentPayments", DEFAULT.rentPayments);
-        setData(DEFAULT);
+        setData({
+          ...DEFAULT,
+          properties: DEFAULT.properties.map(normalizeProperty),
+          rentPayments: DEFAULT.rentPayments.map(normalizeRentPayment),
+        });
       }
     }
 
