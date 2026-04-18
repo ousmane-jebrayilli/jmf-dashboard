@@ -1749,7 +1749,7 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
   }
 
   return (
-    <div style={{ background:C.card, border:`1px solid ${open ? C.gold : C.border}`, borderRadius:18, overflow:"hidden", marginBottom:16, boxShadow: open ? C.shadowMd : C.shadow, transition:"border-color 0.18s, box-shadow 0.18s" }}>
+    <div style={{ background:C.card, border:`1px solid ${open ? C.gold : C.border}`, borderRadius:18, overflow:"hidden", marginBottom:16, boxShadow: open ? C.shadowMd : C.shadow, transition:"border-color 0.18s, box-shadow 0.18s", fontFamily:C.sans }}>
       {editingUnit && <LeaseEditorModal propertyName={prop.name} unit={editingUnit} onSave={saveUnit} onClose={() => setEditingUnit(null)} />}
       {loggingRent && (
         <RentLogModal
@@ -1841,7 +1841,7 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 <Row label="Payment structure">
                   {isAdmin ? (
                     <select value={prop.payment_structure || "amortizing"} onChange={e => onUpdate("payment_structure", e.target.value)}
-                      style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12 }}>
+                      style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans }}>
                       <option value="amortizing">Amortizing</option>
                       <option value="interest_only">Interest only</option>
                     </select>
@@ -1850,26 +1850,15 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                   )}
                 </Row>
                 <Row label={`Tracked balance (${mortgage.anchorMonth})`}><EditNum value={safe(prop.mortgage)} onChange={v => onUpdate("mortgage", v)} locked={!isAdmin} /></Row>
-                <Row label="Tracked as-of month">
-                  {isAdmin ? <EditText value={prop.mortgage_as_of_month} onChange={v => onUpdate("mortgage_as_of_month", v)} placeholder="YYYY-MM" /> : <span style={{ fontFamily:C.mono, fontSize:13 }}>{prop.mortgage_as_of_month}</span>}
-                </Row>
-                <Row label="Manual override balance"><EditNum value={safe(prop.mortgage_manual_override)} onChange={v => onUpdate("mortgage_manual_override", v)} locked={!isAdmin} /></Row>
-                <Row label="Override month" last>
-                  {isAdmin ? <EditText value={prop.mortgage_manual_override_month} onChange={v => onUpdate("mortgage_manual_override_month", v)} placeholder="YYYY-MM" /> : <span style={{ fontFamily:C.mono, fontSize:13 }}>{prop.mortgage_manual_override_month || "—"}</span>}
-                </Row>
+                <Row label="Manual override balance" last><EditNum value={safe(prop.mortgage_manual_override)} onChange={v => onUpdate("mortgage_manual_override", v)} locked={!isAdmin} /></Row>
               </div>
               <div>
                 <Row label={`Calculated balance (${currentYM()})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
                 <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
                 <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
                 <Row label="Projected next balance"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
-                <Row label="Monthly payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-                <Row label="P&I portion"><EditNum value={safe(prop.monthly_pi)} onChange={v => onUpdate("monthly_pi", v)} locked={!isAdmin} /></Row>
-                <Row label="Remaining amortization" last><EditNum value={safe(mortgage.remainingAmortization)} onChange={v => onUpdate("remaining_amortization_months", v)} locked={!isAdmin} /></Row>
+                <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
               </div>
-            </div>
-            <div style={{ marginTop:12, fontSize:11, color:C.textDim }}>
-              The mortgage balance now rolls forward from the tracked balance month using the payment, rate, and amortization. Use the manual override fields when the lender statement differs from the schedule.
             </div>
           </div>
 
