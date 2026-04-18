@@ -274,12 +274,12 @@ const DEFAULT = {
     },
     {
       id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
-      purchase:3079729, market:2850000, mortgage:1824726.46, original_balance:2000000,
+      purchase:3079729, market:2850000, mortgage:1824886.46, original_balance:2000000,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
-      interest_rate:7.95, rate:"7.95%", rateType:"12 Month Fixed Open",
-      maturity:"Dec 2026", remaining_amortization_months:285, taxes_paid_by:"lender",
-      monthlyPayment:15013, monthly_pi:14108, monthly_payment_tax:905,
-      tax_account_balance:2362, monthlyTax:905, annual_property_tax_estimate:10863,
+      interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
+      maturity:"Apr 1, 2027", remaining_amortization_months:285, taxes_paid_by:"lender",
+      monthlyPayment:12628.05, monthly_pi:11722.76, monthly_payment_tax:905.29,
+      tax_account_balance:2361.89, monthlyTax:905.29, annual_property_tax_estimate:10864,
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -288,16 +288,16 @@ const DEFAULT = {
       tenant_summary:"Owner-resided by family", vacancy_notes:"",
       sections:[], covenant_notes:"",
       lender:"Equitable Bank",
-      notes:"Fixed Open — refinanceable without penalty. Tax escrowed by lender. Fee balance: $160.",
+      notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Nazila Isgandarova. Tax escrowed by Equitable. Tax account $2,362.",
     },
     {
-      id:4, name:"51 Ahchie Crt.", status:"RISK", property_type:"residential",
-      purchase:2119105, market:1750000, mortgage:1523325.81, original_balance:1553670,
+      id:4, name:"51 Ahchie Crt.", status:"WATCH", property_type:"residential",
+      purchase:2119105, market:1750000, mortgage:1523755.81, original_balance:1553670,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
-      interest_rate:5.24, rate:"5.24%", rateType:"36 Month ARM Closed",
-      maturity:"Apr 2026", remaining_amortization_months:336, taxes_paid_by:"lender",
-      monthlyPayment:9837, monthly_pi:8601, monthly_payment_tax:1235,
-      tax_account_balance:21603, monthlyTax:1235, annual_property_tax_estimate:14820,
+      interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
+      maturity:"Apr 1, 2027", remaining_amortization_months:337, taxes_paid_by:"lender",
+      monthlyPayment:10342.14, monthly_pi:9107, monthly_payment_tax:1235.14,
+      tax_account_balance:21602.52, monthlyTax:1235.14, annual_property_tax_estimate:14821,
       tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
       monthly_insurance:0, annual_insurance:0,
       maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
@@ -347,7 +347,7 @@ const DEFAULT = {
         makeUnit({ id:"level-c", label:"Level C", status:"vacant", market_rent:0, notes:"Available for future tenancy." }),
       ], covenant_notes:"",
       lender:"Equitable Bank",
-      notes:"ARM matured April 2026 — renewal due immediately. Market $369K below purchase. Tax account $21,603 — review with lender. Fee balance: $430.",
+      notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Akbar Majidov. Tax escrowed by Equitable. Tax account $21,603.",
     },
     {
       id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
@@ -386,8 +386,8 @@ const DEFAULT = {
       { label:"Other income", amount:0, note:"" },
     ],
     obligations: [
-      { label:"121 Milky Way mortgage",  amount:15013, note:"7.95% · Equitable · Dec 2026" },
-      { label:"51 Ahchie Crt. mortgage", amount:9837,  note:"5.24% · Equitable · renewal due Apr 2026" },
+      { label:"121 Milky Way mortgage",  amount:12628, note:"5.79% · Equitable · Apr 2027" },
+      { label:"51 Ahchie Crt. mortgage", amount:10342, note:"5.79% · Equitable · Apr 2027" },
       { label:"4 New Seabury mortgage",  amount:5979,  note:"5.94% · Equitable · Dec 2029" },
       { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · pending" },
     ],
@@ -1902,7 +1902,15 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
                   <div>
                     <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-                    {prop.taxes_paid_by !== "lender" && <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>}
+                    {prop.taxes_paid_by === "lender" ? (
+                      <Row label="Property tax (escrowed)">
+                        <span style={{fontFamily:C.mono,fontSize:13,color:C.text}}>{$F(safe(prop.monthlyTax))}<span style={{color:C.muted,marginLeft:6,fontSize:11}}>/ mo · paid by lender{safe(prop.tax_account_balance) > 0 ? ` · acct $${safe(prop.tax_account_balance).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2})}` : ""}</span></span>
+                      </Row>
+                    ) : prop.taxes_paid_by === "owner" ? (
+                      <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>
+                    ) : (
+                      <Row label="Property tax"><span style={{color:C.muted,fontFamily:C.mono,fontSize:13}}>—</span></Row>
+                    )}
                     <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
                   </div>
                   <div>
@@ -3302,15 +3310,27 @@ export default function App() {
         const mergedRentPayments = (dbData.rentPayments || DEFAULT.rentPayments).map(normalizeRentPayment);
         const correctedBalances = {
           1: 728134.68,   // 27 Roytec Rd.
-          3: 1824726.46,  // 121 Milky Way
-          4: 1523325.81,  // 51 Ahchie Crt.
+          3: 1824886.46,  // 121 Milky Way
+          4: 1523755.81,  // 51 Ahchie Crt.
           5: 894768.98,   // 4 New Seabury Dr.
         };
-        const correctedProps = mergedProperties.map(p =>
-          correctedBalances[p.id] !== undefined
-            ? { ...p, mortgage: correctedBalances[p.id] }
-            : p
-        );
+        const correctedProps = mergedProperties.map(p => {
+          const balFix  = correctedBalances[p.id];
+          const rateFix = { 3: 5.79,           4: 5.79           }[p.id];
+          const matFix  = { 3: "Apr 1, 2027",  4: "Apr 1, 2027"  }[p.id];
+          const pifix   = { 3: 11722.76,        4: 9107           }[p.id];
+          const taxfix  = { 3: 905.29,          4: 1235.14        }[p.id];
+          const pmtfix  = { 3: 12628.05,        4: 10342.14       }[p.id];
+          return {
+            ...p,
+            ...(balFix  !== undefined && { mortgage:             balFix  }),
+            ...(rateFix !== undefined && { interest_rate:        rateFix }),
+            ...(matFix  !== undefined && { maturity:             matFix  }),
+            ...(pifix   !== undefined && { monthly_pi:           pifix   }),
+            ...(taxfix  !== undefined && { monthly_payment_tax:  taxfix  }),
+            ...(pmtfix  !== undefined && { monthlyPayment:       pmtfix  }),
+          };
+        });
         saveToDB("properties", correctedProps);
         setData({
           ...DEFAULT,
