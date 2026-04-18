@@ -375,6 +375,91 @@ async function rejectSubmission(id, reviewerUserId, note) {
   } catch { return false; }
 }
 
+// ─── PROPERTY EXPENSE HELPERS ─────────────────────────────────────────────────
+const EXPENSE_CATEGORIES = [
+  "Repairs & Maintenance","Insurance","Property Tax","Condo/HOA Fees",
+  "Utilities","Landscaping/Cleaning","Management Fees","Capital Improvements","Other",
+];
+async function loadPropertyExpenses(propertyId) {
+  try {
+    const { data } = await supabase.from("property_expenses").select("*")
+      .eq("property_id", propertyId).order("date", { ascending: false });
+    return data || [];
+  } catch { return []; }
+}
+async function savePropertyExpense(expense) {
+  try {
+    const { data, error } = await supabase.from("property_expenses").insert(expense).select().single();
+    if (error) throw error;
+    return data;
+  } catch (e) { console.error("savePropertyExpense", e); return null; }
+}
+
+// ─── MAINTENANCE REMINDER HELPERS ─────────────────────────────────────────────
+async function loadMaintenanceReminders(propertyId) {
+  try {
+    const q = propertyId
+      ? supabase.from("maintenance_reminders").select("*").eq("property_id", propertyId)
+      : supabase.from("maintenance_reminders").select("*");
+    const { data } = await q.order("due_date", { ascending: true });
+    return data || [];
+  } catch { return []; }
+}
+async function saveMaintenanceReminder(reminder) {
+  try {
+    const { data, error } = await supabase.from("maintenance_reminders").insert(reminder).select().single();
+    if (error) throw error;
+    return data;
+  } catch (e) { console.error("saveMaintenanceReminder", e); return null; }
+}
+async function updateReminderStatus(id, status) {
+  try {
+    const { error } = await supabase.from("maintenance_reminders").update({ status }).eq("id", id);
+    return !error;
+  } catch { return false; }
+}
+
+// ─── PERSONAL EXPENSE HELPERS ──────────────────────────────────────────────────
+const PERSONAL_CATEGORIES = [
+  "Housing","Transport","Food","Health","Family",
+  "Education","Entertainment","Shopping","Subscriptions","Business","Other",
+];
+const PAYMENT_METHODS = ["Cash","Debit","Credit","E-transfer","Other"];
+
+async function loadPersonalExpenses(userId) {
+  try {
+    const { data } = await supabase.from("personal_expenses").select("*")
+      .eq("user_id", userId).order("date", { ascending: false });
+    return data || [];
+  } catch { return []; }
+}
+async function loadAllPersonalExpenses() {
+  try {
+    const { data } = await supabase.from("personal_expenses").select("*").order("date", { ascending: false });
+    return data || [];
+  } catch { return []; }
+}
+async function savePersonalExpense(expense) {
+  try {
+    const { data, error } = await supabase.from("personal_expenses").insert(expense).select().single();
+    if (error) throw error;
+    return data;
+  } catch (e) { console.error("savePersonalExpense", e); return null; }
+}
+async function loadBudgetTargets(userId) {
+  try {
+    const { data } = await supabase.from("budget_targets").select("*").eq("user_id", userId);
+    return data || [];
+  } catch { return []; }
+}
+async function saveBudgetTarget(userId, month, category, amount) {
+  try {
+    const { error } = await supabase.from("budget_targets")
+      .upsert({ user_id: userId, month, category, amount }, { onConflict: "user_id,month,category" });
+    return !error;
+  } catch { return false; }
+}
+
 // ─── UI PRIMITIVES ────────────────────────────────────────────────────────────
 function Label({ children, color }) {
   return <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: color || C.textDim, marginBottom: 6, fontFamily: C.sans }}>{children}</div>;
@@ -686,6 +771,211 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
   );
 }
 
+// ─── ADD PROPERTY EXPENSE MODAL ───────────────────────────────────────────────
+function AddExpenseModal({ propertyId, propertyName, userId, onSave, onClose }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate]               = useState(today);
+  const [amount, setAmount]           = useState("");
+  const [category, setCategory]       = useState(EXPENSE_CATEGORIES[0]);
+  const [description, setDescription] = useState("");
+  const [vendor, setVendor]           = useState("");
+  const [saving, setSaving]           = useState(false);
+
+  const inp = {
+    width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`,
+    borderRadius:8, color:C.text, fontSize:14, fontFamily:C.sans, outline:"none",
+    boxSizing:"border-box", marginBottom:12,
+  };
+
+  const handleSave = async () => {
+    if (!amount || safe(amount) === 0) return;
+    setSaving(true);
+    const result = await savePropertyExpense({
+      property_id: propertyId, property_name: propertyName, date,
+      amount: safe(amount), category,
+      description: description || null, vendor: vendor || null, created_by: userId,
+    });
+    setSaving(false);
+    if (result) onSave(result);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, width:"100%", maxWidth:420, boxShadow:"0 8px 48px rgba(0,0,0,0.16)", maxHeight:"90vh", overflowY:"auto" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Add Property Expense</div>
+        <div style={{ fontSize:12, color:C.textDim, marginBottom:20 }}>{propertyName}</div>
+        <Label>Date</Label>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inp} />
+        <Label>Amount (CAD)</Label>
+        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
+          style={{ ...inp, fontFamily:C.mono }} autoFocus />
+        <Label>Category</Label>
+        <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+          {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+        </select>
+        <Label>Description (optional)</Label>
+        <input type="text" value={description} onChange={e => setDescription(e.target.value)}
+          placeholder="e.g. replaced kitchen faucet" style={inp} />
+        <Label>Vendor (optional)</Label>
+        <input type="text" value={vendor} onChange={e => setVendor(e.target.value)}
+          placeholder="e.g. Home Depot" style={inp} />
+        <div style={{ display:"flex", gap:10, marginTop:4 }}>
+          <button onClick={handleSave} disabled={saving || !amount}
+            style={{ flex:2, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer", opacity:(saving || !amount) ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save Expense"}
+          </button>
+          <button onClick={onClose}
+            style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADD MAINTENANCE REMINDER MODAL ───────────────────────────────────────────
+function AddReminderModal({ propertyId, propertyName, userId, onSave, onClose }) {
+  const [title, setTitle]       = useState("");
+  const [dueDate, setDueDate]   = useState("");
+  const [notes, setNotes]       = useState("");
+  const [recurring, setRecurring] = useState("none");
+  const [saving, setSaving]     = useState(false);
+
+  const inp = {
+    width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`,
+    borderRadius:8, color:C.text, fontSize:14, fontFamily:C.sans, outline:"none",
+    boxSizing:"border-box", marginBottom:12,
+  };
+
+  const handleSave = async () => {
+    if (!title || !dueDate) return;
+    setSaving(true);
+    const result = await saveMaintenanceReminder({
+      property_id: propertyId, property_name: propertyName,
+      title, due_date: dueDate, status: "pending",
+      notes: notes || null, recurring, created_by: userId,
+    });
+    setSaving(false);
+    if (result) onSave(result);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, width:"100%", maxWidth:400, boxShadow:"0 8px 48px rgba(0,0,0,0.16)" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Add Maintenance Reminder</div>
+        <div style={{ fontSize:12, color:C.textDim, marginBottom:20 }}>{propertyName}</div>
+        <Label>Title *</Label>
+        <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Replace HVAC filter" style={inp} autoFocus />
+        <Label>Due Date *</Label>
+        <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={inp} />
+        <Label>Recurring</Label>
+        <select value={recurring} onChange={e => setRecurring(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+          <option value="none">None (one-time)</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="annual">Annual</option>
+        </select>
+        <Label>Notes (optional)</Label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional details…"
+          style={{ ...inp, minHeight:72, resize:"vertical" }} />
+        <div style={{ display:"flex", gap:10, marginTop:4 }}>
+          <button onClick={handleSave} disabled={saving || !title || !dueDate}
+            style={{ flex:2, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer", opacity:(saving || !title || !dueDate) ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save Reminder"}
+          </button>
+          <button onClick={onClose}
+            style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADD PERSONAL EXPENSE MODAL ───────────────────────────────────────────────
+function AddPersonalExpenseModal({ userId, onSave, onClose }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate]                 = useState(today);
+  const [amount, setAmount]             = useState("");
+  const [category, setCategory]         = useState(PERSONAL_CATEGORIES[0]);
+  const [subcategory, setSubcategory]   = useState("");
+  const [description, setDescription]   = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("Debit");
+  const [saving, setSaving]             = useState(false);
+
+  const inp = {
+    width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`,
+    borderRadius:8, color:C.text, fontSize:14, fontFamily:C.sans, outline:"none",
+    boxSizing:"border-box", marginBottom:12,
+  };
+
+  const handleSave = async (andClose) => {
+    if (!amount || safe(amount) === 0) return;
+    setSaving(true);
+    const result = await savePersonalExpense({
+      user_id: userId, date, amount: safe(amount), category,
+      subcategory: subcategory || null, description: description || null,
+      payment_method: paymentMethod,
+    });
+    setSaving(false);
+    if (result) onSave(result);
+    if (andClose) { onClose(); return; }
+    setAmount(""); setDescription(""); setSubcategory("");
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding:20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:18, padding:28, width:"100%", maxWidth:440, boxShadow:"0 12px 60px rgba(0,0,0,0.18)", maxHeight:"92vh", overflowY:"auto" }}>
+        <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:20 }}>Add Expense</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:4 }}>
+          <div>
+            <Label>Date</Label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <Label>Amount (CAD)</Label>
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
+              style={{ ...inp, fontFamily:C.mono }} autoFocus />
+          </div>
+        </div>
+        <Label>Category</Label>
+        <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+          {PERSONAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+        </select>
+        <Label>Subcategory (optional)</Label>
+        <input type="text" value={subcategory} onChange={e => setSubcategory(e.target.value)} placeholder="e.g. Groceries, Gas…" style={inp} />
+        <Label>Description (optional)</Label>
+        <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="What was this for?" style={inp} />
+        <Label>Payment Method</Label>
+        <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={{ ...inp, cursor:"pointer" }}>
+          {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+          <button onClick={() => handleSave(true)} disabled={saving || !amount}
+            style={{ flex:2, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:13, fontWeight:700, cursor:"pointer", opacity:(saving || !amount) ? 0.6 : 1, minWidth:110 }}>
+            {saving ? "Saving…" : "Save & Close"}
+          </button>
+          <button onClick={() => handleSave(false)} disabled={saving || !amount}
+            style={{ flex:2, padding:12, background:C.goldLight, border:`1px solid ${C.gold}`, borderRadius:8, color:C.goldText, fontSize:13, fontWeight:600, cursor:"pointer", opacity:(saving || !amount) ? 0.6 : 1, minWidth:130 }}>
+            Save & Add Another
+          </button>
+          <button onClick={onClose}
+            style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:13, cursor:"pointer", minWidth:70 }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── SUBMISSION MODAL ─────────────────────────────────────────────────────────
 function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
   const [fields, setFields] = useState({
@@ -893,6 +1183,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
   const [showSubModal, setShowSubModal] = useState(false);
   const [currentSub, setCurrentSub]     = useState(undefined); // undefined=loading
   const [missingPeriod, setMissingPeriod] = useState(null);   // { period_date, label }
+  const [memberTab, setMemberTab]       = useState("snapshot");
 
   const individualId = user.profile?.individual_id;
   const isAhmed      = individualId === 1;
@@ -1011,7 +1302,29 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
         </div>
       </div>
 
+      {/* Member tab bar */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display:"flex", padding:"0 16px" }}>
+          {[["snapshot","My Snapshot"],["expenses","My Expenses"]].map(([id, label]) => (
+            <button key={id} onClick={() => setMemberTab(id)}
+              style={{ padding:"11px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background:"transparent", fontFamily:C.sans,
+                color: memberTab === id ? C.gold : C.textDim,
+                borderBottom: memberTab === id ? `2px solid ${C.gold}` : "2px solid transparent" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* My Expenses tab */}
+      {memberTab === "expenses" && (
+        <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
+          <ExpensesTab userId={user.id} isAdmin={false} allProfiles={[]} individuals={data.individuals} />
+        </div>
+      )}
+
       {/* Content */}
+      {memberTab === "snapshot" && (
       <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
         <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 8 }}>Net Worth</div>
@@ -1092,13 +1405,27 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
           <Row label="Business entities" last={true}><span style={{ color: C.text, fontFamily: C.mono }}>{data.businesses.length} companies</span></Row>
         </Card>
       </div>
+      )}
     </div>
   );
 }
 
 // ─── PROPERTY CARD ────────────────────────────────────────────────────────────
-function PropCard({ prop, onUpdate, isAdmin }) {
-  const [open, setOpen] = useState(false);
+function PropCard({ prop, onUpdate, isAdmin, userId }) {
+  const [open, setOpen]               = useState(false);
+  const [expenses, setExpenses]       = useState([]);
+  const [reminders, setReminders]     = useState([]);
+  const [showAddExpense, setShowAddExpense]   = useState(false);
+  const [showAddReminder, setShowAddReminder] = useState(false);
+  const [showAllExpenses, setShowAllExpenses] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      loadPropertyExpenses(prop.id).then(setExpenses);
+      loadMaintenanceReminders(prop.id).then(setReminders);
+    }
+  }, [open, prop.id]);
+
   const market        = safe(prop.market);
   const balance       = safe(prop.mortgage);
   const rawEquity     = market - balance;
@@ -1123,6 +1450,16 @@ function PropCard({ prop, onUpdate, isAdmin }) {
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? C.gold : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10, transition: "border-color 0.15s" }}>
+      {showAddExpense && userId && (
+        <AddExpenseModal propertyId={prop.id} propertyName={prop.name} userId={userId}
+          onSave={e => setExpenses(prev => [e, ...prev])}
+          onClose={() => setShowAddExpense(false)} />
+      )}
+      {showAddReminder && userId && (
+        <AddReminderModal propertyId={prop.id} propertyName={prop.name} userId={userId}
+          onSave={r => setReminders(prev => [...prev, r].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || "")))}
+          onClose={() => setShowAddReminder(false)} />
+      )}
 
       {/* ── HEADER ── */}
       <div onClick={() => setOpen(o => !o)} style={{ padding: "14px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -1284,6 +1621,129 @@ function PropCard({ prop, onUpdate, isAdmin }) {
             </div>
           </div>
 
+          {/* PROPERTY EXPENSES */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <Label>Property Expenses</Label>
+              {isAdmin && (
+                <button onClick={() => setShowAddExpense(true)}
+                  style={{ fontSize:11, padding:"5px 14px", background:C.goldLight, border:`1px solid ${C.gold}`, borderRadius:8, color:C.goldText, fontWeight:700, cursor:"pointer" }}>
+                  + Add Expense
+                </button>
+              )}
+            </div>
+            {(() => {
+              const curYM = currentYM();
+              const thisMonthExp  = expenses.filter(e => e.date && e.date.slice(0,7) === curYM);
+              const thisMonthTotal = thisMonthExp.reduce((s, e) => s + safe(e.amount), 0);
+              const ytdYear       = new Date().getFullYear().toString();
+              const ytdTotal      = expenses.filter(e => e.date && e.date.startsWith(ytdYear)).reduce((s, e) => s + safe(e.amount), 0);
+              const monthsSet     = new Set(expenses.map(e => e.date?.slice(0,7)).filter(Boolean));
+              const avgMonthly    = monthsSet.size > 0 ? expenses.reduce((s, e) => s + safe(e.amount), 0) / monthsSet.size : 0;
+              const trueNetYield  = effectiveRent - safe(prop.monthlyPayment) - avgMonthly;
+              const displayList   = showAllExpenses ? expenses : expenses.slice(0, 5);
+              return (
+                <div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(110px, 1fr))", gap:10, marginBottom:16 }}>
+                    {[
+                      { label:"This month",    val:$F(thisMonthTotal), color: thisMonthTotal > 0 ? C.red    : C.textDim },
+                      { label:"YTD total",     val:$F(ytdTotal),       color: ytdTotal > 0       ? C.red    : C.textDim },
+                      { label:"Avg / mo",      val:$F(avgMonthly),     color: avgMonthly > 0     ? C.amber  : C.textDim },
+                      { label:"True net yield",val:`${trueNetYield >= 0 ? "+" : ""}${$F(trueNetYield)}`, color: trueNetYield >= 0 ? C.green : C.red },
+                    ].map((chip, i) => (
+                      <div key={i} style={{ background:C.bg, borderRadius:8, padding:"10px 12px", textAlign:"center" }}>
+                        <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:4 }}>{chip.label}</div>
+                        <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:chip.color }}>{chip.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {expenses.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"12px 0", color:C.textDim, fontSize:12 }}>
+                      No expenses recorded yet.{isAdmin && <span> Click "+ Add Expense" to start tracking.</span>}
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ display:"grid", gridTemplateColumns:"80px 1fr 110px 80px", gap:"4px 8px", padding:"0 0 6px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>
+                        <span>Date</span><span>Description</span><span>Category</span><span style={{ textAlign:"right" }}>Amount</span>
+                      </div>
+                      {displayList.map(e => (
+                        <div key={e.id} style={{ display:"grid", gridTemplateColumns:"80px 1fr 110px 80px", gap:"4px 8px", padding:"7px 0", borderBottom:`1px solid ${C.border}`, alignItems:"center" }}>
+                          <span style={{ fontSize:11, color:C.textDim }}>{e.date}</span>
+                          <div>
+                            <div style={{ fontSize:12, color:C.text }}>{e.description || e.category}</div>
+                            {e.vendor && <div style={{ fontSize:10, color:C.textDim }}>{e.vendor}</div>}
+                          </div>
+                          <span style={{ fontSize:10, color:C.textMid, background:C.bg, borderRadius:4, padding:"1px 5px", display:"inline-block" }}>{e.category}</span>
+                          <span style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:C.red, textAlign:"right" }}>{$F(safe(e.amount))}</span>
+                        </div>
+                      ))}
+                      {expenses.length > 5 && (
+                        <button onClick={() => setShowAllExpenses(a => !a)}
+                          style={{ marginTop:8, fontSize:11, color:C.gold, background:"none", border:"none", cursor:"pointer", fontWeight:600, padding:"4px 0" }}>
+                          {showAllExpenses ? "Show less" : `View all ${expenses.length} expenses`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* MAINTENANCE REMINDERS */}
+          <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <Label>Maintenance</Label>
+              {isAdmin && (
+                <button onClick={() => setShowAddReminder(true)}
+                  style={{ fontSize:11, padding:"5px 14px", background:C.amberLight, border:`1px solid #F0D080`, borderRadius:8, color:C.amber, fontWeight:700, cursor:"pointer" }}>
+                  + Add Reminder
+                </button>
+              )}
+            </div>
+            {(() => {
+              const today = new Date().toISOString().slice(0,10);
+              const soon  = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0,10);
+              if (reminders.length === 0) return (
+                <div style={{ textAlign:"center", padding:"12px 0", color:C.textDim, fontSize:12 }}>
+                  No reminders set.{isAdmin && <span> Click "+ Add Reminder" to schedule maintenance.</span>}
+                </div>
+              );
+              return (
+                <div>
+                  {reminders.map(r => {
+                    const isDone    = r.status === "completed";
+                    const isOverdue = !isDone && r.due_date && r.due_date < today;
+                    const isSoon    = !isDone && !isOverdue && r.due_date && r.due_date <= soon;
+                    const bg     = isDone ? C.bg    : isOverdue ? C.redLight    : isSoon ? C.amberLight : "transparent";
+                    const bdr    = isDone ? C.border: isOverdue ? "#F5C6C3"     : isSoon ? "#F0D080"    : C.border;
+                    const txtCol = isDone ? C.textDim: isOverdue ? C.redText   : isSoon ? C.amber      : C.text;
+                    return (
+                      <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, marginBottom:6, background:bg, border:`1px solid ${bdr}` }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:txtCol, textDecoration: isDone ? "line-through" : "none" }}>
+                            {r.title}
+                          </div>
+                          {r.notes && <div style={{ fontSize:11, color:C.textDim }}>{r.notes}</div>}
+                          <div style={{ fontSize:10, color:C.textDim }}>
+                            Due: {r.due_date}{r.recurring && r.recurring !== "none" ? ` · Recurring: ${r.recurring}` : ""}
+                          </div>
+                        </div>
+                        {isAdmin && !isDone && (
+                          <button onClick={() => { updateReminderStatus(r.id, "completed"); setReminders(prev => prev.map(x => x.id === r.id ? { ...x, status:"completed" } : x)); }}
+                            style={{ fontSize:10, padding:"4px 10px", background:C.greenLight, border:`1px solid #A8D8B8`, borderRadius:6, color:C.greenText, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>
+                            Mark done
+                          </button>
+                        )}
+                        {isDone && <span style={{ fontSize:10, color:C.textDim }}>✓ Done</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
           {/* EQUITY & LEVERAGE */}
           <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
             <Label>Equity & Leverage</Label>
@@ -1358,6 +1818,42 @@ function PropCard({ prop, onUpdate, isAdmin }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── MAINTENANCE ALERTS WIDGET ────────────────────────────────────────────────
+function MaintenanceAlertsWidget() {
+  const [reminders, setReminders] = useState([]);
+  useEffect(() => { loadMaintenanceReminders(null).then(setReminders); }, []);
+
+  const today = new Date().toISOString().slice(0,10);
+  const soon  = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0,10);
+  const active  = reminders.filter(r => r.status !== "completed");
+  const overdue = active.filter(r => r.due_date && r.due_date < today);
+  const dueSoon = active.filter(r => r.due_date && r.due_date >= today && r.due_date <= soon);
+  if (overdue.length === 0 && dueSoon.length === 0) return null;
+
+  const items = [
+    ...overdue.map(r => ({ ...r, _t:"overdue" })),
+    ...dueSoon.map(r => ({ ...r, _t:"soon" })),
+  ];
+  return (
+    <Card accent={overdue.length > 0 ? C.red : C.amber} style={{ marginBottom:16, paddingTop:24 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14, flexWrap:"wrap" }}>
+        <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Maintenance Alerts</div>
+        {overdue.length > 0 && <span style={{ background:C.redLight, color:C.redText, borderRadius:20, fontSize:10, fontWeight:700, padding:"2px 10px" }}>{overdue.length} overdue</span>}
+        {dueSoon.length > 0 && <span style={{ background:C.amberLight, color:C.amber, borderRadius:20, fontSize:10, fontWeight:700, padding:"2px 10px" }}>{dueSoon.length} due soon</span>}
+      </div>
+      {items.map(r => (
+        <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, marginBottom:6, background: r._t === "overdue" ? C.redLight : C.amberLight }}>
+          <div style={{ flex:1 }}>
+            <span style={{ fontSize:13, fontWeight:600, color: r._t === "overdue" ? C.redText : C.amber }}>{r.property_name}</span>
+            <span style={{ fontSize:12, color:C.textMid }}> — {r.title}</span>
+          </div>
+          <span style={{ fontSize:11, color:C.textDim, whiteSpace:"nowrap" }}>Due {r.due_date}</span>
+        </div>
+      ))}
+    </Card>
   );
 }
 
@@ -1438,6 +1934,357 @@ function BizCard({ biz, onUpdate, onUpdateProfit, isAdmin }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── EXPENSES TAB ─────────────────────────────────────────────────────────────
+function ExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
+  const [subTab, setSubTab]               = useState("thismonth");
+  const [expenses, setExpenses]           = useState(null); // null = loading
+  const [allFamilyExp, setAllFamilyExp]   = useState([]);
+  const [budgetTargets, setBudgetTargets] = useState([]);
+  const [viewingUserId, setViewingUserId] = useState(null); // null = family summary (admin)
+  const [showAddModal, setShowAddModal]   = useState(false);
+  const [editingBudgetCat, setEditingBudgetCat] = useState(null);
+  const [budgetInput, setBudgetInput]     = useState("");
+  const [search, setSearch]               = useState("");
+  const [filterCat, setFilterCat]         = useState("All");
+  const [filterMethod, setFilterMethod]   = useState("All");
+  const [sortDesc, setSortDesc]           = useState(true);
+
+  const curYM = currentYM();
+
+  useEffect(() => {
+    if (isAdmin) loadAllPersonalExpenses().then(setAllFamilyExp);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const loadId = isAdmin ? viewingUserId : userId;
+    if (!loadId) { setExpenses([]); setBudgetTargets([]); return; }
+    setExpenses(null);
+    Promise.all([loadPersonalExpenses(loadId), loadBudgetTargets(loadId)]).then(([exps, targets]) => {
+      setExpenses(exps);
+      setBudgetTargets(targets);
+    });
+  }, [userId, viewingUserId, isAdmin]);
+
+  const loadId         = isAdmin ? viewingUserId : userId;
+  const displayExp     = loadId ? (expenses || []) : allFamilyExp;
+  const thisMonthExp   = displayExp.filter(e => e.date && e.date.slice(0,7) === curYM);
+  const thisMonthTotal = thisMonthExp.reduce((s, e) => s + safe(e.amount), 0);
+
+  const categoryTotals = Object.fromEntries(
+    PERSONAL_CATEGORIES.map(cat => [cat, thisMonthExp.filter(e => e.category === cat).reduce((s, e) => s + safe(e.amount), 0)])
+  );
+  const getBudget = (cat) => safe(budgetTargets.find(t => t.category === cat && t.month === curYM)?.amount);
+
+  const handleSetBudget = async (cat, val) => {
+    if (!loadId) return;
+    const ok = await saveBudgetTarget(loadId, curYM, cat, safe(val));
+    if (ok) setBudgetTargets(prev => {
+      const exists = prev.find(t => t.category === cat && t.month === curYM);
+      if (exists) return prev.map(t => t.category === cat && t.month === curYM ? { ...t, amount: safe(val) } : t);
+      return [...prev, { user_id: loadId, month: curYM, category: cat, amount: safe(val) }];
+    });
+  };
+
+  const last6 = monthsBetween(SYSTEM_START, curYM).slice(-6);
+  const monthlyTotals = last6.map(m => ({
+    month: m,
+    total: displayExp.filter(e => e.date && e.date.slice(0,7) === m).reduce((s, e) => s + safe(e.amount), 0),
+  }));
+  const maxMTotal = Math.max(1, ...monthlyTotals.map(m => m.total));
+
+  const filteredAll = [...displayExp]
+    .filter(e => filterCat === "All"    || e.category === filterCat)
+    .filter(e => filterMethod === "All" || e.payment_method === filterMethod)
+    .filter(e => !search || (e.description || "").toLowerCase().includes(search.toLowerCase()) || (e.category || "").toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => sortDesc ? (b.date||"").localeCompare(a.date||"") : (a.date||"").localeCompare(b.date||""));
+
+  const memberProfiles = (allProfiles || []).filter(p => p.role !== "admin" && p.individual_id);
+
+  const subBtnStyle = (id) => ({
+    padding:"10px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer",
+    background:"transparent", fontFamily:C.sans, whiteSpace:"nowrap",
+    color: subTab === id ? C.gold : C.textDim,
+    borderBottom: subTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
+  });
+
+  const addExpenseFor = loadId || userId;
+
+  return (
+    <div>
+      {showAddModal && (
+        <AddPersonalExpenseModal userId={addExpenseFor} onSave={e => {
+          setExpenses(prev => [e, ...(prev || [])]);
+          if (isAdmin) setAllFamilyExp(prev => [e, ...prev]);
+        }} onClose={() => setShowAddModal(false)} />
+      )}
+
+      {/* Admin family summary */}
+      {isAdmin && (
+        <Card style={{ marginBottom:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14, flexWrap:"wrap", gap:10 }}>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:4 }}>Family Spending — {monthLabel(curYM)}</div>
+              <div style={{ fontSize:32, fontFamily:C.mono, fontWeight:800, color:C.gold }}>
+                {$F(allFamilyExp.filter(e => e.date && e.date.slice(0,7) === curYM).reduce((s, e) => s + safe(e.amount), 0))}
+              </div>
+            </div>
+            <button onClick={() => setViewingUserId(null)}
+              style={{ padding:"7px 16px", background: !viewingUserId ? C.goldLight : "transparent", border:`1px solid ${C.gold}`, borderRadius:8, color:C.goldText, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+              Family View
+            </button>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:8 }}>
+            {memberProfiles.map(p => {
+              const mExp  = allFamilyExp.filter(e => e.user_id === p.id && e.date && e.date.slice(0,7) === curYM);
+              const total = mExp.reduce((s, e) => s + safe(e.amount), 0);
+              const topCat = PERSONAL_CATEGORIES.reduce((best, cat) => {
+                const ct = mExp.filter(e => e.category === cat).reduce((s, e) => s + safe(e.amount), 0);
+                return ct > best.total ? { cat, total: ct } : best;
+              }, { cat:"", total:0 }).cat;
+              const ind = (individuals || []).find(x => x.id === p.individual_id);
+              const isViewing = viewingUserId === p.id;
+              return (
+                <div key={p.id} onClick={() => setViewingUserId(p.id)}
+                  style={{ background: isViewing ? C.goldLight : C.bg, border:`1px solid ${isViewing ? C.gold : C.border}`, borderRadius:10, padding:12, cursor:"pointer", transition:"border-color 0.15s" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                    <div style={{ width:26, height:26, borderRadius:"50%", background:C.goldLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:C.goldText }}>
+                      {p.initials || ind?.initials || "?"}
+                    </div>
+                    <div style={{ fontSize:12, fontWeight:600, color:C.text, lineHeight:1.2 }}>{p.display_name || ind?.name || "Member"}</div>
+                  </div>
+                  <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:C.gold }}>{$F(total)}</div>
+                  {topCat && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>Top: {topCat}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Sub-tab bar */}
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+        <div style={{ display:"flex", borderBottom:`1px solid ${C.border}`, padding:"0 4px", alignItems:"center" }}>
+          {[["thismonth","This Month"],["trends","Trends"],["allexpenses","All Transactions"]].map(([id, label]) => (
+            <button key={id} onClick={() => setSubTab(id)} style={subBtnStyle(id)}>{label}</button>
+          ))}
+          <div style={{ flex:1 }} />
+          {!!loadId && (
+            <button onClick={() => setShowAddModal(true)}
+              style={{ margin:"6px 8px", padding:"7px 16px", background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+              + Add Expense
+            </button>
+          )}
+        </div>
+
+        <div style={{ padding:20 }}>
+
+          {/* ── THIS MONTH ── */}
+          {subTab === "thismonth" && (
+            <div>
+              <div style={{ textAlign:"center", padding:"16px 0 24px" }}>
+                <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:8 }}>Total Spent — {monthLabel(curYM)}</div>
+                <div style={{ fontSize:48, fontFamily:C.mono, fontWeight:800, color:C.gold, letterSpacing:-1 }}>{$F(thisMonthTotal)}</div>
+              </div>
+
+              {expenses === null && loadId ? (
+                <div style={{ textAlign:"center", color:C.textDim, fontSize:13, padding:"20px 0" }}>Loading…</div>
+              ) : !loadId && allFamilyExp.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"24px 0" }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>No expenses recorded yet</div>
+                  <div style={{ fontSize:12, color:C.textDim }}>Select a family member above to view their spending.</div>
+                </div>
+              ) : (
+                <div>
+                  {/* Budget progress */}
+                  {!!loadId && (
+                    <div style={{ marginBottom:24 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom:12 }}>Budget Progress — {monthLabel(curYM)}</div>
+                      {PERSONAL_CATEGORIES.filter(cat => categoryTotals[cat] > 0 || getBudget(cat) > 0).length === 0 && (
+                        <div style={{ color:C.textDim, fontSize:12 }}>No spending or budgets set this month.</div>
+                      )}
+                      {PERSONAL_CATEGORIES.filter(cat => categoryTotals[cat] > 0 || getBudget(cat) > 0).map(cat => {
+                        const spent  = categoryTotals[cat];
+                        const budget = getBudget(cat);
+                        const pct    = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
+                        const isOver = budget > 0 && spent >= budget * 0.9;
+                        return (
+                          <div key={cat} style={{ marginBottom:14 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5, flexWrap:"wrap", gap:6 }}>
+                              <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{cat}</span>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <span style={{ fontSize:12, fontFamily:C.mono, color:C.text }}>{$F(spent)}</span>
+                                {budget > 0 && <span style={{ fontSize:11, color:C.textDim }}>/ {$F(budget)}</span>}
+                                {editingBudgetCat === cat ? (
+                                  <input type="number" value={budgetInput} autoFocus
+                                    onChange={e => setBudgetInput(e.target.value)}
+                                    onBlur={() => { handleSetBudget(cat, budgetInput); setEditingBudgetCat(null); }}
+                                    onKeyDown={e => { if (e.key === "Enter") { handleSetBudget(cat, budgetInput); setEditingBudgetCat(null); } if (e.key === "Escape") setEditingBudgetCat(null); }}
+                                    style={{ width:84, padding:"2px 6px", background:C.goldLight, border:`1px solid ${C.gold}`, borderRadius:4, fontSize:12, fontFamily:C.mono, outline:"none" }}
+                                  />
+                                ) : (
+                                  <button onClick={() => { setBudgetInput(budget > 0 ? budget.toString() : ""); setEditingBudgetCat(cat); }}
+                                    style={{ fontSize:10, padding:"2px 8px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:4, color:C.textDim, cursor:"pointer" }}>
+                                    {budget > 0 ? "Edit" : "Set Budget"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {budget > 0 && (
+                              <>
+                                <div style={{ background:C.border, borderRadius:4, height:6, overflow:"hidden" }}>
+                                  <div style={{ width:`${pct}%`, height:"100%", background: isOver ? C.red : C.green, transition:"width 0.3s", borderRadius:4 }} />
+                                </div>
+                                <div style={{ fontSize:10, color: isOver ? C.redText : C.textDim, marginTop:3 }}>
+                                  {isOver ? `Over by ${$F(spent - budget)}` : `${$F(budget - spent)} remaining`}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Recent transactions */}
+                  <div>
+                    <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom:10 }}>Recent Transactions</div>
+                    {thisMonthExp.length === 0 ? (
+                      <div style={{ textAlign:"center", padding:"20px 0" }}>
+                        <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>No expenses this month</div>
+                        <div style={{ fontSize:12, color:C.textDim, marginBottom:14 }}>Track your spending to see progress here.</div>
+                        {!!loadId && (
+                          <button onClick={() => setShowAddModal(true)}
+                            style={{ padding:"10px 24px", background:C.gold, border:"none", borderRadius:10, color:"#FFF", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                            Add First Expense
+                          </button>
+                        )}
+                      </div>
+                    ) : thisMonthExp.slice(0, 20).map(e => (
+                      <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{e.category}{e.subcategory ? ` · ${e.subcategory}` : ""}</div>
+                          {e.description && <div style={{ fontSize:11, color:C.textDim, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.description}</div>}
+                          <div style={{ fontSize:10, color:C.textDim }}>{e.date} · {e.payment_method}</div>
+                        </div>
+                        <span style={{ fontFamily:C.mono, fontWeight:700, color:C.red, flexShrink:0 }}>{$F(e.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── TRENDS ── */}
+          {subTab === "trends" && (
+            <div>
+              <div style={{ marginBottom:20 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom:12 }}>Monthly Spending — Last 6 Months</div>
+                <div style={{ overflowX:"auto" }}>
+                  <svg width={Math.max(360, last6.length * 80)} height={160} style={{ display:"block" }}>
+                    {monthlyTotals.map((m, i) => {
+                      const barH = Math.max(4, (m.total / maxMTotal) * 100);
+                      const bX   = i * 80 + 10;
+                      const bW   = 60;
+                      const bY   = 110 - barH;
+                      return (
+                        <g key={m.month}>
+                          <rect x={bX} y={bY} width={bW} height={barH} rx={4} fill={m.month === curYM ? C.gold : C.blueLight} />
+                          <text x={bX + bW/2} y={148} textAnchor="middle" fontSize={10} fill={C.textDim} fontFamily={C.sans}>{monthLabel(m.month).split(" ")[0]}</text>
+                          {m.total > 0 && <text x={bX + bW/2} y={bY - 4} textAnchor="middle" fontSize={9} fill={C.textMid} fontFamily={C.mono}>{$K(m.total)}</text>}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:16 }}>
+                {[
+                  { label:"This Month", ym: curYM },
+                  { label:"Last Month", ym: monthsBetween(SYSTEM_START, curYM).slice(-2)[0] },
+                ].map(({ label, ym }) => {
+                  const periodExp = displayExp.filter(e => e.date && e.date.slice(0,7) === ym);
+                  const total = periodExp.reduce((s, e) => s + safe(e.amount), 0);
+                  const byCat = PERSONAL_CATEGORIES
+                    .map(cat => ({ cat, total: periodExp.filter(e => e.category === cat).reduce((s, e) => s + safe(e.amount), 0) }))
+                    .filter(x => x.total > 0).sort((a, b) => b.total - a.total).slice(0, 3);
+                  return (
+                    <Card key={label}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.09em", marginBottom:8 }}>{label}</div>
+                      <div style={{ fontSize:24, fontFamily:C.mono, fontWeight:800, color:C.gold, marginBottom:14 }}>{$F(total)}</div>
+                      {byCat.length === 0 ? <div style={{ color:C.textDim, fontSize:12 }}>No data.</div> : byCat.map(x => (
+                        <div key={x.cat} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
+                          <span style={{ fontSize:13, color:C.text }}>{x.cat}</span>
+                          <span style={{ fontFamily:C.mono, fontSize:13, color:C.gold }}>{$F(x.total)}</span>
+                        </div>
+                      ))}
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── ALL TRANSACTIONS ── */}
+          {subTab === "allexpenses" && (
+            <div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search transactions…"
+                  style={{ flex:1, minWidth:130, padding:"8px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, fontSize:13, fontFamily:C.sans, outline:"none" }} />
+                <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
+                  style={{ padding:"8px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:13, cursor:"pointer", outline:"none" }}>
+                  <option value="All">All Categories</option>
+                  {PERSONAL_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+                <select value={filterMethod} onChange={e => setFilterMethod(e.target.value)}
+                  style={{ padding:"8px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:13, cursor:"pointer", outline:"none" }}>
+                  <option value="All">All Methods</option>
+                  {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                </select>
+                <button onClick={() => setSortDesc(d => !d)}
+                  style={{ padding:"8px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:12, cursor:"pointer" }}>
+                  {sortDesc ? "Newest ↓" : "Oldest ↑"}
+                </button>
+              </div>
+              {filteredAll.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"32px 0", color:C.textDim }}>
+                  <div style={{ fontSize:14, marginBottom:10 }}>No transactions found.</div>
+                  {!!loadId && (
+                    <button onClick={() => setShowAddModal(true)}
+                      style={{ padding:"8px 20px", background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                      Add Expense
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize:11, color:C.textDim, marginBottom:10 }}>{filteredAll.length} transaction{filteredAll.length !== 1 ? "s" : ""}</div>
+                  {filteredAll.map(e => (
+                    <div key={e.id} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", marginBottom:2 }}>
+                          <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{e.category}</span>
+                          {e.subcategory && <span style={{ fontSize:11, color:C.textDim }}>{e.subcategory}</span>}
+                          <span style={{ background:C.bg, color:C.textMid, borderRadius:4, fontSize:10, padding:"1px 6px" }}>{e.payment_method}</span>
+                        </div>
+                        {e.description && <div style={{ fontSize:12, color:C.textMid }}>{e.description}</div>}
+                        <div style={{ fontSize:10, color:C.textDim }}>{e.date}</div>
+                      </div>
+                      <span style={{ fontFamily:C.mono, fontWeight:700, color:C.red, flexShrink:0, fontSize:14 }}>{$F(e.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
     </div>
   );
 }
@@ -1588,8 +2435,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow"];
-  const tabId = t => t.toLowerCase().replace(" ", "");
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "Expenses"];
+  const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
@@ -1703,6 +2550,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               ))}
             </div>
+
+            {/* Maintenance alerts */}
+            <MaintenanceAlertsWidget />
 
             {/* RE portfolio mini-cards */}
             <Card accent={C.gold} style={{ marginBottom: 16, paddingTop: 24 }}>
@@ -1833,7 +2683,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
               Click any property to expand · "Est. net if sold" deducts 3.5% realtor (HST incl.) + $1,500 legal
             </div>
-            {data.properties.map(p => <PropCard key={p.id} prop={p} onUpdate={(f, v) => updProp(p.id, f, v)} isAdmin={true} />)}
+            {data.properties.map(p => <PropCard key={p.id} prop={p} onUpdate={(f, v) => updProp(p.id, f, v)} isAdmin={true} userId={user.id} />)}
 
             {/* ── RENT COLLECTION LEDGER ── */}
             <div style={{ marginTop: 32 }}>
@@ -1967,6 +2817,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             </div>
             {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} isAdmin={true} />)}
           </div>
+        )}
+
+        {/* ── EXPENSES ── */}
+        {tab === "expenses" && (
+          <ExpensesTab userId={user.id} isAdmin={true} allProfiles={profiles} individuals={data.individuals} />
         )}
 
         {/* ── CASH FLOW ── */}
