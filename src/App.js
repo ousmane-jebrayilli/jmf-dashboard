@@ -1691,8 +1691,10 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
 
 function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) {
   const [open, setOpen] = useState(false);
+  const [propTab, setPropTab] = useState("overview");
   const [editingUnit, setEditingUnit] = useState(null);
   const [loggingRent, setLoggingRent] = useState(null);
+  const [scheduleRows, setScheduleRows] = useState(12);
 
   const mortgage = calculateMortgageSnapshot(prop, currentYM());
   const market = safe(prop.market);
@@ -1716,6 +1718,39 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
   const collectedThisMonth = propertyCollectedRentForMonth(prop, rentPayments, currentYM());
   const collectedTotal = propertyCollectedRentTotal(prop, rentPayments);
 
+  // Build amortization schedule for Payment Schedule tab
+  const curYM = currentYM();
+  const scheduleMonths = monthsBetween(curYM, (() => {
+    const [y, m] = curYM.split("-").map(Number);
+    const endM = m - 1 + 120;
+    return `${y + Math.floor(endM / 12)}-${String((endM % 12) + 1).padStart(2, "0")}`;
+  })());
+  const scheduleData = scheduleMonths.map(ym => {
+    const snap = calculateMortgageSnapshot(prop, ym);
+    return { ym, balance: snap.displayedBalance, interest: snap.currentInterest, principal: snap.currentPrincipal, payment: snap.monthlyPI };
+  });
+  const piPayment = mortgage.monthlyPI;
+  const totalInterest = piPayment > 0 ? mortgage.currentInterest : 0;
+  const totalPrincipal = piPayment > 0 ? mortgage.currentPrincipal : 0;
+  const interestPct = piPayment > 0 ? Math.round((totalInterest / piPayment) * 100) : 0;
+  const rateSavings = balance > 0 ? balance * 0.0025 / 12 : 0;
+
+  // Balance curve: sample every 12 months for the polyline
+  const curvePoints = scheduleData.filter((_, i) => i % 12 === 0);
+  const maxBal = Math.max(1, ...curvePoints.map(d => d.balance));
+  const CURVE_W = 560;
+  const CURVE_H = 120;
+  const CURVE_PAD_L = 52;
+  const CURVE_PAD_B = 28;
+  const plotW = CURVE_W - CURVE_PAD_L - 8;
+  const plotH = CURVE_H - CURVE_PAD_B - 8;
+  const toX = (i) => CURVE_PAD_L + (i / Math.max(1, curvePoints.length - 1)) * plotW;
+  const toY = (bal) => 8 + plotH - (bal / maxBal) * plotH;
+  const polylinePoints = curvePoints.map((d, i) => `${toX(i)},${toY(d.balance)}`).join(" ");
+  const fillPoints = curvePoints.length > 1
+    ? `${toX(0)},${toY(0)} ${polylinePoints} ${toX(curvePoints.length - 1)},${toY(0)}`
+    : "";
+
   function updateUnits(nextUnits) {
     const normalized = nextUnits.map(makeUnit);
     const nextProp = { ...prop, units: normalized };
@@ -1728,6 +1763,13 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
   function saveUnit(unit) {
     updateUnits(units.map(item => item.id === unit.id ? makeUnit(unit) : item));
   }
+
+  const tabStyle = (id) => ({
+    padding: "11px 18px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+    background: "transparent", fontFamily: C.sans, whiteSpace: "nowrap",
+    color: propTab === id ? C.gold : C.textDim,
+    borderBottom: propTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
+  });
 
   return (
     <div style={{ background:C.card, border:`1px solid ${open ? C.gold : C.border}`, borderRadius:18, overflow:"hidden", marginBottom:16, boxShadow: open ? C.shadowMd : C.shadow, transition:"border-color 0.18s, box-shadow 0.18s", fontFamily:C.sans }}>
@@ -1756,7 +1798,8 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
         />
       )}
 
-      <div onClick={() => setOpen(o => !o)} style={{ padding:"18px 22px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", gap:14 }}>
+      {/* Card header — click to open/close */}
+      <div onClick={() => { setOpen(o => { if (o) setPropTab("overview"); return !o; }); }} style={{ padding:"18px 22px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", gap:14 }}>
         <div style={{ minWidth:0, flex:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8 }}>
             <StatusPill status={prop.status} />
@@ -1782,214 +1825,355 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
 
       {open && (
         <div style={{ borderTop:`1px solid ${C.border}` }}>
-          <div style={{ padding:"22px" }}>
-            <Label>Property Overview</Label>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12, marginTop:12 }}>
-              {[
-                { label:"Purchase", value:$F(prop.purchase), color:C.text },
-                { label:"Market Value", value:$F(market), color:C.text },
-                { label:"Current Debt", value:$F(balance), color:C.red },
-                { label:"Gross Equity", value:$F(rawEquity), color:rawEquity >= 0 ? C.gold : C.red },
-                { label:"Expected Rent", value:$F(nextExpected || effectiveRent), color:C.green },
-                { label:"Monthly Cash Flow", value:`${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF)}`, color:monthlyNCF >= 0 ? C.green : C.red },
-              ].map(item => (
-                <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
-                  <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{item.label}</div>
-                  <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
-                </div>
+
+          {/* Tab bar */}
+          <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
+            <div style={{ display:"flex" }}>
+              {[["overview","Overview"],["schedule","Payment Schedule"],["tenants","Tenants & Rent"]].map(([id, label]) => (
+                <button key={id} onClick={e => { e.stopPropagation(); setPropTab(id); }} style={tabStyle(id)}>{label}</button>
               ))}
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:18 }}>
-              <div>
-                <Row label="Occupancy"><span style={{ fontSize:13, color:C.text }}>{units.length ? `${units.filter(u => getActiveLease(u)).length}/${units.length} units with leases` : "No tracked units"}</span></Row>
-                <Row label="Tenant Summary"><span style={{ fontSize:13, color: prop.tenant_summary ? C.text : C.textDim, textAlign:"right" }}>{prop.tenant_summary || "No active tenants yet"}</span></Row>
-                <Row label="Est. net if sold" last><span style={{ fontFamily:C.mono, color:netEquity >= 0 ? C.green : C.red }}>{$F(netEquity)}</span></Row>
-              </div>
-              <div>
-                <Row label="LTV"><span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily:C.mono, fontWeight:700 }}>{ltv.toFixed(1)}%</span></Row>
-                {prop.co_owner && <Row label="Co-owner"><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
-                <Row label="Notes" last><span style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, textAlign:"right" }}>{prop.notes || "—"}</span></Row>
-              </div>
-            </div>
           </div>
 
-          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-            <Label>Mortgage</Label>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:20, marginTop:12 }}>
-              <div>
-                <Row label="Lender"><span style={{ fontSize:13, color:C.text }}>{prop.lender}</span></Row>
-                <Row label="Rate"><span style={{ fontFamily:C.mono, color:C.amber }}>{prop.rate}</span></Row>
-                <Row label="Payment structure">
-                  {isAdmin ? (
-                    <select value={prop.payment_structure || "amortizing"} onChange={e => onUpdate("payment_structure", e.target.value)}
-                      style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans }}>
-                      <option value="amortizing">Amortizing</option>
-                      <option value="interest_only">Interest only</option>
-                    </select>
-                  ) : (
-                    <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
-                  )}
-                </Row>
-                <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+          {/* ── TAB 1: OVERVIEW ── */}
+          {propTab === "overview" && (
+            <div>
+              <div style={{ padding:"22px" }}>
+                <Label>Property Overview</Label>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12, marginTop:12 }}>
+                  {[
+                    { label:"Purchase", value:$F(prop.purchase), color:C.text },
+                    { label:"Market Value", value:$F(market), color:C.text },
+                    { label:"Current Debt", value:$F(balance), color:C.red },
+                    { label:"Gross Equity", value:$F(rawEquity), color:rawEquity >= 0 ? C.gold : C.red },
+                    { label:"Expected Rent", value:$F(nextExpected || effectiveRent), color:C.green },
+                    { label:"Monthly Cash Flow", value:`${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF)}`, color:monthlyNCF >= 0 ? C.green : C.red },
+                  ].map(item => (
+                    <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
+                      <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{item.label}</div>
+                      <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:18 }}>
+                  <div>
+                    <Row label="Occupancy"><span style={{ fontSize:13, color:C.text }}>{units.length ? `${units.filter(u => getActiveLease(u)).length}/${units.length} units with leases` : "No tracked units"}</span></Row>
+                    <Row label="Tenant Summary"><span style={{ fontSize:13, color: prop.tenant_summary ? C.text : C.textDim, textAlign:"right" }}>{prop.tenant_summary || "No active tenants yet"}</span></Row>
+                    <Row label="Est. net if sold" last><span style={{ fontFamily:C.mono, color:netEquity >= 0 ? C.green : C.red }}>{$F(netEquity)}</span></Row>
+                  </div>
+                  <div>
+                    <Row label="LTV"><span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily:C.mono, fontWeight:700 }}>{ltv.toFixed(1)}%</span></Row>
+                    {prop.co_owner && <Row label="Co-owner"><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
+                    <Row label="Notes" last><span style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, textAlign:"right" }}>{prop.notes || "—"}</span></Row>
+                  </div>
+                </div>
               </div>
-              <div>
-                <Row label={`Calculated balance (${currentYM()})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
-                <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
-                <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
-                <Row label="Projected next balance" last><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
-              </div>
-            </div>
-          </div>
 
-          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-            <Label>Monthly Operating Expenses</Label>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
-              <div>
-                <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-                {prop.taxes_paid_by !== "lender" && <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>}
-                <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
-              </div>
-              <div>
-                <Row label="Maintenance fees"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
-                <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
-                <Row label="Total monthly outflow" last><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(totalOut)}</span></Row>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-            <div style={{ marginBottom:12 }}>
-              <Label>Tenants / Leases</Label>
-              <div style={{ fontSize:12, color:C.textDim }}>Tenants now live at the unit or level level so each property is easier to manage.</div>
-            </div>
-            {units.length === 0 ? (
-              <div style={{ fontSize:13, color:C.textDim }}>This property does not currently have tracked rental units.</div>
-            ) : (
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:14 }}>
-                {units.map(unit => {
-                  const lease = getActiveLease(unit);
-                  return (
-                    <div key={unit.id} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
-                        <div>
-                          <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{unit.label}</div>
-                          <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>{lease?.tenant_full_name || "No tenant assigned"}</div>
-                        </div>
-                        <span style={{ background: lease ? C.greenLight : C.border, color: lease ? C.greenText : C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px" }}>
-                          {lease ? (lease.lease_status === "signed_pending" ? "Pending" : "Leased") : "Vacant"}
-                        </span>
-                      </div>
-                      <div style={{ display:"grid", gap:8 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
-                          <span style={{ color:C.textDim }}>Monthly rent</span>
-                          <span style={{ fontFamily:C.mono, color:C.text }}>{$F(lease?.monthly_rent || unit.market_rent)}</span>
-                        </div>
-                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
-                          <span style={{ color:C.textDim }}>Lease window</span>
-                          <span style={{ color:C.text }}>{lease ? `${formatDate(lease.lease_start_date)} - ${formatDate(lease.lease_end_date)}` : "—"}</span>
-                        </div>
-                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
-                          <span style={{ color:C.textDim }}>Deposit</span>
-                          <span style={{ fontFamily:C.mono, color:safe(lease?.deposit_received) > 0 ? C.gold : C.textDim }}>{$F(lease?.deposit_received || 0)}</span>
-                        </div>
-                        {lease?.phone_number && <div style={{ fontSize:12, color:C.textMid }}>{lease.phone_number}</div>}
-                        {lease?.email && <div style={{ fontSize:12, color:C.textMid }}>{lease.email}</div>}
-                        {lease?.lease_notes && <div style={{ fontSize:12, color:C.textMid, lineHeight:1.55 }}>{lease.lease_notes}</div>}
-                      </div>
-                      {isAdmin && (
-                        <button onClick={() => setEditingUnit(unit)}
-                          style={{ width:"100%", marginTop:14, padding:"10px 12px", background:lease ? C.surface : C.goldLight, border:`1px solid ${lease ? C.border : C.gold}`, borderRadius:10, color:lease ? C.textMid : C.goldText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                          {lease ? "Edit Tenant / Lease" : "Add Tenant"}
-                        </button>
+              <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+                <Label>Mortgage</Label>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:20, marginTop:12 }}>
+                  <div>
+                    <Row label="Lender"><span style={{ fontSize:13, color:C.text }}>{prop.lender}</span></Row>
+                    <Row label="Rate"><span style={{ fontFamily:C.mono, color:C.amber }}>{prop.rate}</span></Row>
+                    <Row label="Payment structure">
+                      {isAdmin ? (
+                        <select value={prop.payment_structure || "amortizing"} onChange={e => onUpdate("payment_structure", e.target.value)}
+                          style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans }}>
+                          <option value="amortizing">Amortizing</option>
+                          <option value="interest_only">Interest only</option>
+                        </select>
+                      ) : (
+                        <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
                       )}
-                    </div>
-                  );
-                })}
+                    </Row>
+                    <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                  </div>
+                  <div>
+                    <Row label={`Calculated balance (${curYM})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
+                    <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
+                    <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
+                    <Row label="Projected next balance" last><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
 
-          <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
-              <div>
-                <Label>Rent Ledger</Label>
-                <div style={{ fontSize:12, color:C.textDim }}>Lease-aware rent due, payments, deposit credit, and remaining value through expiry.</div>
-              </div>
-              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Due this month: <strong style={{ color:C.text }}>{$F(nextExpected)}</strong></span>
-                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected this month: <strong style={{ color:collectedThisMonth > 0 ? C.green : C.text }}>{$F(collectedThisMonth)}</strong></span>
-                <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected total: <strong style={{ color:C.green }}>{$F(collectedTotal)}</strong></span>
+              <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+                <Label>Monthly Operating Expenses</Label>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
+                  <div>
+                    <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                    {prop.taxes_paid_by !== "lender" && <Row label="Property tax"><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></Row>}
+                    <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
+                  </div>
+                  <div>
+                    <Row label="Maintenance fees"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
+                    <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
+                    <Row label="Total monthly outflow" last><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(totalOut)}</span></Row>
+                  </div>
+                </div>
               </div>
             </div>
-            {ledgers.length === 0 ? (
-              <div style={{ fontSize:13, color:C.textDim }}>Add a tenant lease to generate a rent ledger for this property.</div>
-            ) : (
-              <div style={{ display:"grid", gap:14 }}>
-                {ledgers.map(({ unit, ledger }) => (
-                  <div key={unit.id} style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
-                    <div style={{ padding:"14px 16px", background:C.bg, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-                      <div>
-                        <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{unit.label} · {ledger.lease.tenant_full_name || "Tenant TBD"}</div>
-                        <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{formatDate(ledger.lease.lease_start_date)} - {formatDate(ledger.lease.lease_end_date)} · {ledger.lease.payment_frequency}</div>
-                      </div>
-                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                        {[
-                          { label:"Lease Value", value:$F(ledger.totalDue), color:C.text },
-                          { label:"Paid", value:$F(ledger.totalPaid), color:C.green },
-                          { label:"Credited", value:$F(ledger.totalCredited), color:C.gold },
-                          { label:"Outstanding", value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
-                          { label:"Remaining", value:$F(ledger.remainingLeaseValue), color:ledger.remainingLeaseValue > 0 ? C.amber : C.green },
-                        ].map(item => (
-                          <div key={item.label} style={{ textAlign:"right" }}>
-                            <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{item.label}</div>
-                            <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {safe(ledger.lease.deposit_received) > 0 && (
-                      <div style={{ padding:"10px 16px", borderTop:`1px solid ${C.border}`, background:C.goldLight, fontSize:12, color:C.goldText }}>
-                        Deposit recorded: {$F(ledger.lease.deposit_received)} on {formatDate(ledger.lease.deposit_date)}. This amount is currently being applied as prepaid rent credit.
-                      </div>
-                    )}
-                    <div style={{ padding:"0 16px 14px" }}>
-                      <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                        <span>Month</span>
-                        <span>Due Date</span>
-                        <span>Rent Due</span>
-                        <span>Paid</span>
-                        <span>Credit / Owing</span>
-                        <span></span>
-                      </div>
-                      {ledger.rows.map((row, idx) => {
-                        const current = ledger.payments.find(entry => entry.month === row.month);
-                        return (
-                          <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
-                            <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
-                            <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
-                            <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
-                            <div>
-                              <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
-                              {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
-                            </div>
-                            <div>
-                              <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 ? C.gold : (row.outstanding > 0 ? C.red : C.green) }}>
-                                {row.creditApplied > 0 ? `Credit ${$F(row.creditApplied)}` : row.outstanding > 0 ? `Owing ${$F(row.outstanding)}` : "Settled"}
-                              </div>
-                            </div>
-                            <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
-                              style={{ fontSize:11, padding:"6px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, cursor:"pointer", fontWeight:700 }}>
-                              {current ? "Edit" : "Log"}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+          )}
+
+          {/* ── TAB 2: PAYMENT SCHEDULE ── */}
+          {propTab === "schedule" && (
+            <div style={{ padding:"22px" }}>
+
+              {/* Section A — 4 stat chips */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))", gap:10, marginBottom:24 }}>
+                {[
+                  { label:"Balance", value:$F(balance), color:C.red },
+                  { label:"Interest this month", value:$F(mortgage.currentInterest), color:C.red },
+                  { label:"Principal this month", value:$F(mortgage.currentPrincipal), color:C.green },
+                  { label:"Rate", value:prop.rate || "N/A", color:C.amber },
+                ].map(item => (
+                  <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
+                    <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{item.label}</div>
+                    <div style={{ fontSize:item.label === "Rate" ? 14 : 18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+
+              {/* Section B — Payment breakdown donut */}
+              {piPayment > 0 && (
+                <div style={{ display:"flex", alignItems:"center", gap:28, marginBottom:24, flexWrap:"wrap" }}>
+                  {/* SVG donut */}
+                  <div style={{ flexShrink:0 }}>
+                    {(() => {
+                      const R = 44, CX = 52, CY = 52, STROKE = 10;
+                      const circ = 2 * Math.PI * R;
+                      const intDash = (interestPct / 100) * circ;
+                      return (
+                        <svg width={104} height={104} style={{ display:"block" }}>
+                          <circle cx={CX} cy={CY} r={R} fill="none" stroke={C.redLight} strokeWidth={STROKE} />
+                          <circle cx={CX} cy={CY} r={R} fill="none" stroke={C.green} strokeWidth={STROKE}
+                            strokeDasharray={`${circ - intDash} ${intDash}`}
+                            strokeDashoffset={circ * 0.25}
+                            style={{ transform:`rotate(-90deg)`, transformOrigin:`${CX}px ${CY}px` }} />
+                          <text x={CX} y={CY - 4} textAnchor="middle" fontSize={16} fontWeight={700} fill={C.red} fontFamily={C.mono}>{interestPct}%</text>
+                          <text x={CX} y={CY + 13} textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>interest</text>
+                        </svg>
+                      );
+                    })()}
+                  </div>
+                  {/* Breakdown rows */}
+                  <div style={{ flex:1, minWidth:180 }}>
+                    {[
+                      { label:"Interest", value:$F(totalInterest), color:C.red },
+                      { label:"Principal", value:$F(totalPrincipal), color:C.green },
+                      { label:"Total payment", value:$F(piPayment), color:C.text },
+                    ].map((r, i, arr) => (
+                      <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                        <span style={{ fontSize:13, color:C.textMid }}>{r.label}</span>
+                        <span style={{ fontFamily:C.mono, fontWeight:700, color:r.color, fontSize:14 }}>{r.value}</span>
+                      </div>
+                    ))}
+                    {rateSavings > 0 && (
+                      <div style={{ fontSize:11, color:C.textDim, marginTop:10 }}>
+                        Every 0.25% rate cut saves ~<strong style={{ color:C.green }}>{$F(rateSavings)}</strong>/mo in interest.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Section C — Balance curve */}
+              {curvePoints.length > 1 && (
+                <div style={{ marginBottom:24 }}>
+                  <Label>Balance — Next 10 Years</Label>
+                  <div style={{ overflowX:"auto", marginTop:10 }}>
+                    <svg width={CURVE_W} height={CURVE_H} style={{ display:"block", overflow:"visible" }}>
+                      {/* Y-axis labels */}
+                      {[0, 0.5, 1].map(frac => {
+                        const yVal = maxBal * frac;
+                        const yPx = toY(yVal);
+                        return (
+                          <g key={frac}>
+                            <line x1={CURVE_PAD_L - 4} y1={yPx} x2={CURVE_W - 8} y2={yPx} stroke={C.border} strokeWidth={1} />
+                            <text x={CURVE_PAD_L - 6} y={yPx + 4} textAnchor="end" fontSize={9} fill={C.textDim} fontFamily={C.mono}>{$K(yVal)}</text>
+                          </g>
+                        );
+                      })}
+                      {/* Fill */}
+                      {fillPoints && <polygon points={fillPoints} fill={C.blueLight} opacity={0.6} />}
+                      {/* Line */}
+                      <polyline points={polylinePoints} fill="none" stroke={C.blue} strokeWidth={2} strokeLinejoin="round" />
+                      {/* X-axis labels */}
+                      {curvePoints.map((d, i) => (
+                        <text key={d.ym} x={toX(i)} y={CURVE_H - 4} textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>
+                          {monthLabel(d.ym).split(" ")[1]}
+                        </text>
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+              )}
+
+              {/* Section D — Monthly schedule table */}
+              <div>
+                <Label>Monthly Schedule</Label>
+                <div style={{ marginTop:10, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, background:C.bg, padding:"10px 14px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                    <span>Month</span><span style={{ textAlign:"right" }}>Payment</span><span style={{ textAlign:"right", color:C.red }}>Interest</span><span style={{ textAlign:"right", color:C.green }}>Principal</span><span style={{ textAlign:"right" }}>Balance</span>
+                  </div>
+                  {scheduleData.slice(0, scheduleRows).map((row, idx) => (
+                    <div key={row.ym} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, padding:"9px 14px", borderBottom: idx < Math.min(scheduleRows, scheduleData.length) - 1 ? `1px solid ${C.border}` : "none", background: row.ym === curYM ? C.bg : "transparent", alignItems:"center" }}>
+                      <span style={{ fontSize:12, color:C.text, fontWeight: row.ym === curYM ? 700 : 400 }}>{monthLabel(row.ym)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.payment > 0 ? $F(row.payment) : "—"}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.red, textAlign:"right" }}>{row.interest > 0 ? $F(row.interest) : "—"}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.green, textAlign:"right" }}>{row.principal > 0 ? $F(row.principal) : "—"}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{$F(row.balance)}</span>
+                    </div>
+                  ))}
+                </div>
+                {scheduleData.length > 12 && (
+                  <button onClick={() => setScheduleRows(r => r === 12 ? 24 : 12)}
+                    style={{ marginTop:10, fontSize:12, color:C.gold, background:"transparent", border:`1px solid ${C.gold}`, borderRadius:8, padding:"7px 16px", cursor:"pointer", fontFamily:C.sans, fontWeight:600 }}>
+                    {scheduleRows === 12 ? "Show 24 months" : "Show 12 months"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB 3: TENANTS & RENT ── */}
+          {propTab === "tenants" && (
+            <div>
+              <div style={{ padding:"22px" }}>
+                <div style={{ marginBottom:12 }}>
+                  <Label>Tenants / Leases</Label>
+                </div>
+                {units.length === 0 ? (
+                  <div style={{ fontSize:13, color:C.textDim }}>This property does not currently have tracked rental units.</div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:14 }}>
+                    {units.map(unit => {
+                      const lease = getActiveLease(unit);
+                      return (
+                        <div key={unit.id} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
+                            <div>
+                              <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{unit.label}</div>
+                              <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>{lease?.tenant_full_name || "No tenant assigned"}</div>
+                            </div>
+                            <span style={{ background: lease ? C.greenLight : C.border, color: lease ? C.greenText : C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px" }}>
+                              {lease ? (lease.lease_status === "signed_pending" ? "Pending" : "Leased") : "Vacant"}
+                            </span>
+                          </div>
+                          <div style={{ display:"grid", gap:8 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Monthly rent</span>
+                              <span style={{ fontFamily:C.mono, color:C.text }}>{$F(lease?.monthly_rent || unit.market_rent)}</span>
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Lease window</span>
+                              <span style={{ color:C.text }}>{lease ? `${formatDate(lease.lease_start_date)} - ${formatDate(lease.lease_end_date)}` : "—"}</span>
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Deposit</span>
+                              <span style={{ fontFamily:C.mono, color:safe(lease?.deposit_received) > 0 ? C.gold : C.textDim }}>{$F(lease?.deposit_received || 0)}</span>
+                            </div>
+                            {lease?.phone_number && <div style={{ fontSize:12, color:C.textMid }}>{lease.phone_number}</div>}
+                            {lease?.email && <div style={{ fontSize:12, color:C.textMid }}>{lease.email}</div>}
+                            {lease?.lease_notes && <div style={{ fontSize:12, color:C.textMid, lineHeight:1.55 }}>{lease.lease_notes}</div>}
+                          </div>
+                          {isAdmin && (
+                            <button onClick={() => setEditingUnit(unit)}
+                              style={{ width:"100%", marginTop:14, padding:"10px 12px", background:lease ? C.surface : C.goldLight, border:`1px solid ${lease ? C.border : C.gold}`, borderRadius:10, color:lease ? C.textMid : C.goldText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                              {lease ? "Edit Tenant / Lease" : "Add Tenant"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+                  <div>
+                    <Label>Rent Ledger</Label>
+                    <div style={{ fontSize:12, color:C.textDim }}>Lease-aware rent due, payments, deposit credit, and remaining value through expiry.</div>
+                  </div>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Due this month: <strong style={{ color:C.text }}>{$F(nextExpected)}</strong></span>
+                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected this month: <strong style={{ color:collectedThisMonth > 0 ? C.green : C.text }}>{$F(collectedThisMonth)}</strong></span>
+                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected total: <strong style={{ color:C.green }}>{$F(collectedTotal)}</strong></span>
+                  </div>
+                </div>
+                {ledgers.length === 0 ? (
+                  <div style={{ fontSize:13, color:C.textDim }}>Add a tenant lease to generate a rent ledger for this property.</div>
+                ) : (
+                  <div style={{ display:"grid", gap:14 }}>
+                    {ledgers.map(({ unit, ledger }) => (
+                      <div key={unit.id} style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
+                        <div style={{ padding:"14px 16px", background:C.bg, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                          <div>
+                            <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{unit.label} · {ledger.lease.tenant_full_name || "Tenant TBD"}</div>
+                            <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{formatDate(ledger.lease.lease_start_date)} - {formatDate(ledger.lease.lease_end_date)} · {ledger.lease.payment_frequency}</div>
+                          </div>
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                            {[
+                              { label:"Lease Value", value:$F(ledger.totalDue), color:C.text },
+                              { label:"Paid", value:$F(ledger.totalPaid), color:C.green },
+                              { label:"Credited", value:$F(ledger.totalCredited), color:C.gold },
+                              { label:"Outstanding", value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
+                              { label:"Remaining", value:$F(ledger.remainingLeaseValue), color:ledger.remainingLeaseValue > 0 ? C.amber : C.green },
+                            ].map(item => (
+                              <div key={item.label} style={{ textAlign:"right" }}>
+                                <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{item.label}</div>
+                                <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {safe(ledger.lease.deposit_received) > 0 && (
+                          <div style={{ padding:"10px 16px", borderTop:`1px solid ${C.border}`, background:C.goldLight, fontSize:12, color:C.goldText }}>
+                            Deposit recorded: {$F(ledger.lease.deposit_received)} on {formatDate(ledger.lease.deposit_date)}. This amount is currently being applied as prepaid rent credit.
+                          </div>
+                        )}
+                        <div style={{ padding:"0 16px 14px" }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                            <span>Month</span>
+                            <span>Due Date</span>
+                            <span>Rent Due</span>
+                            <span>Paid</span>
+                            <span>Credit / Owing</span>
+                            <span></span>
+                          </div>
+                          {ledger.rows.map((row, idx) => {
+                            const current = ledger.payments.find(entry => entry.month === row.month);
+                            return (
+                              <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                                <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
+                                <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
+                                <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
+                                <div>
+                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                                  {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
+                                </div>
+                                <div>
+                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 ? C.gold : (row.outstanding > 0 ? C.red : C.green) }}>
+                                    {row.creditApplied > 0 ? `Credit ${$F(row.creditApplied)}` : row.outstanding > 0 ? `Owing ${$F(row.outstanding)}` : "Settled"}
+                                  </div>
+                                </div>
+                                <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
+                                  style={{ fontSize:11, padding:"6px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, cursor:"pointer", fontWeight:700 }}>
+                                  {current ? "Edit" : "Log"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       )}
     </div>
