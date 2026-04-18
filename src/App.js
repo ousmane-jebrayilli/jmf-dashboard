@@ -217,7 +217,7 @@ const DEFAULT = {
   properties: [
     {
       id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial",
-      purchase:1020000, market:2000000, mortgage:728134, original_balance:0, ownership:1,
+      purchase:1020000, market:2000000, mortgage:728134.68, original_balance:0, ownership:1,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
       maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
@@ -274,7 +274,7 @@ const DEFAULT = {
     },
     {
       id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
-      purchase:3079729, market:2850000, mortgage:1824726, original_balance:2000000,
+      purchase:3079729, market:2850000, mortgage:1824726.46, original_balance:2000000,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:7.95, rate:"7.95%", rateType:"12 Month Fixed Open",
       maturity:"Dec 2026", remaining_amortization_months:285, taxes_paid_by:"lender",
@@ -292,7 +292,7 @@ const DEFAULT = {
     },
     {
       id:4, name:"51 Ahchie Crt.", status:"RISK", property_type:"residential",
-      purchase:2119105, market:1750000, mortgage:1523326, original_balance:1553670,
+      purchase:2119105, market:1750000, mortgage:1523325.81, original_balance:1553670,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.24, rate:"5.24%", rateType:"36 Month ARM Closed",
       maturity:"Apr 2026", remaining_amortization_months:336, taxes_paid_by:"lender",
@@ -351,7 +351,7 @@ const DEFAULT = {
     },
     {
       id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
-      purchase:349000, market:958800, mortgage:894769, original_balance:960000,
+      purchase:349000, market:958800, mortgage:894768.98, original_balance:960000,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.94, rate:"5.94%", rateType:"60 Month Fixed Closed",
       maturity:"Dec 2029", remaining_amortization_months:311, taxes_paid_by:"lender",
@@ -3300,10 +3300,22 @@ export default function App() {
       if (dbData) {
         const mergedProperties = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
         const mergedRentPayments = (dbData.rentPayments || DEFAULT.rentPayments).map(normalizeRentPayment);
+        const correctedBalances = {
+          1: 728134.68,   // 27 Roytec Rd.
+          3: 1824726.46,  // 121 Milky Way
+          4: 1523325.81,  // 51 Ahchie Crt.
+          5: 894768.98,   // 4 New Seabury Dr.
+        };
+        const correctedProps = mergedProperties.map(p =>
+          correctedBalances[p.id] !== undefined
+            ? { ...p, mortgage: correctedBalances[p.id] }
+            : p
+        );
+        saveToDB("properties", correctedProps);
         setData({
           ...DEFAULT,
           individuals:  mergeById(DEFAULT.individuals, dbData.individuals),
-          properties:   mergedProperties,
+          properties:   correctedProps,
           businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
           cashflow:     dbData.cashflow     || DEFAULT.cashflow,
           rentPayments: mergedRentPayments,
