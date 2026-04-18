@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(node_modules/.bin/react-scripts build:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(/usr/local/bin/npm run *)",
+      "Read(//Users/ahmedjebrayilli/.nvm/versions/**)",
+      "Read(//opt/homebrew/**)",
+      "Read(//Users/ahmedjebrayilli/**)"
     ]
   }
 }
