@@ -1696,7 +1696,7 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
   );
 }
 
-function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) {
+function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, isAdmin }) {
   const [open, setOpen] = useState(false);
   const [propTab, setPropTab] = useState("overview");
   const [taxNoteOpen, setTaxNoteOpen] = useState(false);
@@ -1765,10 +1765,12 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
   function updateUnits(nextUnits) {
     const normalized = nextUnits.map(makeUnit);
     const nextProp = { ...prop, units: normalized };
-    onUpdate("units", normalized);
-    onUpdate("occupancy_status", propertyOccupancyStatus(nextProp));
-    onUpdate("tenant_summary", buildTenantSummary(normalized));
-    onUpdate("rentalIncome", propEffectiveRent(nextProp));
+    onPatch({
+      units: normalized,
+      occupancy_status: propertyOccupancyStatus(nextProp),
+      tenant_summary: buildTenantSummary(normalized),
+      rentalIncome: propEffectiveRent(nextProp),
+    });
   }
 
   function saveUnit(unit) {
@@ -2093,7 +2095,8 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 ) : (
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:14 }}>
                     {units.map(unit => {
-                      const lease = getActiveLease(unit);
+                      const lease = unit.lease ? makeLease(unit.lease) : null;
+                      const leaseBadge = !lease ? "Vacant" : lease.lease_status === "signed_pending" ? "Pending" : lease.lease_status === "expired" ? "Expired" : lease.lease_status === "active" ? "Leased" : lease.lease_status;
                       return (
                         <div key={unit.id} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
@@ -2101,8 +2104,8 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                               <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{unit.label}</div>
                               <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>{lease?.tenant_full_name || "No tenant assigned"}</div>
                             </div>
-                            <span style={{ background: lease ? C.greenLight : C.border, color: lease ? C.greenText : C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px" }}>
-                              {lease ? (lease.lease_status === "signed_pending" ? "Pending" : "Leased") : "Vacant"}
+                            <span style={{ background: lease ? C.greenLight : C.border, color: lease ? C.greenText : C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px", textTransform:"capitalize" }}>
+                              {leaseBadge}
                             </span>
                           </div>
                           <div style={{ display:"grid", gap:8 }}>
@@ -2117,6 +2120,18 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
                               <span style={{ color:C.textDim }}>Deposit</span>
                               <span style={{ fontFamily:C.mono, color:safe(lease?.deposit_received) > 0 ? C.gold : C.textDim }}>{$F(lease?.deposit_received || 0)}</span>
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Deposit date</span>
+                              <span style={{ color:C.text }}>{lease?.deposit_date ? formatDate(lease.deposit_date) : "—"}</span>
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Payment frequency</span>
+                              <span style={{ color:C.text, textTransform:"capitalize" }}>{lease?.payment_frequency || "—"}</span>
+                            </div>
+                            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                              <span style={{ color:C.textDim }}>Lease status</span>
+                              <span style={{ color:C.text, textTransform:"capitalize" }}>{lease?.lease_status?.replace("_", " ") || "—"}</span>
                             </div>
                             {lease?.phone_number && <div style={{ fontSize:12, color:C.textMid }}>{lease.phone_number}</div>}
                             {lease?.email && <div style={{ fontSize:12, color:C.textMid }}>{lease.email}</div>}
@@ -2751,31 +2766,42 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const cashStale  = safe(aj?.cash) === 0;
 
   // ── Update helpers ──
+  function updPropPatch(id, patch) {
+    setData(prev => {
+      const arr = prev.properties.map(p => {
+        if (p.id !== id) return p;
+        const incoming = typeof patch === "function" ? patch(p) : patch;
+        const next = { ...p, ...incoming };
+
+        // When tax is tracked separately, preserve both the P&I component and the all-in debit.
+        if (hasSeparateMortgageTax(next) || next.taxes_paid_by === "lender") {
+          const touchedMonthlyTax = Object.prototype.hasOwnProperty.call(incoming, "monthlyTax");
+          const touchedMonthlyPI = Object.prototype.hasOwnProperty.call(incoming, "monthly_pi");
+          const touchedMonthlyPayment = Object.prototype.hasOwnProperty.call(incoming, "monthlyPayment");
+
+          if (touchedMonthlyTax && !touchedMonthlyPayment) {
+            next.monthly_payment_tax = safe(next.monthlyTax);
+            next.monthlyPayment = getMortgageOperatingPayment(next) + safe(next.monthlyTax);
+          }
+          if (touchedMonthlyPI && !touchedMonthlyPayment) {
+            next.monthlyPayment = safe(next.monthly_pi) + safe(next.monthlyTax);
+          }
+          if (touchedMonthlyPayment) {
+            next.monthly_payment_tax = safe(next.monthlyTax);
+            next.monthly_pi = Math.max(0, safe(next.monthlyPayment) - safe(next.monthlyTax));
+          }
+        }
+
+        return next;
+      });
+      saveToDB("properties", arr);
+      return { ...prev, properties: arr };
+    });
+    showSaved();
+  }
   function updProp(id, f, v) {
     const val = Array.isArray(v) || typeof v === "string" ? v : safe(v);
-    const arr = data.properties.map(p => {
-      if (p.id !== id) return p;
-      const next = { ...p, [f]: val };
-
-      // When tax is tracked separately, preserve both the P&I component and the all-in debit.
-      if (hasSeparateMortgageTax(p) || p.taxes_paid_by === "lender") {
-        if (f === "monthlyTax") {
-          const pi = getMortgageOperatingPayment(p);
-          next.monthly_payment_tax = safe(val);
-          next.monthlyPayment = pi + safe(val);
-        }
-        if (f === "monthly_pi") {
-          next.monthlyPayment = safe(val) + safe(p.monthlyTax);
-        }
-        if (f === "monthlyPayment") {
-          next.monthly_payment_tax = safe(p.monthlyTax);
-          next.monthly_pi = Math.max(0, safe(val) - safe(p.monthlyTax));
-        }
-      }
-
-      return next;
-    });
-    saveToDB("properties", arr); setData(d => ({ ...d, properties: arr })); showSaved();
+    updPropPatch(id, { [f]: val });
   }
   function updInd(id, f, v) {
     const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
@@ -3114,6 +3140,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 prop={p}
                 rentPayments={data.rentPayments || []}
                 onUpdate={(f, v) => updProp(p.id, f, v)}
+                onPatch={patch => updPropPatch(p.id, patch)}
                 onSaveRentPayment={updRentPayment}
                 isAdmin={true}
               />
