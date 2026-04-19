@@ -470,7 +470,15 @@ function getActiveLease(unit) {
   return unit?.lease?.lease_status && !["vacant", "expired"].includes(unit.lease.lease_status) ? makeLease(unit.lease) : null;
 }
 function getMortgagePI(prop) {
-  return safe(prop.monthly_pi) || Math.max(0, safe(prop.monthlyPayment) - safe(prop.monthly_payment_tax));
+  const separatedTax = safe(prop.monthly_payment_tax) || ((prop.taxes_paid_by === "lender" || prop.taxes_paid_by === "escrow") ? safe(prop.monthlyTax) : 0);
+  return safe(prop.monthly_pi) || Math.max(0, safe(prop.monthlyPayment) - separatedTax);
+}
+function hasSeparateMortgageTax(prop) {
+  return safe(prop.monthly_pi) > 0 || safe(prop.monthly_payment_tax) > 0 ||
+    (((prop.taxes_paid_by === "lender" || prop.taxes_paid_by === "escrow")) && safe(prop.monthlyTax) > 0);
+}
+function getMortgageOperatingPayment(prop) {
+  return hasSeparateMortgageTax(prop) ? getMortgagePI(prop) : safe(prop.monthlyPayment);
 }
 function calculateMortgageSnapshot(prop, targetYM = currentYM()) {
   const anchorMonth = prop.mortgage_manual_override_month || prop.mortgage_as_of_month || SYSTEM_START;
@@ -628,7 +636,7 @@ function propEffectiveRent(prop) {
 }
 // Returns total monthly cash outflows for a property
 function propMonthlyOut(prop) {
-  return getMortgagePI(prop) + safe(prop.monthlyTax) + safe(prop.monthly_insurance) +
+  return getMortgageOperatingPayment(prop) + safe(prop.monthlyTax) + safe(prop.monthly_insurance) +
     safe(prop.maintenance_reserve_monthly) + safe(prop.utilities_monthly);
 }
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
@@ -1706,6 +1714,9 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
   const units = getPropertyUnits(prop);
   const occupancyStatus = propertyOccupancyStatus(prop);
   const effectiveRent = propEffectiveRent(prop);
+  const operatingMortgagePayment = getMortgageOperatingPayment(prop);
+  const operatingMortgageLabel = hasSeparateMortgageTax(prop) ? "Mortgage payment (P&I)" : "Mortgage payment";
+  const allInMortgageLabel = hasSeparateMortgageTax(prop) ? "Monthly payment (all-in)" : "Monthly payment";
   const totalOut = propMonthlyOut(prop);
   const monthlyNCF = effectiveRent - totalOut;
   const ownership = propOwnership(prop);
@@ -1886,7 +1897,7 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                         <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
                       )}
                     </Row>
-                    <Row label="Monthly payment" last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                    <Row label={allInMortgageLabel} last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
                   </div>
                   <div>
                     <Row label={`Calculated balance (${curYM})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
@@ -1901,7 +1912,13 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 <Label>Monthly Operating Expenses</Label>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
                   <div>
-                    <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
+                    <Row label={operatingMortgageLabel}>
+                      <EditNum
+                        value={operatingMortgagePayment}
+                        onChange={v => onUpdate(hasSeparateMortgageTax(prop) ? "monthly_pi" : "monthlyPayment", v)}
+                        locked={!isAdmin}
+                      />
+                    </Row>
                     <div style={{borderBottom:`1px solid ${C.border}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
                         <button onClick={e => { e.stopPropagation(); setTaxNoteOpen(o => !o); }} style={{background:"none",border:"none",padding:0,cursor:"pointer",fontSize:13,color:C.textMid,fontFamily:C.sans,display:"flex",alignItems:"center",gap:5}}>
@@ -2740,12 +2757,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       if (p.id !== id) return p;
       const next = { ...p, [f]: val };
 
-      // Keep escrowed mortgage totals in sync when tax or all-in payment changes.
-      if (p.taxes_paid_by === "lender") {
+      // When tax is tracked separately, preserve both the P&I component and the all-in debit.
+      if (hasSeparateMortgageTax(p) || p.taxes_paid_by === "lender") {
         if (f === "monthlyTax") {
-          const pi = safe(p.monthly_pi) || Math.max(0, safe(p.monthlyPayment) - safe(p.monthly_payment_tax));
+          const pi = getMortgageOperatingPayment(p);
           next.monthly_payment_tax = safe(val);
           next.monthlyPayment = pi + safe(val);
+        }
+        if (f === "monthly_pi") {
+          next.monthlyPayment = safe(val) + safe(p.monthlyTax);
         }
         if (f === "monthlyPayment") {
           next.monthly_payment_tax = safe(p.monthlyTax);
