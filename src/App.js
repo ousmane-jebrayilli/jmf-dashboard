@@ -812,6 +812,22 @@ function EditNum({ value, onChange, locked }) {
   );
   return <span onClick={() => { setV(safe(value)); setEditing(true); }} title="Click to edit" style={{ cursor: "pointer", color: col, fontFamily: C.mono, fontSize: 14, borderBottom: `1.5px dashed ${C.borderDark}`, paddingBottom: 1 }}>{$F(num)}</span>;
 }
+function EditText({ value, onChange, locked, type = "text", placeholder = "", width = 140, align = "right" }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value || "");
+  const display = value || "—";
+  if (locked) return <span style={{ fontSize: 13, color: value ? C.text : C.textDim, fontFamily: type === "date" ? C.sans : C.sans }}>{display}</span>;
+  if (editing) return (
+    <input autoFocus type={type} value={v}
+      placeholder={placeholder}
+      onChange={e => setV(e.target.value)}
+      onBlur={() => { onChange(v); setEditing(false); }}
+      onKeyDown={e => { if (e.key === "Enter") { onChange(v); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
+      style={{ background: C.goldLight, border: `1.5px solid ${C.gold}`, borderRadius: 6, color: C.goldText, padding: "4px 10px", width, fontSize: 13, fontFamily: C.sans, outline: "none", textAlign: align }}
+    />
+  );
+  return <span onClick={() => { setV(value || ""); setEditing(true); }} title="Click to edit" style={{ cursor: "pointer", color: value ? C.text : C.textDim, fontSize: 13, borderBottom: `1.5px dashed ${C.borderDark}`, paddingBottom: 1 }}>{display}</span>;
+}
 
 function Row({ label, children, last, labelStyle }) {
   return (
@@ -1716,7 +1732,6 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const effectiveRent = propEffectiveRent(prop);
   const operatingMortgagePayment = getMortgageOperatingPayment(prop);
   const operatingMortgageLabel = hasSeparateMortgageTax(prop) ? "Mortgage payment (P&I)" : "Mortgage payment";
-  const allInMortgageLabel = hasSeparateMortgageTax(prop) ? "Monthly payment (all-in)" : "Monthly payment";
   const totalOut = propMonthlyOut(prop);
   const monthlyNCF = effectiveRent - totalOut;
   const ownership = propOwnership(prop);
@@ -1888,7 +1903,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                   <div>
                     <Row label="Lender"><span style={{ fontSize:13, color:C.text }}>{prop.lender}</span></Row>
                     <Row label="Rate"><span style={{ fontFamily:C.mono, color:C.amber }}>{prop.rate}</span></Row>
-                    <Row label="Payment structure">
+                    <Row label="Payment structure" last>
                       {isAdmin ? (
                         <select value={prop.payment_structure || "amortizing"} onChange={e => onUpdate("payment_structure", e.target.value)}
                           style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans }}>
@@ -1899,13 +1914,26 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                         <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
                       )}
                     </Row>
-                    <Row label={allInMortgageLabel} last><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
                   </div>
                   <div>
-                    <Row label={`Calculated balance (${curYM})`}><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(balance)}</span></Row>
-                    <Row label="Interest next month"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.currentInterest)}</span></Row>
-                    <Row label="Principal next month"><span style={{ fontFamily:C.mono, color:mortgage.currentPrincipal > 0 ? C.green : C.textDim }}>{$F(mortgage.currentPrincipal)}</span></Row>
-                    <Row label="Projected next balance" last><span style={{ fontFamily:C.mono, color:C.text }}>{$F(mortgage.nextBalance)}</span></Row>
+                    <Row label="Maturity Date">
+                      <EditText
+                        value={prop.maturity || ""}
+                        onChange={v => onUpdate("maturity", v)}
+                        locked={!isAdmin}
+                        placeholder="e.g. Apr 1, 2027"
+                        width={150}
+                      />
+                    </Row>
+                    <Row label="Term" last>
+                      <EditText
+                        value={prop.rateType || ""}
+                        onChange={v => onUpdate("rateType", v)}
+                        locked={!isAdmin}
+                        placeholder="e.g. 12 Month Fixed Closed"
+                        width={190}
+                      />
+                    </Row>
                   </div>
                 </div>
               </div>
