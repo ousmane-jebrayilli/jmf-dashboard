@@ -2737,7 +2737,25 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   // ── Update helpers ──
   function updProp(id, f, v) {
     const val = Array.isArray(v) || typeof v === "string" ? v : safe(v);
-    const arr = data.properties.map(p => p.id === id ? { ...p, [f]: val } : p);
+    const arr = data.properties.map(p => {
+      if (p.id !== id) return p;
+      const next = { ...p, [f]: val };
+
+      // Keep escrowed mortgage totals in sync when tax or all-in payment changes.
+      if (p.taxes_paid_by === "lender") {
+        if (f === "monthlyTax") {
+          const pi = safe(p.monthly_pi) || Math.max(0, safe(p.monthlyPayment) - safe(p.monthly_payment_tax));
+          next.monthly_payment_tax = safe(val);
+          next.monthlyPayment = pi + safe(val);
+        }
+        if (f === "monthlyPayment") {
+          next.monthly_payment_tax = safe(p.monthlyTax);
+          next.monthly_pi = Math.max(0, safe(val) - safe(p.monthlyTax));
+        }
+      }
+
+      return next;
+    });
     saveToDB("properties", arr); setData(d => ({ ...d, properties: arr })); showSaved();
   }
   function updInd(id, f, v) {
@@ -3346,14 +3364,14 @@ export default function App() {
           const pmtfix     = { 3: 12628.05,                4: 10342.14                }[p.id];
           return {
             ...p,
-            ...(balFix     !== undefined && { mortgage:             balFix     }),
-            ...(rateFix    !== undefined && { interest_rate:        rateFix    }),
-            ...(rateStrFix !== undefined && { rate:                 rateStrFix }),
-            ...(rateTypFix !== undefined && { rateType:             rateTypFix }),
-            ...(matFix     !== undefined && { maturity:             matFix     }),
-            ...(pifix      !== undefined && { monthly_pi:           pifix      }),
-            ...(taxfix     !== undefined && { monthly_payment_tax:  taxfix     }),
-            ...(pmtfix     !== undefined && { monthlyPayment:       pmtfix     }),
+            ...(balFix     !== undefined && !safe(p.mortgage) && { mortgage:            balFix     }),
+            ...(rateFix    !== undefined && !safe(p.interest_rate) && { interest_rate:   rateFix    }),
+            ...(rateStrFix !== undefined && !p.rate && { rate:                          rateStrFix }),
+            ...(rateTypFix !== undefined && !p.rateType && { rateType:                  rateTypFix }),
+            ...(matFix     !== undefined && !p.maturity && { maturity:                  matFix     }),
+            ...(pifix      !== undefined && !safe(p.monthly_pi) && { monthly_pi:        pifix      }),
+            ...(taxfix     !== undefined && !safe(p.monthly_payment_tax) && { monthly_payment_tax: taxfix }),
+            ...(pmtfix     !== undefined && !safe(p.monthlyPayment) && { monthlyPayment: pmtfix     }),
           };
         });
         saveToDB("properties", correctedProps);
