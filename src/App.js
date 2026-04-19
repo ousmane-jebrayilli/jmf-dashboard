@@ -1692,6 +1692,7 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
 function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) {
   const [open, setOpen] = useState(false);
   const [propTab, setPropTab] = useState("overview");
+  const [taxNoteOpen, setTaxNoteOpen] = useState(false);
   const [editingUnit, setEditingUnit] = useState(null);
   const [loggingRent, setLoggingRent] = useState(null);
   const [scheduleRows, setScheduleRows] = useState(12);
@@ -1902,24 +1903,34 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
                   <div>
                     <Row label="Mortgage payment"><EditNum value={safe(prop.monthlyPayment)} onChange={v => onUpdate("monthlyPayment", v)} locked={!isAdmin} /></Row>
-                    <Row label={prop.taxes_paid_by === "lender" ? "Property tax (escrowed)" : "Property tax"}>
-                      <EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} />
-                    </Row>
-                    {prop.taxes_paid_by === "lender" && (
-                      <Row label="Tax account balance">
-                        <EditNum value={safe(prop.tax_account_balance)} onChange={v => onUpdate("tax_account_balance", v)} locked={!isAdmin} />
-                      </Row>
-                    )}
-                    <div style={{marginBottom:10}}>
-                      <div style={{fontSize:11,color:C.muted,marginBottom:4,fontFamily:C.sans}}>Tax account notes</div>
-                      <input
-                        type="text"
-                        value={prop.tax_account_note || ""}
-                        onChange={e => onUpdate("tax_account_note", e.target.value)}
-                        disabled={!isAdmin}
-                        placeholder="e.g. Equitable escrowed · balance as of Apr 18 2026"
-                        style={{width:"100%",padding:"7px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12,fontFamily:C.sans,outline:"none",boxSizing:"border-box",opacity:!isAdmin?0.6:1}}
-                      />
+                    <div style={{borderBottom:`1px solid ${C.border}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
+                        <button onClick={e => { e.stopPropagation(); setTaxNoteOpen(o => !o); }} style={{background:"none",border:"none",padding:0,cursor:"pointer",fontSize:13,color:C.textMid,fontFamily:C.sans,display:"flex",alignItems:"center",gap:5}}>
+                          {prop.taxes_paid_by === "lender" ? "Property tax (escrowed)" : "Property tax"}
+                          <span style={{fontSize:10,color:taxNoteOpen ? C.gold : C.muted,transition:"color 0.15s"}}>▾ notes</span>
+                        </button>
+                        <span><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></span>
+                      </div>
+                      {taxNoteOpen && (
+                        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 14px 10px",marginBottom:10,position:"relative"}} onClick={e => e.stopPropagation()}>
+                          <button onClick={() => setTaxNoteOpen(false)} style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:14,lineHeight:1}}>✕</button>
+                          {prop.taxes_paid_by === "lender" && (
+                            <div style={{marginBottom:10}}>
+                              <div style={{fontSize:11,color:C.muted,marginBottom:4,fontFamily:C.sans}}>Tax account balance</div>
+                              <EditNum value={safe(prop.tax_account_balance)} onChange={v => onUpdate("tax_account_balance", v)} locked={!isAdmin} />
+                            </div>
+                          )}
+                          <div style={{fontSize:11,color:C.muted,marginBottom:4,fontFamily:C.sans}}>Notes</div>
+                          <input
+                            type="text"
+                            value={prop.tax_account_note || ""}
+                            onChange={e => onUpdate("tax_account_note", e.target.value)}
+                            disabled={!isAdmin}
+                            placeholder="e.g. Equitable escrowed · balance as of Apr 18 2026"
+                            style={{width:"100%",padding:"7px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12,fontFamily:C.sans,outline:"none",boxSizing:"border-box",opacity:!isAdmin?0.6:1}}
+                          />
+                        </div>
+                      )}
                     </div>
                     <Row label="Insurance" last><EditNum value={safe(prop.monthly_insurance)} onChange={v => onUpdate("monthly_insurance", v)} locked={!isAdmin} /></Row>
                   </div>
@@ -3326,19 +3337,23 @@ export default function App() {
         };
         const correctedProps = mergedProperties.map(p => {
           const balFix  = correctedBalances[p.id];
-          const rateFix = { 3: 5.79,           4: 5.79           }[p.id];
-          const matFix  = { 3: "Apr 1, 2027",  4: "Apr 1, 2027"  }[p.id];
-          const pifix   = { 3: 11722.76,        4: 9107           }[p.id];
-          const taxfix  = { 3: 905.29,          4: 1235.14        }[p.id];
-          const pmtfix  = { 3: 12628.05,        4: 10342.14       }[p.id];
+          const rateFix    = { 3: 5.79,                    4: 5.79                    }[p.id];
+          const rateStrFix = { 3: "5.79%",                4: "5.79%"                 }[p.id];
+          const rateTypFix = { 3: "12 Month Fixed Closed", 4: "12 Month Fixed Closed" }[p.id];
+          const matFix     = { 3: "Apr 1, 2027",           4: "Apr 1, 2027"           }[p.id];
+          const pifix      = { 3: 11722.76,                4: 9107                    }[p.id];
+          const taxfix     = { 3: 905.29,                  4: 1235.14                 }[p.id];
+          const pmtfix     = { 3: 12628.05,                4: 10342.14                }[p.id];
           return {
             ...p,
-            ...(balFix  !== undefined && { mortgage:             balFix  }),
-            ...(rateFix !== undefined && { interest_rate:        rateFix }),
-            ...(matFix  !== undefined && { maturity:             matFix  }),
-            ...(pifix   !== undefined && { monthly_pi:           pifix   }),
-            ...(taxfix  !== undefined && { monthly_payment_tax:  taxfix  }),
-            ...(pmtfix  !== undefined && { monthlyPayment:       pmtfix  }),
+            ...(balFix     !== undefined && { mortgage:             balFix     }),
+            ...(rateFix    !== undefined && { interest_rate:        rateFix    }),
+            ...(rateStrFix !== undefined && { rate:                 rateStrFix }),
+            ...(rateTypFix !== undefined && { rateType:             rateTypFix }),
+            ...(matFix     !== undefined && { maturity:             matFix     }),
+            ...(pifix      !== undefined && { monthly_pi:           pifix      }),
+            ...(taxfix     !== undefined && { monthly_payment_tax:  taxfix     }),
+            ...(pmtfix     !== undefined && { monthlyPayment:       pmtfix     }),
           };
         });
         saveToDB("properties", correctedProps);
