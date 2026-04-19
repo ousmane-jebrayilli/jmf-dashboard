@@ -628,8 +628,7 @@ function propEffectiveRent(prop) {
 }
 // Returns total monthly cash outflows for a property
 function propMonthlyOut(prop) {
-  const taxOut = prop.taxes_paid_by === "lender" ? 0 : safe(prop.monthlyTax);
-  return safe(prop.monthlyPayment) + taxOut + safe(prop.monthly_insurance) +
+  return getMortgagePI(prop) + safe(prop.monthlyTax) + safe(prop.monthly_insurance) +
     safe(prop.maintenance_reserve_monthly) + safe(prop.utilities_monthly);
 }
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
@@ -1906,7 +1905,7 @@ function PropCard({ prop, rentPayments, onUpdate, onSaveRentPayment, isAdmin }) 
                     <div style={{borderBottom:`1px solid ${C.border}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
                         <button onClick={e => { e.stopPropagation(); setTaxNoteOpen(o => !o); }} style={{background:"none",border:"none",padding:0,cursor:"pointer",fontSize:13,color:C.textMid,fontFamily:C.sans,display:"flex",alignItems:"center",gap:5}}>
-                          {prop.taxes_paid_by === "lender" ? "Property tax (escrowed)" : "Property tax"}
+                          Property tax
                           <span style={{fontSize:10,color:taxNoteOpen ? C.gold : C.muted,transition:"color 0.15s"}}>▾ notes</span>
                         </button>
                         <span><EditNum value={safe(prop.monthlyTax)} onChange={v => onUpdate("monthlyTax", v)} locked={!isAdmin} /></span>
