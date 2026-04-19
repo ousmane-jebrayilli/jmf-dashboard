@@ -2305,14 +2305,60 @@ function MaintenanceAlertsWidget() {
 }
 
 // ─── BUSINESS CARD ────────────────────────────────────────────────────────────
-function BizCard({ biz, onUpdate, onUpdateProfit, isAdmin }) {
+function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin }) {
   const [open, setOpen] = useState(false);
+  const [bizTab, setBizTab] = useState("overview");
   const isNonProfit = biz.type === "nonprofit";
   const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
 
+  const monthlyRows = monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse();
+  const profitRows = monthlyRows.map(month => {
+    const entry = (biz.monthlyProfits || []).find(p => p.month === month) || {};
+    const revenue = entry.revenue != null ? safe(entry.revenue) : 0;
+    const expenses = entry.expenses != null ? safe(entry.expenses) : 0;
+    const profit = entry.profit != null ? safe(entry.profit) : (revenue - expenses);
+    return { month, entry, revenue, expenses, profit };
+  });
+  const maxProfitMagnitude = Math.max(1, ...profitRows.map(row => Math.abs(row.profit)));
+
+  const assetItems = (biz.accounts && biz.accounts.length ? biz.accounts : [
+    { label: "Cash & accounts", amount: safe(biz.cashAccounts) },
+  ]).map((item, idx) => ({
+    id: item.id || `asset-${idx}`,
+    label: item.label || item.name || item.account_name || `Asset ${idx + 1}`,
+    amount: safe(item.amount ?? item.balance ?? item.value),
+  }));
+
+  const fallbackLiabilityItems = [];
+  if (safe(biz.taxPayable) > 0) fallbackLiabilityItems.push({ label: "CRA Payable", amount: safe(biz.taxPayable) });
+  if (safe(biz.creditCards) > 0) fallbackLiabilityItems.push({ label: "Credit Cards", amount: safe(biz.creditCards) });
+  const otherLiabilities = Math.max(0, safe(biz.liabilities) - safe(biz.taxPayable) - safe(biz.creditCards));
+  if (otherLiabilities > 0) fallbackLiabilityItems.push({ label: "Other Liabilities", amount: otherLiabilities });
+  if (!fallbackLiabilityItems.length && safe(biz.liabilities) > 0) fallbackLiabilityItems.push({ label: "Total Liabilities", amount: safe(biz.liabilities) });
+
+  const liabilityItems = (biz.liabItems && biz.liabItems.length ? biz.liabItems : fallbackLiabilityItems).map((item, idx) => ({
+    id: item.id || `liab-${idx}`,
+    label: item.label || item.name || item.liability_name || `Liability ${idx + 1}`,
+    amount: safe(item.amount ?? item.balance ?? item.value),
+  }));
+
+  const totalAssets = assetItems.reduce((sum, item) => sum + safe(item.amount), 0) || safe(biz.cashAccounts);
+  const totalLiabilities = liabilityItems.reduce((sum, item) => sum + safe(item.amount), 0) || safe(biz.liabilities);
+  const balanceSheetEquity = totalAssets - totalLiabilities;
+  const capitalBase = Math.max(1, Math.abs(balanceSheetEquity) + totalLiabilities);
+  const equityPct = Math.max(0, (Math.max(balanceSheetEquity, 0) / capitalBase) * 100);
+  const liabilitiesPct = Math.max(0, (totalLiabilities / capitalBase) * 100);
+
+  const tabStyle = (id) => ({
+    padding: "11px 18px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+    background: "transparent", fontFamily: C.sans, whiteSpace: "nowrap",
+    color: bizTab === id ? C.gold : C.textDim,
+    borderBottom: bizTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
+  });
+
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
-      <div onClick={() => setOpen(o => !o)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div onClick={() => setOpen(o => { if (o) setBizTab("overview"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: isNonProfit ? C.purpleLight : C.blueLight, color: isNonProfit ? C.purpleText : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
             {isNonProfit ? "NON-PROFIT" : "CORP"}
@@ -2336,49 +2382,152 @@ function BizCard({ biz, onUpdate, onUpdateProfit, isAdmin }) {
       </div>
 
       {open && (
-        <div style={{ borderTop: `1px solid ${C.border}`, padding: 20 }}>
-          {biz.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{biz.notes}</div>}
-
-          {isNonProfit ? (
-            <div>
-              <div style={{ background: C.purpleLight, borderRadius: 8, padding: 14, marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.purpleText, marginBottom: 4 }}>Collective fund — tracked for reference only</div>
-                <div style={{ fontSize: 12, color: C.textMid }}>Does NOT count toward JMF consolidated net worth.</div>
-              </div>
-              <Row label="Cash balance" last><span style={{ fontFamily: C.mono, color: C.purple, fontWeight: 700, fontSize: 14 }}>{$F(safe(biz.cashAccounts))}</span></Row>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
-              <div>
-                <Label>Balance Sheet</Label>
-                <Row label="Cash & accounts"><EditNum value={safe(biz.cashAccounts)} onChange={v => onUpdate("cashAccounts", v)} locked={!isAdmin} /></Row>
-
-                <div style={{ marginTop: 16 }}>
-                  <Label>Monthly Net Profit Log</Label>
-                  {monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse().map(m => {
-                    const entry  = (biz.monthlyProfits || []).find(p => p.month === m);
-                    const profit = safe(entry?.profit);
-                    return (
-                      <div key={m} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 0", borderBottom:`1px solid ${C.border}` }}>
-                        <span style={{ fontSize:12, color:C.textMid, minWidth:76 }}>{monthLabel(m)}</span>
-                        {isAdmin
-                          ? <EditNum value={profit} onChange={v => onUpdateProfit && onUpdateProfit(m, v)} />
-                          : <span style={{ fontFamily:C.mono, fontSize:13, color: entry ? (profit >= 0 ? C.gold : C.red) : C.textDim }}>{entry ? $F(profit) : "—"}</span>
-                        }
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <Label>Liabilities</Label>
-                <Row label="Total liabilities" labelStyle={{ fontWeight: 700, color: C.text }}><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.liabilities))}</span></Row>
-                <Row label="CRA tax payable"><EditNum value={safe(biz.taxPayable)} onChange={v => onUpdate("taxPayable", v)} locked={!isAdmin} /></Row>
-                <Row label="Credit cards"><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.creditCards))}</span></Row>
-                <Row label="Net equity" last labelStyle={{ fontWeight: 700, background: C.gold, color: "#FFF", borderRadius: 4, padding: "2px 8px" }}><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
+        <div style={{ borderTop: `1px solid ${C.border}` }}>
+          {!isNonProfit && (
+            <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
+              <div style={{ display:"flex" }}>
+                {[["overview","Overview"],["profits","P&L / Profits"],["balancesheet","Balance Sheet"]].map(([id, label]) => (
+                  <button key={id} onClick={e => { e.stopPropagation(); setBizTab(id); }} style={tabStyle(id)}>{label}</button>
+                ))}
               </div>
             </div>
           )}
+
+          <div style={{ padding: 20 }}>
+            {isNonProfit ? (
+              <div>
+                {biz.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{biz.notes}</div>}
+                <div style={{ background: C.purpleLight, borderRadius: 8, padding: 14, marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.purpleText, marginBottom: 4 }}>Collective fund — tracked for reference only</div>
+                  <div style={{ fontSize: 12, color: C.textMid }}>Does NOT count toward JMF consolidated net worth.</div>
+                </div>
+                <Row label="Cash balance" last><span style={{ fontFamily: C.mono, color: C.purple, fontWeight: 700, fontSize: 14 }}>{$F(safe(biz.cashAccounts))}</span></Row>
+              </div>
+            ) : (
+              <>
+                {bizTab === "overview" && (
+                  <div>
+                    {biz.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{biz.notes}</div>}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
+                      <div>
+                        <Label>Overview</Label>
+                        <Row label="Cash & accounts"><EditNum value={safe(biz.cashAccounts)} onChange={v => onUpdate("cashAccounts", v)} locked={!isAdmin} /></Row>
+                        <Row label="Revenue"><EditNum value={safe(biz.revenue)} onChange={v => onUpdate("revenue", v)} locked={!isAdmin} /></Row>
+                        <Row label="Expenses" last><EditNum value={safe(biz.expenses)} onChange={v => onUpdate("expenses", v)} locked={!isAdmin} /></Row>
+                      </div>
+                      <div>
+                        <Label>Liabilities</Label>
+                        <Row label="Total liabilities" labelStyle={{ fontWeight: 700, color: C.text }}><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.liabilities))}</span></Row>
+                        <Row label="CRA tax payable"><EditNum value={safe(biz.taxPayable)} onChange={v => onUpdate("taxPayable", v)} locked={!isAdmin} /></Row>
+                        <Row label="Credit cards"><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.creditCards))}</span></Row>
+                        <Row label="Net equity" last labelStyle={{ fontWeight: 700, background: C.gold, color: "#FFF", borderRadius: 4, padding: "2px 8px" }}><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {bizTab === "profits" && (
+                  <div>
+                    <Label>P&L / Profits</Label>
+                    <div style={{ marginTop: 12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                        <span>Month</span>
+                        <span style={{ textAlign:"right" }}>Revenue</span>
+                        <span style={{ textAlign:"right" }}>Expenses</span>
+                        <span style={{ textAlign:"right" }}>Profit</span>
+                      </div>
+                      {profitRows.map((row, idx) => {
+                        const profitWidth = `${Math.max(6, (Math.abs(row.profit) / maxProfitMagnitude) * 100)}%`;
+                        const profitColor = row.profit >= 0 ? C.gold : C.red;
+                        return (
+                          <div key={row.month} style={{ padding:"12px 14px", borderBottom: idx < profitRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
+                              <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
+                              <div style={{ textAlign:"right" }}>
+                                {isAdmin
+                                  ? <EditNum value={row.revenue} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "revenue", v)} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>}
+                              </div>
+                              <div style={{ textAlign:"right" }}>
+                                {isAdmin
+                                  ? <EditNum value={row.expenses} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "expenses", v)} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>}
+                              </div>
+                              <div style={{ textAlign:"right" }}>
+                                {isAdmin
+                                  ? <EditNum value={row.profit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(row.month, "profit", v) : onUpdateProfit && onUpdateProfit(row.month, v))} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{(row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null) ? $F(row.profit) : "—"}</span>}
+                              </div>
+                            </div>
+                            <div style={{ marginTop:8, height:6, background:C.border, borderRadius:999, overflow:"hidden" }}>
+                              <div style={{ width: profitWidth, height:"100%", background: profitColor, opacity:0.78, borderRadius:999, marginLeft: row.profit >= 0 ? 0 : "auto" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {bizTab === "balancesheet" && (
+                  <div>
+                    <Label>Balance Sheet</Label>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:20, marginTop:12 }}>
+                      <div>
+                        <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Assets / Accounts</div>
+                        <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                          {assetItems.map((item, idx) => (
+                            <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom: idx < assetItems.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                              <span style={{ fontSize:13, color:C.text }}>{item.label}</span>
+                              <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(item.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Liabilities</div>
+                        <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                          {(liabilityItems.length ? liabilityItems : [{ id:"liab-empty", label:"No liabilities recorded", amount:0 }]).map((item, idx, arr) => (
+                            <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom: idx < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                              <span style={{ fontSize:13, color:item.amount === 0 && item.label === "No liabilities recorded" ? C.textDim : C.text }}>{item.label}</span>
+                              <span style={{ fontFamily:C.mono, fontSize:13, color:item.amount > 0 ? C.red : C.textDim }}>{item.amount > 0 ? $F(item.amount) : "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop:18, border:`1px solid ${C.border}`, borderRadius:14, padding:16 }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:12 }}>
+                        <div>
+                          <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>Total Assets</div>
+                          <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(totalAssets)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>Total Liabilities</div>
+                          <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:C.red }}>{$F(totalLiabilities)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>Net Equity</div>
+                          <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:balanceSheetEquity >= 0 ? C.gold : C.red }}>{$F(balanceSheetEquity)}</div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop:14 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.textDim, marginBottom:6 }}>
+                          <span>Equity {equityPct.toFixed(0)}%</span>
+                          <span>Liabilities {liabilitiesPct.toFixed(0)}%</span>
+                        </div>
+                        <div style={{ display:"flex", height:10, background:C.border, borderRadius:999, overflow:"hidden" }}>
+                          <div style={{ width:`${equityPct}%`, background:C.gold, minWidth:equityPct > 0 ? 8 : 0 }} />
+                          <div style={{ width:`${liabilitiesPct}%`, background:C.red, minWidth:liabilitiesPct > 0 ? 8 : 0 }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -2863,6 +3012,26 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
+  function updBizProfitField(bizId, month, field, value) {
+    const arr = data.businesses.map(b => {
+      if (b.id !== bizId) return b;
+      const existing = b.monthlyProfits || [];
+      const has = existing.find(p => p.month === month);
+      const current = has || { month };
+      const nextEntry = { ...current, [field]: safe(value) };
+
+      if (field !== "profit" && current.profit == null) {
+        nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
+      }
+
+      const updated = has
+        ? existing.map(p => p.month === month ? nextEntry : p)
+        : [...existing, nextEntry];
+
+      return { ...b, monthlyProfits: updated };
+    });
+    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
   function updRentPayment(payloadOrPropertyId, month, received, note) {
     const payload = typeof payloadOrPropertyId === "object"
       ? payloadOrPropertyId
@@ -3249,7 +3418,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
               Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} isAdmin={true} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} />)}
           </div>
         )}
 
