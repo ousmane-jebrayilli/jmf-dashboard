@@ -200,12 +200,12 @@ const DEFAULT = {
   lastUpdated: "April 1, 2026",
 
   individuals: [
-    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[] },
-    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0, monthlyIncome:[] },
-    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
-    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
-    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
-    { id:6, name:"Mustafa Majidov",    initials:"MU", cash:0,   accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
+    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:6, name:"Mustafa Majidov",    initials:"MU", cash:0,   accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
   ],
 
   businesses: [
@@ -1497,7 +1497,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
       {/* Member tab bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display:"flex", padding:"0 16px" }}>
-          {[["snapshot","My Snapshot"],["expenses","My Expenses"]].map(([id, label]) => (
+          {[["snapshot","My Snapshot"],["expenses","My Expenses"],["history","My History"]].map(([id, label]) => (
             <button key={id} onClick={() => setMemberTab(id)}
               style={{ padding:"11px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background:"transparent", fontFamily:C.sans,
                 color: memberTab === id ? C.gold : C.textDim,
@@ -1512,6 +1512,52 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
       {memberTab === "expenses" && (
         <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
           <ExpensesTab userId={user.id} isAdmin={false} allProfiles={[]} individuals={data.individuals} />
+        </div>
+      )}
+
+      {/* My History tab */}
+      {memberTab === "history" && (
+        <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
+          {(() => {
+            const myLog = [...(f.accountsLog || [])].reverse();
+            const snapshots = [...(data.snapshots || [])].reverse();
+            return (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Accounts Log</div>
+                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Historical account balance entries logged by admin.</div>
+                {myLog.length === 0
+                  ? <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 24 }}>No entries yet.</div>
+                  : myLog.map((e, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                      <div>
+                        <span style={{ color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
+                        {e.note && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{e.note}</div>}
+                        {e.timestamp && <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>{new Date(e.timestamp).toLocaleDateString()}</div>}
+                      </div>
+                      <span style={{ fontFamily: C.mono, color: e.value >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(e.value)}</span>
+                    </div>
+                  ))
+                }
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 28, marginBottom: 4 }}>JMF Snapshots</div>
+                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Portfolio-wide net worth snapshots.</div>
+                {snapshots.length === 0
+                  ? <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic" }}>No snapshots captured yet.</div>
+                  : snapshots.map((s, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
+                        <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontFamily: C.mono, fontSize: 17, fontWeight: 800, color: s.nw >= 0 ? C.gold : C.red }}>{$F(s.nw)}</div>
+                        <div style={{ fontSize: 10, color: C.textDim }}>Net Worth</div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2986,6 +3032,130 @@ function ExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
   );
 }
 
+// ─── HISTORY TAB ──────────────────────────────────────────────────────────────
+function HistoryTab({ data, onSaveSnapshot }) {
+  const [drill, setDrill] = useState(null); // snapshot object
+  const [snapNote, setSnapNote] = useState("");
+  const [showNoteInput, setShowNoteInput] = useState(false);
+  const snapshots = [...(data.snapshots || [])].reverse();
+  const curYM = currentYM();
+  const hasThisMonth = (data.snapshots || []).some(s => s.month === curYM);
+
+  if (drill) {
+    return (
+      <div>
+        <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>Snapshot — {monthLabel(drill.month)}</div>
+          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 4 }}>Captured {new Date(drill.capturedAt).toLocaleString()}</div>
+          {drill.note && <div style={{ fontSize: 12, color: C.textMid, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>{drill.note}</div>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "Net Worth",      val: $F(drill.nw),         color: drill.nw >= 0 ? C.gold : C.red },
+            { label: "Liquid RE",      val: $K(drill.reLiquid),   color: C.gold },
+            { label: "RE Equity",      val: $K(drill.reEquity),   color: C.amber },
+            { label: "Individuals",    val: $K(drill.individuals),color: drill.individuals >= 0 ? C.green : C.red },
+            { label: "Businesses",     val: $K(drill.businesses), color: C.blue },
+          ].map((s, i) => (
+            <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
+              <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: s.color }}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+        {drill.individualBreakdown && (
+          <Card style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Individuals</div>
+            {drill.individualBreakdown.map((x, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                <span style={{ color: C.textMid }}>{x.name}</span>
+                <span style={{ fontFamily: C.mono, color: x.net >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(x.net)}</span>
+              </div>
+            ))}
+          </Card>
+        )}
+        {drill.reBreakdown && (
+          <Card style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Real Estate</div>
+            {drill.reBreakdown.map((x, i) => (
+              <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ color: C.text, fontWeight: 600 }}>{x.name}</span>
+                  <span style={{ fontFamily: C.mono, color: C.gold, fontWeight: 700 }}>{$K(x.liquid)} liq.</span>
+                </div>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <span style={{ fontSize: 11, color: C.textDim }}>Market: {$K(x.market)}</span>
+                  <span style={{ fontSize: 11, color: C.textDim }}>Debt: {$K(x.debt)}</span>
+                  <span style={{ fontSize: 11, color: C.textDim }}>Equity: {$K(x.equity)}</span>
+                </div>
+              </div>
+            ))}
+          </Card>
+        )}
+        {drill.businessBreakdown && (
+          <Card>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Businesses</div>
+            {drill.businessBreakdown.map((x, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                <span style={{ color: C.textMid }}>{x.name}{x.type === "nonprofit" ? " (NP)" : ""}</span>
+                <span style={{ fontFamily: C.mono, color: x.eq >= 0 ? C.blue : C.red, fontWeight: 700 }}>{$F(x.eq)}</span>
+              </div>
+            ))}
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Capture Snapshot */}
+      <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: hasThisMonth ? C.green : C.amber }}>
+            {hasThisMonth ? `✓ Snapshot captured for ${monthLabel(curYM)}` : `No snapshot yet for ${monthLabel(curYM)}`}
+          </div>
+          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>Snapshots record the full NW breakdown at a point in time.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {showNoteInput && (
+            <input type="text" placeholder="Optional note for this snapshot" value={snapNote} onChange={e => setSnapNote(e.target.value)}
+              style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", minWidth: 220 }} />
+          )}
+          <button onClick={() => { if (!showNoteInput) { setShowNoteInput(true); } else { onSaveSnapshot(snapNote); setSnapNote(""); setShowNoteInput(false); } }}
+            style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 18px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+            {showNoteInput ? "Confirm Capture" : "Capture Snapshot"}
+          </button>
+          {showNoteInput && (
+            <button onClick={() => { setShowNoteInput(false); setSnapNote(""); }}
+              style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+          )}
+        </div>
+      </div>
+
+      {/* Snapshot list */}
+      {snapshots.length === 0
+        ? <div style={{ textAlign: "center", padding: "48px 0", color: C.textDim, fontSize: 13 }}>No snapshots captured yet.</div>
+        : snapshots.map((s, i) => (
+          <div key={i} onClick={() => setDrill(s)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 8, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.boxShadow = C.shadowMd; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
+              <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 800, color: s.nw >= 0 ? C.gold : C.red }}>{$F(s.nw)}</div>
+              <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net Worth</div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 // user.id = admin auth UUID  |  user.profile.role === "admin"
 function AdminDashboard({ user, data, setData, onLogout }) {
@@ -2997,6 +3167,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [showReminder, setShowReminder] = useState(false);
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
   const [cfMonth, setCFMonth]       = useState(currentYM());
+  const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
+  const [accLogForm, setAccLogForm] = useState({ month: currentYM(), value: "", note: "" });
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
 
   useEffect(() => {
@@ -3103,6 +3275,46 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
   }
+  function updIndAccountsLog(indId, entry) {
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const log = [...(x.accountsLog || []), { ...entry, timestamp: new Date().toISOString() }];
+      return { ...x, accountsLog: log };
+    });
+    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+  }
+  function saveSnapshot(note) {
+    const indNet = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+    const snapNW = data.properties.reduce((s, p) => {
+      const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+      return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
+    }, 0)
+      + data.individuals.reduce((s, f) => s + indNet(f), 0)
+      + data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0);
+    const snapREEq  = data.properties.reduce((s, p) => s + propJMFEquity(p), 0);
+    const snapRELiq = data.properties.reduce((s, p) => {
+      const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+      return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
+    }, 0);
+    const snap = {
+      month: currentYM(), capturedAt: new Date().toISOString(), nw: snapNW, note: note || "",
+      reEquity: snapREEq, reLiquid: snapRELiq,
+      individuals: data.individuals.reduce((s, f) => s + indNet(f), 0),
+      businesses: data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0),
+      individualBreakdown: data.individuals.map(f => ({ id: f.id, name: f.name, net: indNet(f) })),
+      businessBreakdown: data.businesses.map(b => ({ id: b.id, name: b.name, eq: safe(b.cashAccounts) - safe(b.liabilities), type: b.type })),
+      reBreakdown: data.properties.map(p => {
+        const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+        return { id: p.id, name: p.name, market: mkt, debt: propCurrentMortgageBalance(p), equity: propJMFEquity(p), liquid: (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p) };
+      }),
+    };
+    const existing = data.snapshots || [];
+    const updated = [...existing, snap];
+    saveToDB("snapshots", updated);
+    setData(d => ({ ...d, snapshots: updated }));
+    showSaved();
+    return snap;
+  }
   function updBizProfit(bizId, month, profit) {
     const arr = data.businesses.map(b => {
       if (b.id !== bizId) return b;
@@ -3195,7 +3407,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow"];
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "History"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
@@ -3254,7 +3466,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", maxWidth: 800, margin: "0 auto" }}>
           {[
-            { label: "JMF RE Equity",      val: $K(totalREEq),  sub: `${((totalREEq / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`, color: C.gold  },
+            { label: "Liquid RE Value",     val: $K(totalRELiquid), sub: `${((totalRELiquid / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`, color: C.gold },
             { label: "Net of Individuals",  val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                   color: totalPers < 0 ? C.red : C.green },
             { label: "Business Equity",     val: $K(totalBiz),   sub: "Operating corps only",                                                       color: C.blue  },
           ].map((k, i, arr) => (
@@ -3292,7 +3504,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             {/* 3 summary cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
-                { label: "JMF RE Equity",      val: $K(totalREEq),  color: C.gold,  accent: C.gold,  sub: `Ownership-adjusted · ${data.properties.length} properties`, bg: C.goldLight },
+                { label: "Liquid RE Value",     val: $K(totalRELiquid), color: C.gold,  accent: C.gold,  sub: `After selling costs · ${data.properties.length} properties`, bg: C.goldLight },
                 { label: "Net of Individuals", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, accent: totalPers < 0 ? C.red : C.green, sub: `${data.individuals.length} members`, bg: totalPers < 0 ? C.redLight : C.greenLight },
                 { label: "Business Equity",    val: $K(totalBiz),   color: C.blue,  accent: C.blue,  sub: "Operating corps only", bg: C.blueLight },
               ].map((s, i) => (
@@ -3483,6 +3695,57 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
                     <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
                   </div>
+
+                  {/* Accounts Log */}
+                  <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Accounts Log</span>
+                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), value: "", note: "" }); }}
+                        style={{ fontSize: 10, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontWeight: 600 }}>
+                        {accLogOpen === f.id ? "Cancel" : "+ Log Snapshot"}
+                      </button>
+                    </div>
+                    {accLogOpen === f.id && (
+                      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Month</div>
+                            <input type="month" value={accLogForm.month} onChange={e => setAccLogForm(p => ({ ...p, month: e.target.value }))}
+                              style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Accounts Balance</div>
+                            <input type="number" placeholder="e.g. 15000" value={accLogForm.value} onChange={e => setAccLogForm(p => ({ ...p, value: e.target.value }))}
+                              style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.mono, outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Note (optional)</div>
+                          <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
+                            style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                        <button onClick={() => {
+                          if (!accLogForm.value && accLogForm.value !== 0) return;
+                          updIndAccountsLog(f.id, { month: accLogForm.month, value: safe(accLogForm.value), note: accLogForm.note });
+                          setAccLogOpen(null);
+                        }} style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontWeight: 700 }}>
+                          Save Snapshot
+                        </button>
+                      </div>
+                    )}
+                    {(f.accountsLog || []).length === 0
+                      ? <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic" }}>No entries yet.</div>
+                      : [...(f.accountsLog || [])].reverse().map((e, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                          <div>
+                            <span style={{ color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
+                            {e.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>{e.note}</div>}
+                          </div>
+                          <span style={{ fontFamily: C.mono, color: e.value >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(e.value)}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
                 </Card>
               );
             })}
@@ -3641,6 +3904,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             </div>
           );
         })()}
+
+        {/* ── HISTORY ── */}
+        {tab === "history" && (
+          <HistoryTab data={data} onSaveSnapshot={note => saveSnapshot(note)} />
+        )}
+
       </div>
     </div>
   );
@@ -3720,6 +3989,7 @@ export default function App() {
           businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
           cashflow:     dbData.cashflow     || DEFAULT.cashflow,
           rentPayments: mergedRentPayments,
+          snapshots:    dbData.snapshots    || [],
         });
       } else {
         // First run — seed the database with defaults
