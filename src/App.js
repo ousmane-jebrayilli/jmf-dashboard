@@ -205,6 +205,7 @@ const DEFAULT = {
     { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
     { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
     { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
+    { id:6, name:"Mustafa Majidov",    initials:"MU", cash:0,   accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[] },
   ],
 
   businesses: [
@@ -3092,7 +3093,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "Expenses"];
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
@@ -3379,20 +3380,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
                     <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
                   </div>
-                  {/* Monthly income log */}
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.09em", textTransform:"uppercase", marginBottom: 8 }}>Monthly Income Log</div>
-                    {monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse().map(m => {
-                      const entry  = (f.monthlyIncome || []).find(p => p.month === m);
-                      const income = safe(entry?.income);
-                      return (
-                        <div key={m} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.border}` }}>
-                          <span style={{ fontSize:11, color:C.textMid, minWidth:72 }}>{monthLabel(m)}</span>
-                          <EditNum value={income} onChange={v => updIndIncome(f.id, m, v)} />
-                        </div>
-                      );
-                    })}
-                  </div>
                 </Card>
               );
             })}
@@ -3420,11 +3407,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             </div>
             {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} />)}
           </div>
-        )}
-
-        {/* ── EXPENSES ── */}
-        {tab === "expenses" && (
-          <ExpensesTab userId={user.id} isAdmin={true} allProfiles={profiles} individuals={data.individuals} />
         )}
 
         {/* ── CASH FLOW ── */}
@@ -3499,9 +3481,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>From rent ledger · log in Real Estate tab</div>
                   </div>
 
-                  {/* Payroll — per individual */}
+                  {/* Monthly Income — per individual */}
                   <div style={{ padding: "9px 0 4px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom: 8 }}>Payroll Income</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom: 8 }}>Monthly Income</div>
                     {data.individuals.map(ind => {
                       const entry  = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
                       const income = safe(entry?.income);
@@ -3513,7 +3495,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       );
                     })}
                     <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
-                      <span style={{ fontSize:11, color:C.textMid }}>Total payroll</span>
+                      <span style={{ fontSize:11, color:C.textMid }}>Total monthly income</span>
                       <span style={{ fontFamily:C.mono, fontSize:12, color: cfPayroll > 0 ? C.gold : C.textDim }}>{cfPayroll > 0 ? $F(cfPayroll) : "—"}</span>
                     </div>
                   </div>
