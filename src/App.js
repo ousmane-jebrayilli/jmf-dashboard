@@ -3681,6 +3681,15 @@ export default function App() {
           4: 1523755.81,  // 51 Ahchie Crt.
           5: 894768.98,   // 4 New Seabury Dr.
         };
+        // Temporary market override — protects against stale Supabase values overriding DEFAULT via mergeById.
+        // Remove per-property entries here once Valuation Log becomes the source of truth for market value.
+        const marketFix = {
+          1: 2000000,   // 27 Roytec Rd.
+          2: 1200000,   // Farr Ave.
+          3: 2850000,   // 121 Milky Way
+          4: 1750000,   // 51 Ahchie Crt.
+          5: 958800,    // 4 New Seabury Dr.
+        };
         const correctedProps = mergedProperties.map(p => {
           const balFix  = correctedBalances[p.id];
           const rateFix    = { 3: 5.79,                    4: 5.79                    }[p.id];
@@ -3692,14 +3701,15 @@ export default function App() {
           const pmtfix     = { 3: 12628.05,                4: 10342.14                }[p.id];
           return {
             ...p,
-            ...(balFix     !== undefined && !safe(p.mortgage) && { mortgage:            balFix     }),
-            ...(rateFix    !== undefined && !safe(p.interest_rate) && { interest_rate:   rateFix    }),
-            ...(rateStrFix !== undefined && !p.rate && { rate:                          rateStrFix }),
-            ...(rateTypFix !== undefined && !p.rateType && { rateType:                  rateTypFix }),
-            ...(matFix     !== undefined && !p.maturity && { maturity:                  matFix     }),
-            ...(pifix      !== undefined && !safe(p.monthly_pi) && { monthly_pi:        pifix      }),
-            ...(taxfix     !== undefined && !safe(p.monthly_payment_tax) && { monthly_payment_tax: taxfix }),
-            ...(pmtfix     !== undefined && !safe(p.monthlyPayment) && { monthlyPayment: pmtfix     }),
+            ...(balFix     !== undefined && { mortgage:             balFix     }),
+            ...(rateFix    !== undefined && { interest_rate:        rateFix    }),
+            ...(rateStrFix !== undefined && { rate:                 rateStrFix }),
+            ...(rateTypFix !== undefined && { rateType:             rateTypFix }),
+            ...(matFix     !== undefined && { maturity:             matFix     }),
+            ...(pifix      !== undefined && { monthly_pi:           pifix      }),
+            ...(taxfix     !== undefined && { monthly_payment_tax:  taxfix     }),
+            ...(pmtfix     !== undefined && { monthlyPayment:       pmtfix     }),
+            ...(marketFix[p.id] !== undefined && { market:          marketFix[p.id] }),
           };
         });
         saveToDB("properties", correctedProps);
