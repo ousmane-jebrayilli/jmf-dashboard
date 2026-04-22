@@ -3114,24 +3114,28 @@ function HistoryTab({ data, onSaveSnapshot }) {
       <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: hasThisMonth ? C.green : C.amber }}>
-            {hasThisMonth ? `✓ Snapshot captured for ${monthLabel(curYM)}` : `No snapshot yet for ${monthLabel(curYM)}`}
+            {hasThisMonth ? `✓ ${monthLabel(curYM)} locked` : `No snapshot yet for ${monthLabel(curYM)}`}
           </div>
-          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>Snapshots record the full NW breakdown at a point in time.</div>
+          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+            {hasThisMonth ? "One snapshot per month. Next capture available in the following month." : "Snapshots record the full NW breakdown at a point in time."}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {showNoteInput && (
-            <input type="text" placeholder="Optional note for this snapshot" value={snapNote} onChange={e => setSnapNote(e.target.value)}
-              style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", minWidth: 220 }} />
-          )}
-          <button onClick={() => { if (!showNoteInput) { setShowNoteInput(true); } else { onSaveSnapshot(snapNote); setSnapNote(""); setShowNoteInput(false); } }}
-            style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 18px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-            {showNoteInput ? "Confirm Capture" : "Capture Snapshot"}
-          </button>
-          {showNoteInput && (
-            <button onClick={() => { setShowNoteInput(false); setSnapNote(""); }}
-              style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
-          )}
-        </div>
+        {!hasThisMonth && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {showNoteInput && (
+              <input type="text" placeholder="Optional note for this snapshot" value={snapNote} onChange={e => setSnapNote(e.target.value)}
+                style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", minWidth: 220 }} />
+            )}
+            <button onClick={() => { if (!showNoteInput) { setShowNoteInput(true); } else { onSaveSnapshot(snapNote); setSnapNote(""); setShowNoteInput(false); } }}
+              style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 18px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+              {showNoteInput ? "Confirm Capture" : "Capture Snapshot"}
+            </button>
+            {showNoteInput && (
+              <button onClick={() => { setShowNoteInput(false); setSnapNote(""); }}
+                style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Snapshot list */}
@@ -3309,6 +3313,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       }),
     };
     const existing = data.snapshots || [];
+    if (existing.some(s => s.month === snap.month)) return null; // hard lock — one per month
     const updated = [...existing, snap];
     saveToDB("snapshots", updated);
     setData(d => ({ ...d, snapshots: updated }));
@@ -3700,7 +3705,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Accounts Log</span>
-                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), value: "", note: "" }); }}
+                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), value: safe(f.accounts), note: "" }); }}
                         style={{ fontSize: 10, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontWeight: 600 }}>
                         {accLogOpen === f.id ? "Cancel" : "+ Log Snapshot"}
                       </button>
