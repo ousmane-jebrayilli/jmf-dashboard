@@ -253,6 +253,7 @@ const DEFAULT = {
       covenant_notes:"DSCR ≥ 1.25× inception · ≥ 1.20× renewal · Min. vacancy factor 5% · Min. mgmt fee 5% · Business interruption ins. ≥ 12 months rent · Fire ins. ≥ $750K · Liability ≥ $2M · Arrangement fee $3,000 · Annual renewal fee $1,000",
       lender:"TD Bank",
       notes:"Borrower: PRIMA Centre for Mental Health and Wellness Inc. Floating — 6.25% is a scenario (prime 4.45% + 1.80%). Balance $728,134 confirmed April 1, 2026.",
+      valuations:[{ date:"2026-04-01", value:2000000, note:"Initial valuation" }],
     },
     {
       id:2, name:"3705 Farr Ave.", status:"STRONG", property_type:"vacant_land",
@@ -272,6 +273,7 @@ const DEFAULT = {
       ownership:0.5, co_owner:"Jamal (50%)",
       lender:"None",
       notes:"Fully mortgage-free. JMF 50% share — co-owned with Jamal. Annual property tax pending full bill.",
+      valuations:[{ date:"2026-04-01", value:1200000, note:"Initial valuation" }],
     },
     {
       id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
@@ -290,6 +292,7 @@ const DEFAULT = {
       sections:[], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Nazila Isgandarova. Tax escrowed by Equitable. Tax account $2,362.",
+      valuations:[{ date:"2026-04-01", value:2850000, note:"Initial valuation" }],
     },
     {
       id:4, name:"51 Ahchie Crt.", status:"WATCH", property_type:"residential",
@@ -349,6 +352,7 @@ const DEFAULT = {
       ], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Akbar Majidov. Tax escrowed by Equitable. Tax account $21,603.",
+      valuations:[{ date:"2026-04-01", value:1750000, note:"Initial valuation" }],
     },
     {
       id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
@@ -379,6 +383,7 @@ const DEFAULT = {
       ownership:0.6667, co_owner:"Abassli family (33.3%)",
       lender:"Equitable Bank",
       notes:"Fixed 5.94%. JMF 2/3 share — co-owned with Abassli family. Fee balance: $550. Tax escrowed by lender.",
+      valuations:[{ date:"2026-04-01", value:958800, note:"Initial valuation" }],
     },
   ],
 
@@ -638,7 +643,7 @@ function propEffectiveRent(prop) {
 // Returns total monthly cash outflows for a property
 function propMonthlyOut(prop) {
   return getMortgageOperatingPayment(prop) + safe(prop.monthlyTax) + safe(prop.monthly_insurance) +
-    safe(prop.maintenance_reserve_monthly) + safe(prop.utilities_monthly);
+    safe(prop.maintenance_reserve_monthly);
 }
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
 function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
@@ -1717,6 +1722,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const [open, setOpen] = useState(false);
   const [propTab, setPropTab] = useState("overview");
   const [taxNoteOpen, setTaxNoteOpen] = useState(false);
+  const [valFormOpen, setValFormOpen] = useState(false);
+  const [valForm, setValForm] = useState({ date:"", value:"", note:"" });
   const [editingUnit, setEditingUnit] = useState(null);
   const [loggingRent, setLoggingRent] = useState(null);
   const [scheduleRows, setScheduleRows] = useState(12);
@@ -1725,8 +1732,10 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const market = safe(prop.market);
   const balance = mortgage.displayedBalance;
   const rawEquity = market - balance;
-  const sellingCosts = (market * 0.035 * 1.13) + 1500;
-  const netEquity = rawEquity - sellingCosts;
+  const realtorFee = market * 0.035;
+  const sellingCosts = realtorFee + (realtorFee * 0.13) + 5000;
+  const liquidValue = rawEquity - sellingCosts;
+  const netEquity = liquidValue; // kept for existing "Est. net if sold" row
   const ltv = balance > 0 && market > 0 ? (balance / market * 100) : 0;
   const units = getPropertyUnits(prop);
   const occupancyStatus = propertyOccupancyStatus(prop);
@@ -1740,6 +1749,9 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const isPartial = ownership < 0.9999;
   const displayEquity = isPartial ? jmfEquity : rawEquity;
   const displayEqColor = displayEquity > 500000 ? C.gold : displayEquity > 0 ? C.amber : C.red;
+  const jmfLiquid = liquidValue * ownership;
+  const displayLiquid = isPartial ? jmfLiquid : liquidValue;
+  const displayLiquidColor = displayLiquid > 0 ? C.green : C.red;
   const ledgers = propertyLeaseLedgers(prop, rentPayments);
   const nextExpected = propertyExpectedRentForMonth(prop, currentYM());
   const collectedThisMonth = propertyCollectedRentForMonth(prop, rentPayments, currentYM());
@@ -1838,11 +1850,12 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
           <div style={{ fontSize:21, fontWeight:700, color:C.text, letterSpacing:-0.4 }}>{prop.name}</div>
           <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>{prop.lender} · {prop.rate}{isPartial ? ` · ${prop.co_owner}` : ""}</div>
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(96px, 1fr))", gap:10, minWidth:300 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(84px, 1fr))", gap:10, minWidth:360 }}>
           {[
-            { label:"Market", value:$K(market), color:C.text },
-            { label:"Debt", value:$K(balance), color:C.red },
-            { label:isPartial ? "JMF Equity" : "Equity", value:$K(displayEquity), color:displayEqColor },
+            { label:"Market",                              value:$K(market),        color:C.text              },
+            { label:"Debt",                                value:$K(balance),       color:C.red               },
+            { label:isPartial ? "JMF Equity" : "Equity",  value:$K(displayEquity), color:displayEqColor      },
+            { label:isPartial ? "JMF Liquid" : "Liquid",  value:$K(displayLiquid), color:displayLiquidColor  },
           ].map(item => (
             <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 12px", textAlign:"right" }}>
               <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>{item.label}</div>
@@ -1858,7 +1871,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
           {/* Tab bar */}
           <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
             <div style={{ display:"flex" }}>
-              {[["overview","Overview"],["schedule","Payment Schedule"],["tenants","Tenants & Rent"]].map(([id, label]) => (
+              {[["overview","Overview"],["schedule","Payment Schedule"],["tenants","Tenants & Rent"],["valuation","Valuation"]].map(([id, label]) => (
                 <button key={id} onClick={e => { e.stopPropagation(); setPropTab(id); }} style={tabStyle(id)}>{label}</button>
               ))}
             </div>
@@ -1940,7 +1953,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               </div>
 
               <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-                <Label>Monthly Operating Expenses</Label>
+                <Label>Fixed Monthly Operating Expenses</Label>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:18, marginTop:12 }}>
                   <div>
                     <Row label={operatingMortgageLabel}>
@@ -1983,7 +1996,6 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                   </div>
                   <div>
                     <Row label="Maintenance fees"><EditNum value={safe(prop.maintenance_reserve_monthly)} onChange={v => onUpdate("maintenance_reserve_monthly", v)} locked={!isAdmin} /></Row>
-                    <Row label="Utilities"><EditNum value={safe(prop.utilities_monthly)} onChange={v => onUpdate("utilities_monthly", v)} locked={!isAdmin} /></Row>
                     <Row label="Total monthly outflow" last><span style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.red }}>{$F(totalOut)}</span></Row>
                   </div>
                 </div>
@@ -2262,6 +2274,94 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               </div>
             </div>
           )}
+
+          {/* ── TAB 4: VALUATION ── */}
+          {propTab === "valuation" && (() => {
+            const vals = (prop.valuations || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+            function submitVal(e) {
+              e.stopPropagation();
+              const v = parseFloat(String(valForm.value).replace(/[^0-9.]/g, ""));
+              if (!valForm.date || isNaN(v) || v <= 0) return;
+              const entry = { date: valForm.date, value: v, note: valForm.note };
+              const updated = [entry, ...(prop.valuations || [])].sort((a, b) => b.date.localeCompare(a.date));
+              onPatch({ market: updated[0].value, valuations: updated });
+              setValForm({ date:"", value:"", note:"" });
+              setValFormOpen(false);
+            }
+            return (
+              <div style={{ padding:"22px" }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+                  <Label>Valuation History</Label>
+                  {isAdmin && !valFormOpen && (
+                    <button onClick={e => { e.stopPropagation(); setValFormOpen(true); }}
+                      style={{ padding:"8px 16px", background:C.gold, border:"none", borderRadius:8, color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:C.sans }}>
+                      + Log Valuation
+                    </button>
+                  )}
+                </div>
+
+                {valFormOpen && (
+                  <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"18px 18px 14px", marginBottom:20 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.textMid, marginBottom:14 }}>New Valuation Entry</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                      <div>
+                        <div style={{ fontSize:11, color:C.muted, marginBottom:4, fontFamily:C.sans }}>Valuation Date</div>
+                        <input type="date" value={valForm.date} onChange={e => setValForm(f => ({ ...f, date:e.target.value }))}
+                          style={{ width:"100%", padding:"8px 10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", boxSizing:"border-box" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize:11, color:C.muted, marginBottom:4, fontFamily:C.sans }}>Market Value ($)</div>
+                        <input type="number" value={valForm.value} onChange={e => setValForm(f => ({ ...f, value:e.target.value }))} placeholder="e.g. 2000000"
+                          style={{ width:"100%", padding:"8px 10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:13, fontFamily:C.mono, outline:"none", boxSizing:"border-box" }} />
+                      </div>
+                    </div>
+                    <div style={{ marginBottom:14 }}>
+                      <div style={{ fontSize:11, color:C.muted, marginBottom:4, fontFamily:C.sans }}>Note (optional)</div>
+                      <input type="text" value={valForm.note} onChange={e => setValForm(f => ({ ...f, note:e.target.value }))} placeholder="e.g. MPAC assessment, broker opinion, appraisal"
+                        style={{ width:"100%", padding:"8px 10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:12, fontFamily:C.sans, outline:"none", boxSizing:"border-box" }} />
+                    </div>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <button onClick={submitVal}
+                        style={{ flex:1, padding:"10px 0", background:C.gold, border:"none", borderRadius:8, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:C.sans }}>
+                        Save Valuation
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); setValFormOpen(false); setValForm({ date:"", value:"", note:"" }); }}
+                        style={{ padding:"10px 18px", background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:13, cursor:"pointer", fontFamily:C.sans }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {vals.length === 0 ? (
+                  <div style={{ fontSize:13, color:C.textDim }}>No valuations logged yet.</div>
+                ) : (
+                  <div>
+                    {vals.map((v, i) => {
+                      const prev = vals[i + 1];
+                      const delta = prev ? v.value - prev.value : null;
+                      return (
+                        <div key={i} style={{ padding:"14px 0", borderBottom: i < vals.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                            <div>
+                              <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>{v.date}</div>
+                              <div style={{ fontSize:20, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(v.value)}</div>
+                              {v.note && <div style={{ fontSize:11, color:C.textMid, marginTop:4 }}>{v.note}</div>}
+                            </div>
+                            {delta !== null && (
+                              <div style={{ fontFamily:C.mono, fontSize:13, fontWeight:600, color: delta >= 0 ? C.green : C.red }}>
+                                {delta >= 0 ? "+" : ""}{$F(delta)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         </div>
       )}
@@ -2927,9 +3027,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalREEq      = data.properties.reduce((s, p) => s + propJMFEquity(p), 0); // JMF-attributable gross equity
   const totalRENetSale = data.properties.reduce((s, p) => {
     const mkt = safe(p.market);
-    const selling = (mkt * 0.035 * 1.13) + 1500;
+    const fee = mkt * 0.035;
+    const selling = fee + (fee * 0.13) + 5000;
     return s + ((mkt - propCurrentMortgageBalance(p) - selling) * propOwnership(p));
   }, 0); // JMF net proceeds if all RE sold
+  const totalRELiquid = totalRENetSale; // alias — liquid = JMF net after selling costs, ownership-adjusted
   const totalREVal     = data.properties.reduce((s, p) => s + safe(p.market), 0);
   const totalREDbt     = data.properties.reduce((s, p) => s + propCurrentMortgageBalance(p), 0);
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
@@ -3315,12 +3417,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Portfolio Value",  val: $K(totalREVal),       color: C.text, sub: "Gross (5 properties)" },
-                { label: "Total Debt",       val: $K(totalREDbt),       color: C.red,  sub: "All mortgages" },
-                { label: "Gross Equity",     val: $K(totalREEqGross),   color: C.amber,sub: "100% of all equity" },
-                { label: "JMF Equity",       val: $K(totalREEq),        color: C.gold, sub: "Ownership-adjusted" },
-                { label: "Monthly Payments", val: $K(totalMtg),         color: C.red,  sub: `${$K(totalMtg * 12)}/yr` },
-                { label: "RE Cash Flow",     val: $K(totalRENCF),       color: totalRENCF >= 0 ? C.green : C.red, sub: "Income − outflows" },
+                { label: "Portfolio Value",    val: $K(totalREVal),    color: C.text,  sub: "Gross (5 properties)" },
+                { label: "Total Debt",        val: $K(totalREDbt),    color: C.red,   sub: "All mortgages" },
+                { label: "Gross Equity",      val: $K(totalREEqGross),color: C.amber, sub: "100% of all equity" },
+                { label: "JMF Equity",        val: $K(totalREEq),     color: C.gold,  sub: "Ownership-adjusted" },
+                { label: "Liquid RE Value",   val: $K(totalRELiquid), color: totalRELiquid >= 0 ? C.green : C.red, sub: "After selling costs · JMF share" },
+                { label: "Monthly Payments",  val: $K(totalMtg),      color: C.red,   sub: `${$K(totalMtg * 12)}/yr` },
+                { label: "RE Cash Flow",      val: $K(totalRENCF),    color: totalRENCF >= 0 ? C.green : C.red, sub: "Income − outflows" },
               ].map((s, i) => (
                 <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
                   <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
