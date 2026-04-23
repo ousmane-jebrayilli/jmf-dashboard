@@ -198,6 +198,7 @@ function makeUnit(unit = {}) {
 // ─── DEFAULT DATA — April 1, 2026 ─────────────────────────────────────────────
 const DEFAULT = {
   lastUpdated: "April 1, 2026",
+  reportHistory: [],
 
   individuals: [
     { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[], accountsLog:[] },
@@ -3224,7 +3225,7 @@ function ReportModal({ snapshot: s, data, onClose }) {
 }
 
 // ─── REPORTS TAB ──────────────────────────────────────────────────────────────
-function HistoryTab({ data, onSaveSnapshot }) {
+function HistoryTab({ data, onSaveSnapshot, onGenerateReport }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -3365,7 +3366,11 @@ function HistoryTab({ data, onSaveSnapshot }) {
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
             </div>
-            <button onClick={e => { e.stopPropagation(); setReportSnap(s); }}
+            <button onClick={e => {
+              e.stopPropagation();
+              onGenerateReport(s);
+              setReportSnap(s);
+            }}
               style={{ fontSize: 11, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
               Generate Report
             </button>
@@ -3440,6 +3445,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalRENCF    = totalREIncome - totalREOut;
   const aj         = data.individuals.find(f => f.id === 1);
   const cashStale  = safe(aj?.cash) === 0;
+  const latestReportGeneratedAt = (data.reportHistory || [])
+    .map(r => r.generatedAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0];
+  const heroSubtitle = latestReportGeneratedAt
+    ? `Last Report Generated: ${new Date(latestReportGeneratedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+    : "No report generated yet";
 
   // ── Update helpers ──
   function updPropPatch(id, patch) {
@@ -3549,6 +3561,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     setData(d => ({ ...d, snapshots: updated }));
     showSaved();
     return snap;
+  }
+  function recordReportGeneration(snapshot) {
+    const entry = {
+      snapshotMonth: snapshot.month,
+      snapshotCapturedAt: snapshot.capturedAt,
+      generatedAt: new Date().toISOString(),
+    };
+    const updated = [...(data.reportHistory || []), entry];
+    saveToDB("reportHistory", updated);
+    setData(d => ({ ...d, reportHistory: updated }));
+    showSaved();
   }
   function updBizProfit(bizId, month, profit) {
     const arr = data.businesses.map(b => {
@@ -3693,7 +3716,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           {$F(totalNW)}
         </div>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 16, letterSpacing: "0.06em" }}>
-          Est. net if sold · {data.lastUpdated}
+          {heroSubtitle}
         </div>
       </div>
 
@@ -4207,7 +4230,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
         {/* ── REPORTS ── */}
         {tab === "reports" && (
-          <HistoryTab data={data} onSaveSnapshot={note => saveSnapshot(note)} />
+          <HistoryTab
+            data={data}
+            onSaveSnapshot={note => saveSnapshot(note)}
+            onGenerateReport={snapshot => recordReportGeneration(snapshot)}
+          />
         )}
 
       </div>
@@ -4284,6 +4311,7 @@ export default function App() {
           businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
           cashflow:     dbData.cashflow     || DEFAULT.cashflow,
           rentPayments: mergedRentPayments,
+          reportHistory: dbData.reportHistory || [],
           snapshots:    dbData.snapshots    || [],
         });
       } else {
