@@ -578,6 +578,16 @@ function buildLeaseLedger(unit, prop, rentPayments) {
     unusedCredit: remainingCredit,
   };
 }
+function getLedgerCoverageSummary(ledger) {
+  let paidThroughMonth = null;
+  for (const row of ledger.rows) {
+    if (row.outstanding === 0) paidThroughMonth = row.month;
+    else break;
+  }
+  const today = currentYM();
+  const nextDueRow = ledger.rows.find(r => r.month >= today && r.outstanding > 0) || null;
+  return { paidThroughMonth, nextDueRow };
+}
 function propertyLeaseLedgers(prop, rentPayments) {
   return getPropertyUnits(prop)
     .map(unit => ({ unit, ledger: buildLeaseLedger(unit, prop, rentPayments) }))
@@ -967,7 +977,7 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
         <div style={{ background:C.bg, borderRadius:10, padding:"10px 12px", marginBottom:18, fontSize:12, color:C.textMid, lineHeight:1.6 }}>
           <div>Tenant: <strong style={{ color:C.text }}>{lease?.tenant_full_name || "Tenant TBD"}</strong></div>
           <div>Rent due: <strong style={{ color:C.text }}>{$F(expected)}</strong></div>
-          <div>Deposit credit applied: <strong style={{ color:creditApplied > 0 ? C.gold : C.textDim }}>{$F(creditApplied)}</strong></div>
+          {creditApplied > 0 && <div>Prepaid coverage applied: <strong style={{ color:C.gold }}>{$F(creditApplied)}</strong></div>}
         </div>
         <Label>Amount received (CAD)</Label>
         <input type="number" autoFocus value={received} onChange={e => setReceived(e.target.value)}
@@ -2266,33 +2276,46 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                             <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{unit.label} · {ledger.lease.tenant_full_name || "Tenant TBD"}</div>
                             <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{formatDate(ledger.lease.lease_start_date)} - {formatDate(ledger.lease.lease_end_date)} · {ledger.lease.payment_frequency}</div>
                           </div>
-                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                            {[
+                          {(() => {
+                            const cov = getLedgerCoverageSummary(ledger);
+                            const chips = [
                               { label:"Lease Value", value:$F(ledger.totalDue), color:C.text },
                               { label:"Paid", value:$F(ledger.totalPaid), color:C.green },
-                              { label:"Credited", value:$F(ledger.totalCredited), color:C.gold },
+                              ...(cov.paidThroughMonth ? [{ label:"Paid Through", value:monthLabel(cov.paidThroughMonth), color:C.gold }] : []),
+                              ...(cov.nextDueRow ? [{ label:"Next Due", value:formatDate(cov.nextDueRow.dueDate), color:C.amber }] : []),
                               { label:"Outstanding", value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
                               { label:"Remaining", value:$F(ledger.remainingLeaseValue), color:ledger.remainingLeaseValue > 0 ? C.amber : C.green },
-                            ].map(item => (
-                              <div key={item.label} style={{ textAlign:"right" }}>
-                                <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{item.label}</div>
-                                <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                            ];
+                            return (
+                              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                                {chips.map(item => (
+                                  <div key={item.label} style={{ textAlign:"right" }}>
+                                    <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{item.label}</div>
+                                    <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })()}
                         </div>
-                        {safe(ledger.lease.deposit_received) > 0 && (
-                          <div style={{ padding:"10px 16px", borderTop:`1px solid ${C.border}`, background:C.goldLight, fontSize:12, color:C.goldText }}>
-                            Deposit recorded: {$F(ledger.lease.deposit_received)} on {formatDate(ledger.lease.deposit_date)}. This amount is currently being applied as prepaid rent credit.
-                          </div>
-                        )}
+                        {safe(ledger.lease.deposit_received) > 0 && (() => {
+                          const cov = getLedgerCoverageSummary(ledger);
+                          const monthsCovered = ledger.rows.filter(r => r.creditApplied > 0 && r.outstanding === 0).length;
+                          return (
+                            <div style={{ padding:"10px 16px", borderTop:`1px solid ${C.border}`, background:C.goldLight, fontSize:12, color:C.goldText }}>
+                              Prepaid deposit: {$F(ledger.lease.deposit_received)} received {formatDate(ledger.lease.deposit_date)}.
+                              {monthsCovered > 0 && ` Covers ${monthsCovered} month${monthsCovered > 1 ? "s" : ""}${cov.paidThroughMonth ? ` through ${monthLabel(cov.paidThroughMonth)}` : ""}.`}
+                              {ledger.unusedCredit > 0 && ` ${$F(ledger.unusedCredit)} unused balance remaining.`}
+                            </div>
+                          );
+                        })()}
                         <div style={{ padding:"0 16px 14px" }}>
                           <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
                             <span>Month</span>
                             <span>Due Date</span>
                             <span>Rent Due</span>
                             <span>Paid</span>
-                            <span>Credit / Owing</span>
+                            <span>Status</span>
                             <span></span>
                           </div>
                           {ledger.rows.map((row, idx) => {
@@ -2307,8 +2330,12 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                   {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
                                 </div>
                                 <div>
-                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 ? C.gold : (row.outstanding > 0 ? C.red : C.green) }}>
-                                    {row.creditApplied > 0 ? `Credit ${$F(row.creditApplied)}` : row.outstanding > 0 ? `Owing ${$F(row.outstanding)}` : "Settled"}
+                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 && row.outstanding === 0 ? C.gold : row.outstanding > 0 ? C.red : C.green }}>
+                                    {row.creditApplied > 0 && row.outstanding === 0
+                                      ? "Covered"
+                                      : row.outstanding > 0
+                                        ? `Owing ${$F(row.outstanding)}`
+                                        : "Settled"}
                                   </div>
                                 </div>
                                 <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
