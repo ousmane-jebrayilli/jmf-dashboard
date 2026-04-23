@@ -1523,20 +1523,29 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
             const snapshots = [...(data.snapshots || [])].reverse();
             return (
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Accounts Log</div>
-                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Historical account balance entries logged by admin.</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Monthly History</div>
+                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Your full financial position recorded each month.</div>
                 {myLog.length === 0
                   ? <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 24 }}>No entries yet.</div>
-                  : myLog.map((e, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
-                      <div>
-                        <span style={{ color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
-                        {e.note && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{e.note}</div>}
-                        {e.timestamp && <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>{new Date(e.timestamp).toLocaleDateString()}</div>}
+                  : myLog.map((e, i) => {
+                    const entryNet = e.net != null ? e.net : safe(e.value);
+                    return (
+                      <div key={i} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
+                          <span style={{ fontFamily: C.mono, fontSize: 15, color: entryNet >= 0 ? C.gold : C.red, fontWeight: 700 }}>{$F(entryNet)}</span>
+                        </div>
+                        {e.net != null && (
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                            {[["Cash", e.cash], ["Accounts", e.accounts], ["Securities", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([l, v]) => v != null && v !== 0 ? (
+                              <span key={l} style={{ fontSize: 11, color: C.textDim }}>{l}: {$K(v)}</span>
+                            ) : null)}
+                          </div>
+                        )}
+                        {e.note && <div style={{ fontSize: 11, color: C.textDim, marginTop: 3 }}>{e.note}</div>}
                       </div>
-                      <span style={{ fontFamily: C.mono, color: e.value >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(e.value)}</span>
-                    </div>
-                  ))
+                    );
+                  })
                 }
                 <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 28, marginBottom: 4 }}>JMF Snapshots</div>
                 <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Portfolio-wide net worth snapshots.</div>
@@ -3037,6 +3046,7 @@ function HistoryTab({ data, onSaveSnapshot }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const [confirmEdit, setConfirmEdit] = useState(false);
   const snapshots = [...(data.snapshots || [])].reverse();
   const curYM = currentYM();
   const hasThisMonth = (data.snapshots || []).some(s => s.month === curYM);
@@ -3047,7 +3057,8 @@ function HistoryTab({ data, onSaveSnapshot }) {
         <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>Snapshot — {monthLabel(drill.month)}</div>
-          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 4 }}>Captured {new Date(drill.capturedAt).toLocaleString()}</div>
+          <div style={{ fontSize: 11, color: C.textDim, marginBottom: 2 }}>Captured {new Date(drill.capturedAt).toLocaleString()}</div>
+          {drill.updatedAt && <div style={{ fontSize: 11, color: C.amber, marginBottom: 4 }}>Edited {new Date(drill.updatedAt).toLocaleString()}</div>}
           {drill.note && <div style={{ fontSize: 12, color: C.textMid, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", marginBottom: 8 }}>{drill.note}</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
@@ -3111,29 +3122,49 @@ function HistoryTab({ data, onSaveSnapshot }) {
   return (
     <div>
       {/* Capture Snapshot */}
-      <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: hasThisMonth ? C.green : C.amber }}>
-            {hasThisMonth ? `✓ ${monthLabel(curYM)} locked` : `No snapshot yet for ${monthLabel(curYM)}`}
+      <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: hasThisMonth ? C.green : C.amber }}>
+              {hasThisMonth ? `✓ ${monthLabel(curYM)} locked` : `No snapshot yet for ${monthLabel(curYM)}`}
+            </div>
+            <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+              {hasThisMonth ? "One snapshot per month." : "Snapshots record the full NW breakdown at a point in time."}
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
-            {hasThisMonth ? "One snapshot per month. Next capture available in the following month." : "Snapshots record the full NW breakdown at a point in time."}
-          </div>
-        </div>
-        {!hasThisMonth && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {showNoteInput && (
-              <input type="text" placeholder="Optional note for this snapshot" value={snapNote} onChange={e => setSnapNote(e.target.value)}
-                style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", minWidth: 220 }} />
-            )}
-            <button onClick={() => { if (!showNoteInput) { setShowNoteInput(true); } else { onSaveSnapshot(snapNote); setSnapNote(""); setShowNoteInput(false); } }}
-              style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 18px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-              {showNoteInput ? "Confirm Capture" : "Capture Snapshot"}
+          {!hasThisMonth ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {showNoteInput && (
+                <input type="text" placeholder="Optional note for this snapshot" value={snapNote} onChange={e => setSnapNote(e.target.value)}
+                  style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", minWidth: 220 }} />
+              )}
+              <button onClick={() => { if (!showNoteInput) { setShowNoteInput(true); } else { onSaveSnapshot(snapNote); setSnapNote(""); setShowNoteInput(false); } }}
+                style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 18px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+                {showNoteInput ? "Confirm Capture" : "Capture Snapshot"}
+              </button>
+              {showNoteInput && (
+                <button onClick={() => { setShowNoteInput(false); setSnapNote(""); }}
+                  style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
+              )}
+            </div>
+          ) : (
+            <button onClick={() => setConfirmEdit(true)}
+              style={{ fontSize: 11, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "6px 14px", cursor: "pointer" }}>
+              Edit
             </button>
-            {showNoteInput && (
-              <button onClick={() => { setShowNoteInput(false); setSnapNote(""); }}
-                style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>Cancel</button>
-            )}
+          )}
+        </div>
+        {confirmEdit && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: C.text }}>Overwrite the {monthLabel(curYM)} snapshot with current live values?</span>
+            <input type="text" placeholder="Optional note" value={snapNote} onChange={e => setSnapNote(e.target.value)}
+              style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", flex: 1, minWidth: 160 }} />
+            <button onClick={() => { onSaveSnapshot(snapNote); setSnapNote(""); setConfirmEdit(false); }}
+              style={{ fontSize: 12, background: C.amber, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+              Confirm Overwrite
+            </button>
+            <button onClick={() => { setConfirmEdit(false); setSnapNote(""); }}
+              style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "7px 12px", cursor: "pointer" }}>Cancel</button>
           </div>
         )}
       </div>
@@ -3172,7 +3203,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
   const [cfMonth, setCFMonth]       = useState(currentYM());
   const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
-  const [accLogForm, setAccLogForm] = useState({ month: currentYM(), value: "", note: "" });
+  const [accLogForm, setAccLogForm] = useState({ month: currentYM(), cash: 0, accounts: 0, securities: 0, crypto: 0, physicalAssets: 0, note: "" });
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
 
   useEffect(() => {
@@ -3282,7 +3313,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   function updIndAccountsLog(indId, entry) {
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
-      const log = [...(x.accountsLog || []), { ...entry, timestamp: new Date().toISOString() }];
+      const existing = x.accountsLog || [];
+      const ts = new Date().toISOString();
+      const newEntry = { ...entry, timestamp: ts };
+      const alreadyExists = existing.some(e => e.month === entry.month);
+      const log = alreadyExists
+        ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
+        : [...existing, { ...newEntry, capturedAt: ts }];
       return { ...x, accountsLog: log };
     });
     saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
@@ -3313,8 +3350,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       }),
     };
     const existing = data.snapshots || [];
-    if (existing.some(s => s.month === snap.month)) return null; // hard lock — one per month
-    const updated = [...existing, snap];
+    const alreadyExists = existing.some(s => s.month === snap.month);
+    const updated = alreadyExists
+      ? existing.map(s => s.month === snap.month
+          ? { ...snap, capturedAt: s.capturedAt, updatedAt: snap.capturedAt }
+          : s)
+      : [...existing, snap];
     saveToDB("snapshots", updated);
     setData(d => ({ ...d, snapshots: updated }));
     showSaved();
@@ -3701,54 +3742,80 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
                   </div>
 
-                  {/* Accounts Log */}
+                  {/* Individual History Log */}
                   <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Accounts Log</span>
-                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), value: safe(f.accounts), note: "" }); }}
+                      <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Monthly History</span>
+                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), cash: safe(f.cash), accounts: safe(f.accounts), securities: safe(f.securities), crypto: safe(f.crypto), physicalAssets: safe(f.physicalAssets), note: "" }); }}
                         style={{ fontSize: 10, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontWeight: 600 }}>
-                        {accLogOpen === f.id ? "Cancel" : "+ Log Snapshot"}
+                        {accLogOpen === f.id ? "Cancel" : "+ Log Month"}
                       </button>
                     </div>
-                    {accLogOpen === f.id && (
-                      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                          <div style={{ flex: 1 }}>
+                    {accLogOpen === f.id && (() => {
+                      const formNet = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
+                      return (
+                        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                          <div style={{ marginBottom: 8 }}>
                             <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Month</div>
                             <input type="month" value={accLogForm.month} onChange={e => setAccLogForm(p => ({ ...p, month: e.target.value }))}
+                              style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none" }} />
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                            {[
+                              { l: "Cash",            k: "cash"          },
+                              { l: "Accounts",        k: "accounts"      },
+                              { l: "Securities",      k: "securities"    },
+                              { l: "Crypto",          k: "crypto"        },
+                              { l: "Physical Assets", k: "physicalAssets"},
+                            ].map(({ l, k }) => (
+                              <div key={k}>
+                                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>{l}</div>
+                                <input type="number" value={accLogForm[k]} onChange={e => setAccLogForm(p => ({ ...p, [k]: e.target.value }))}
+                                  style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.mono, outline: "none", boxSizing: "border-box" }} />
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", marginBottom: 8, borderTop: `1px solid ${C.border}` }}>
+                            <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>Net Worth</span>
+                            <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 14, color: formNet >= 0 ? C.gold : C.red }}>{$F(formNet)}</span>
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Note (optional)</div>
+                            <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
                               style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
                           </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Accounts Balance</div>
-                            <input type="number" placeholder="e.g. 15000" value={accLogForm.value} onChange={e => setAccLogForm(p => ({ ...p, value: e.target.value }))}
-                              style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.mono, outline: "none", boxSizing: "border-box" }} />
-                          </div>
+                          <button onClick={() => {
+                            const net = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
+                            updIndAccountsLog(f.id, { month: accLogForm.month, cash: safe(accLogForm.cash), accounts: safe(accLogForm.accounts), securities: safe(accLogForm.securities), crypto: safe(accLogForm.crypto), physicalAssets: safe(accLogForm.physicalAssets), net, note: accLogForm.note });
+                            setAccLogOpen(null);
+                          }} style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontWeight: 700 }}>
+                            Save
+                          </button>
                         </div>
-                        <div style={{ marginBottom: 8 }}>
-                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Note (optional)</div>
-                          <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
-                            style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
-                        </div>
-                        <button onClick={() => {
-                          if (!accLogForm.value && accLogForm.value !== 0) return;
-                          updIndAccountsLog(f.id, { month: accLogForm.month, value: safe(accLogForm.value), note: accLogForm.note });
-                          setAccLogOpen(null);
-                        }} style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontWeight: 700 }}>
-                          Save Snapshot
-                        </button>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {(f.accountsLog || []).length === 0
                       ? <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic" }}>No entries yet.</div>
-                      : [...(f.accountsLog || [])].reverse().map((e, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
-                          <div>
-                            <span style={{ color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
-                            {e.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>{e.note}</div>}
+                      : [...(f.accountsLog || [])].reverse().map((e, i) => {
+                        const entryNet = e.net != null ? e.net : safe(e.value);
+                        return (
+                          <div key={i} style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
+                              <span style={{ fontFamily: C.mono, fontSize: 13, color: entryNet >= 0 ? C.gold : C.red, fontWeight: 700 }}>{$F(entryNet)}</span>
+                            </div>
+                            {e.net != null && (
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 3 }}>
+                                {[["Cash", e.cash], ["Acct", e.accounts], ["Sec", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([l, v]) => v != null && v !== 0 ? (
+                                  <span key={l} style={{ fontSize: 10, color: C.textDim }}>{l}: {$K(v)}</span>
+                                ) : null)}
+                              </div>
+                            )}
+                            {e.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{e.note}</div>}
+                            {e.updatedAt && <div style={{ fontSize: 10, color: C.amber, marginTop: 1 }}>Edited {new Date(e.updatedAt).toLocaleDateString()}</div>}
                           </div>
-                          <span style={{ fontFamily: C.mono, color: e.value >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(e.value)}</span>
-                        </div>
-                      ))
+                        );
+                      })
                     }
                   </div>
                 </Card>
