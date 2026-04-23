@@ -854,7 +854,7 @@ function CashFlowGraph({ data }) {
     const bizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
       const e = (b.monthlyProfits || []).find(p => p.month === m); return s + safe(e?.profit);
     }, 0);
-    const rentIn = (data.rentPayments || []).map(normalizeRentPayment).filter(r => r.month === m).reduce((s, r) => s + safe(r.amount), 0);
+    const rentIn = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
     const indIn  = data.individuals.reduce((s, ind) => {
       const e = (ind.monthlyIncome || []).find(p => p.month === m); return s + safe(e?.income);
     }, 0);
@@ -3851,7 +3851,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
             return s + safe(e?.profit);
           }, 0);
-          const cfRentIn  = (data.rentPayments || []).map(normalizeRentPayment).filter(r => r.month === cfMonth).reduce((s, r) => s + safe(r.amount), 0);
+          const cfRentIn  = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
           const cfPayroll = data.individuals.reduce((s, ind) => {
             const e = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
             return s + safe(e?.income);
@@ -3909,14 +3909,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     );
                   })}
 
-                  {/* Rental income from ledger */}
-                  <div style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <span style={{ fontSize: 13, color: C.text }}>Rental income</span>
-                      <span style={{ fontFamily: C.mono, fontSize: 14, color: cfRentIn > 0 ? C.gold : C.textDim }}>{cfRentIn > 0 ? $F(cfRentIn) : "—"}</span>
-                    </div>
-                    <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>From rent ledger · log in Real Estate tab</div>
-                  </div>
+                  {/* Rental income — live from active leases */}
+                  {data.properties.map(p => {
+                    const rent = propEffectiveRent(p);
+                    if (rent === 0) return null;
+                    return (
+                      <div key={p.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <span style={{ fontSize: 13, color: C.text }}>{p.name}</span>
+                          <span style={{ fontFamily: C.mono, fontSize: 14, color: C.gold }}>{$F(rent)}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Expected rent · active leases</div>
+                      </div>
+                    );
+                  })}
 
                   {/* Monthly Income — per individual */}
                   <div style={{ padding: "9px 0 4px", borderBottom: `1px solid ${C.border}` }}>
