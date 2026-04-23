@@ -262,8 +262,8 @@ const DEFAULT = {
 
   properties: [
     {
-      id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial",
-      purchase:1020000, market:2000000, mortgage:728134.68, original_balance:0, ownership:1,
+      id:1, name:"27 Roytec Rd.", status:"STRONG", property_type:"commercial", country:"Canada",
+      purchase:1020000, market_value:2000000, market_currency:"CAD", fx_rate_to_cad:1, market:2000000, mortgage:728134.68, original_balance:0, ownership:1,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:6.25, rate:"P+1.80% (≈6.25%)", rateType:"Floating / Prime + 1.80",
       maturity:"TBC", remaining_amortization_months:300, taxes_paid_by:"owner",
@@ -298,11 +298,11 @@ const DEFAULT = {
       covenant_notes:"DSCR ≥ 1.25× inception · ≥ 1.20× renewal · Min. vacancy factor 5% · Min. mgmt fee 5% · Business interruption ins. ≥ 12 months rent · Fire ins. ≥ $750K · Liability ≥ $2M · Arrangement fee $3,000 · Annual renewal fee $1,000",
       lender:"TD Bank",
       notes:"Borrower: PRIMA Centre for Mental Health and Wellness Inc. Floating — 6.25% is a scenario (prime 4.45% + 1.80%). Balance $728,134 confirmed April 1, 2026.",
-      valuations:[{ date:"2026-04-01", value:2000000, note:"Initial valuation" }],
+      valuations:[{ date:"2026-04-01", market_value:2000000, market_currency:"CAD", fx_rate_to_cad:1, value:2000000, note:"Initial valuation" }],
     },
     {
-      id:2, name:"3705 Farr Ave.", status:"STRONG", property_type:"vacant_land",
-      purchase:250000, market:1200000, mortgage:0, original_balance:0,
+      id:2, name:"3705 Farr Ave.", status:"STRONG", property_type:"vacant_land", country:"Canada",
+      purchase:250000, market_value:1200000, market_currency:"CAD", fx_rate_to_cad:1, market:1200000, mortgage:0, original_balance:0,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:0, rate:"N/A", rateType:"Mortgage-free",
       maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
@@ -318,11 +318,11 @@ const DEFAULT = {
       ownership:0.5, co_owner:"Jamal (50%)",
       lender:"None",
       notes:"Fully mortgage-free. JMF 50% share — co-owned with Jamal. Annual property tax pending full bill.",
-      valuations:[{ date:"2026-04-01", value:1200000, note:"Initial valuation" }],
+      valuations:[{ date:"2026-04-01", market_value:1200000, market_currency:"CAD", fx_rate_to_cad:1, value:1200000, note:"Initial valuation" }],
     },
     {
-      id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential",
-      purchase:3079729, market:2850000, mortgage:1824886.46, original_balance:2000000,
+      id:3, name:"121 Milky Way", status:"WATCH", property_type:"residential", country:"Canada",
+      purchase:3079729, market_value:2850000, market_currency:"CAD", fx_rate_to_cad:1, market:2850000, mortgage:1824886.46, original_balance:2000000,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
       maturity:"Apr 1, 2027", remaining_amortization_months:285, taxes_paid_by:"lender",
@@ -337,11 +337,11 @@ const DEFAULT = {
       sections:[], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Nazila Isgandarova. Tax escrowed by Equitable. Tax account $2,362.",
-      valuations:[{ date:"2026-04-01", value:2850000, note:"Initial valuation" }],
+      valuations:[{ date:"2026-04-01", market_value:2850000, market_currency:"CAD", fx_rate_to_cad:1, value:2850000, note:"Initial valuation" }],
     },
     {
-      id:4, name:"51 Ahchie Crt.", status:"WATCH", property_type:"residential",
-      purchase:2119105, market:1750000, mortgage:1523755.81, original_balance:1553670,
+      id:4, name:"51 Ahchie Crt.", status:"WATCH", property_type:"residential", country:"Canada",
+      purchase:2119105, market_value:1750000, market_currency:"CAD", fx_rate_to_cad:1, market:1750000, mortgage:1523755.81, original_balance:1553670,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.79, rate:"5.79%", rateType:"12 Month Fixed Closed",
       maturity:"Apr 1, 2027", remaining_amortization_months:337, taxes_paid_by:"lender",
@@ -397,11 +397,11 @@ const DEFAULT = {
       ], covenant_notes:"",
       lender:"Equitable Bank",
       notes:"Renewed April 2026 at 5.79% Fixed Closed. Matures April 1, 2027. Borrower: Akbar Majidov. Tax escrowed by Equitable. Tax account $21,603.",
-      valuations:[{ date:"2026-04-01", value:1750000, note:"Initial valuation" }],
+      valuations:[{ date:"2026-04-01", market_value:1750000, market_currency:"CAD", fx_rate_to_cad:1, value:1750000, note:"Initial valuation" }],
     },
     {
-      id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential",
-      purchase:349000, market:958800, mortgage:894768.98, original_balance:960000,
+      id:5, name:"4 New Seabury Dr.", status:"WATCH", property_type:"residential", country:"Canada",
+      purchase:349000, market_value:958800, market_currency:"CAD", fx_rate_to_cad:1, market:958800, mortgage:894768.98, original_balance:960000,
       mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
       interest_rate:5.94, rate:"5.94%", rateType:"60 Month Fixed Closed",
       maturity:"Dec 2029", remaining_amortization_months:311, taxes_paid_by:"lender",
@@ -428,7 +428,48 @@ const DEFAULT = {
       ownership:0.6667, co_owner:"Abassli family (33.3%)",
       lender:"Equitable Bank",
       notes:"Fixed 5.94%. JMF 2/3 share — co-owned with Abassli family. Fee balance: $550. Tax escrowed by lender.",
-      valuations:[{ date:"2026-04-01", value:958800, note:"Initial valuation" }],
+      valuations:[{ date:"2026-04-01", market_value:958800, market_currency:"CAD", fx_rate_to_cad:1, value:958800, note:"Initial valuation" }],
+    },
+    {
+      id:6, name:"Saray Twin Land Parcels", status:"STRONG", property_type:"vacant_land", country:"Azerbaijan",
+      purchase:0, market_value:130000, market_currency:"AZN", fx_rate_to_cad:0.8, market:104000, mortgage:0, original_balance:0, ownership:1,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
+      interest_rate:0, rate:"Mortgage-free", rateType:"No financing",
+      maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
+      monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0, tax_account_note:"",
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:0, rental_market_monthly:0,
+      occupancy_status:"vacant_land",
+      tenant_summary:"", vacancy_notes:"Two adjacent agricultural land parcels.",
+      sections:[], units:[], covenant_notes:"",
+      lender:"None",
+      notes:"Long-term land asset in Saray / Absheron.",
+      location:"Absheron District, Saray, Azerbaijan",
+      valuations:[{ date:"2026-04-01", market_value:130000, market_currency:"AZN", fx_rate_to_cad:0.8, value:104000, note:"Initial valuation" }],
+    },
+    {
+      id:7, name:"Saray House – Vahab Aliyev 35", status:"STRONG", property_type:"residential", country:"Azerbaijan",
+      purchase:0, market_value:95000, market_currency:"AZN", fx_rate_to_cad:0.8, market:76000, mortgage:0, original_balance:0, ownership:1,
+      mortgage_as_of_month:SYSTEM_START, payment_structure:"amortizing", mortgage_manual_override:0, mortgage_manual_override_month:"",
+      interest_rate:0, rate:"Mortgage-free", rateType:"No financing",
+      maturity:"N/A", remaining_amortization_months:0, taxes_paid_by:"owner",
+      monthlyPayment:0, monthly_pi:0, monthly_payment_tax:0,
+      tax_account_balance:0, monthlyTax:0, annual_property_tax_estimate:0, tax_account_note:"",
+      tax_notice_outstanding:0, tax_notice_penalty:0, tax_notice_next_installment:0, tax_notice_next_due:"",
+      monthly_insurance:0, annual_insurance:0,
+      maintenance_reserve_monthly:0, management_fee_monthly:0, utilities_monthly:0, capex_reserve_monthly:0,
+      rentalIncome:0, rental_market_monthly:0,
+      occupancy_status:"owner_occupied",
+      tenant_summary:"Owner-held residence", vacancy_notes:"",
+      sections:[], units:[], covenant_notes:"",
+      lender:"None",
+      owner_name:"Nazile Isgandarova Telman qizi",
+      location:"Absheron rayonu, Saray qesebesi, Vahab Aliyev kucasi ev 35",
+      notes:"Small residential house with supporting title / technical passport documents.",
+      valuations:[{ date:"2026-04-01", market_value:95000, market_currency:"AZN", fx_rate_to_cad:0.8, value:76000, note:"Initial valuation" }],
     },
   ],
 
@@ -463,6 +504,37 @@ function mergeById(defaults, dbArr) {
   });
 }
 
+function getFxRateToCad(propOrEntry) {
+  const currency = propOrEntry?.market_currency || propOrEntry?.currency || "CAD";
+  const rate = safe(propOrEntry?.fx_rate_to_cad);
+  return currency === "CAD" ? 1 : (rate > 0 ? rate : 1);
+}
+function getNativeMarketValue(propOrEntry) {
+  if (propOrEntry?.market_value != null) return safe(propOrEntry.market_value);
+  if (propOrEntry?.value != null) return safe(propOrEntry.value);
+  if (propOrEntry?.market != null) return safe(propOrEntry.market);
+  return 0;
+}
+function getMarketValueCad(propOrEntry) {
+  const currency = propOrEntry?.market_currency || propOrEntry?.currency || "CAD";
+  const nativeValue = getNativeMarketValue(propOrEntry);
+  if (currency === "CAD") return nativeValue;
+  return nativeValue * getFxRateToCad(propOrEntry);
+}
+function formatNativeMoney(amount, currency) {
+  const value = safe(amount);
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  const formatted = abs.toLocaleString("en-CA", { maximumFractionDigits: 0 });
+  return currency === "AZN" ? `${sign}${formatted} AZN` : `${sign}C$${formatted}`;
+}
+function getCountryMeta(country) {
+  const normalized = country === "Azerbaijan" ? "Azerbaijan" : "Canada";
+  return normalized === "Azerbaijan"
+    ? { label: "Azerbaijan", flag: "🇦🇿" }
+    : { label: "Canada", flag: "🇨🇦" };
+}
+
 // ─── PROPERTY HELPERS ─────────────────────────────────────────────────────────
 function deriveUnitsFromSections(prop) {
   const sections = prop.sections || [];
@@ -486,12 +558,33 @@ function deriveUnitsFromSections(prop) {
 function normalizeProperty(prop) {
   const units = (prop.units && prop.units.length ? prop.units : deriveUnitsFromSections(prop)).map(makeUnit);
   const occupancy = prop.occupancy_status || (units.some(u => u.lease?.lease_status === "active") ? "partially_leased" : "vacant");
+  const normalizedVals = (prop.valuations || []).map(entry => {
+    const market_currency = entry.market_currency || entry.currency || prop.market_currency || "CAD";
+    const market_value = entry.market_value != null ? safe(entry.market_value) : safe(entry.value);
+    return {
+      ...entry,
+      market_value,
+      market_currency,
+      fx_rate_to_cad: getFxRateToCad({ ...prop, ...entry, market_currency }),
+      value: getMarketValueCad({ ...prop, ...entry, market_value, market_currency }),
+    };
+  });
+  const latestVal = normalizedVals.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
+  const market_currency = latestVal?.market_currency || prop.market_currency || "CAD";
+  const market_value = latestVal ? latestVal.market_value : (prop.market_value != null ? safe(prop.market_value) : safe(prop.market));
+  const fx_rate_to_cad = latestVal?.fx_rate_to_cad || getFxRateToCad(prop);
   return {
     ...prop,
+    country: prop.country || "Canada",
+    market_currency,
+    market_value,
+    fx_rate_to_cad,
+    market: getMarketValueCad({ ...prop, market_value, market_currency, fx_rate_to_cad }),
     mortgage_as_of_month: prop.mortgage_as_of_month || SYSTEM_START,
     payment_structure: prop.payment_structure || "amortizing",
     mortgage_manual_override: safe(prop.mortgage_manual_override),
     mortgage_manual_override_month: prop.mortgage_manual_override_month || "",
+    valuations: normalizedVals,
     units,
     occupancy_status: occupancy,
   };
@@ -693,7 +786,7 @@ function propMonthlyOut(prop) {
 function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
 // Gross equity regardless of ownership split
 function propCurrentMortgageBalance(prop, targetYM = currentYM()) { return calculateMortgageSnapshot(prop, targetYM).displayedBalance; }
-function propGrossEquity(prop) { return safe(prop.market) - propCurrentMortgageBalance(prop); }
+function propGrossEquity(prop) { return getMarketValueCad(prop) - propCurrentMortgageBalance(prop); }
 // JMF-attributable equity (gross × ownership share)
 function propJMFEquity(prop) { return propGrossEquity(prop) * propOwnership(prop); }
 // Expected monthly rent for ledger (shows agreed rent even pre-possession)
@@ -1830,7 +1923,11 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const [scheduleRows, setScheduleRows] = useState(12);
 
   const mortgage = calculateMortgageSnapshot(prop, currentYM());
-  const market = safe(prop.market);
+  const market = getMarketValueCad(prop);
+  const marketLocal = getNativeMarketValue(prop);
+  const marketCurrency = prop.market_currency || "CAD";
+  const hasForeignCurrency = marketCurrency !== "CAD";
+  const fxRate = getFxRateToCad(prop);
   const balance = mortgage.displayedBalance;
   const rawEquity = market - balance;
   const realtorFee = market * 0.035;
@@ -1945,13 +2042,16 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
             <StatusPill status={prop.status} />
             <OccupancyBadge status={occupancyStatus} />
             {isPartial && <span style={{ background:C.purpleLight, color:C.purpleText, borderRadius:20, fontSize:10, fontWeight:700, padding:"3px 10px" }}>JMF {Math.round(ownership * 100)}%</span>}
+            {prop.country && prop.country !== "Canada" && <span style={{ background:C.blueLight, color:C.blueText, borderRadius:20, fontSize:10, fontWeight:700, padding:"3px 10px" }}>{getCountryMeta(prop.country).flag} {prop.country}</span>}
           </div>
           <div style={{ fontSize:21, fontWeight:700, color:C.text, letterSpacing:-0.4 }}>{prop.name}</div>
-          <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>{prop.lender} · {prop.rate}{isPartial ? ` · ${prop.co_owner}` : ""}</div>
+          <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>
+            {[prop.location, prop.lender, prop.rate, isPartial ? prop.co_owner : ""].filter(Boolean).join(" · ")}
+          </div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(84px, 1fr))", gap:10, minWidth:360 }}>
           {[
-            { label:"Market",                              value:$K(market),        color:C.text              },
+            { label:"Market",                              value:hasForeignCurrency ? formatNativeMoney(marketLocal, marketCurrency) : $K(market), color:C.text },
             { label:"Debt",                                value:$K(balance),       color:C.red               },
             { label:isPartial ? "JMF Equity" : "Equity",  value:$K(displayEquity), color:displayEqColor      },
             { label:isPartial ? "JMF Liquid" : "Liquid",  value:$K(displayLiquid), color:displayLiquidColor  },
@@ -1959,6 +2059,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
             <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 12px", textAlign:"right" }}>
               <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>{item.label}</div>
               <div style={{ fontSize:16, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+              {item.label === "Market" && hasForeignCurrency && <div style={{ fontSize:10, color:C.textDim, marginTop:4 }}>≈ {$K(market)} CAD</div>}
             </div>
           ))}
         </div>
@@ -1984,7 +2085,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12, marginTop:12 }}>
                   {[
                     { label:"Purchase", value:$F(prop.purchase), color:C.text },
-                    { label:"Market Value", value:$F(market), color:C.text },
+                    { label:"Market Value", value:hasForeignCurrency ? formatNativeMoney(marketLocal, marketCurrency) : $F(market), color:C.text },
                     { label:"Current Debt", value:$F(balance), color:C.red },
                     { label:"Gross Equity", value:$F(rawEquity), color:rawEquity >= 0 ? C.gold : C.red },
                     { label:"Expected Rent", value:$F(nextExpected || effectiveRent), color:C.green },
@@ -2000,10 +2101,12 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                   <div>
                     <Row label="Occupancy"><span style={{ fontSize:13, color:C.text }}>{units.length ? `${units.filter(u => getActiveLease(u)).length}/${units.length} units with leases` : "No tracked units"}</span></Row>
                     <Row label="Tenant Summary"><span style={{ fontSize:13, color: prop.tenant_summary ? C.text : C.textDim, textAlign:"right" }}>{prop.tenant_summary || "No active tenants yet"}</span></Row>
+                    {hasForeignCurrency && <Row label="CAD Equivalent"><span style={{ fontFamily:C.mono, color:C.text }}>{$F(market)}</span></Row>}
                     <Row label="Est. net if sold" last><span style={{ fontFamily:C.mono, color:netEquity >= 0 ? C.green : C.red }}>{$F(netEquity)}</span></Row>
                   </div>
                   <div>
                     <Row label="LTV"><span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily:C.mono, fontWeight:700 }}>{ltv.toFixed(1)}%</span></Row>
+                    {hasForeignCurrency && <Row label="FX Basis"><span style={{ fontSize:13, color:C.text }}>{`1 ${marketCurrency} = C$${fxRate.toFixed(2)}`}</span></Row>}
                     {prop.co_owner && <Row label="Co-owner"><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
                     <Row label="Notes" last><span style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, textAlign:"right" }}>{prop.notes || "—"}</span></Row>
                   </div>
@@ -2384,9 +2487,22 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               e.stopPropagation();
               const v = parseFloat(String(valForm.value).replace(/[^0-9.]/g, ""));
               if (!valForm.date || isNaN(v) || v <= 0) return;
-              const entry = { date: valForm.date, value: v, note: valForm.note };
+              const entry = {
+                date: valForm.date,
+                market_value: v,
+                market_currency: marketCurrency,
+                fx_rate_to_cad: fxRate,
+                value: marketCurrency === "CAD" ? v : v * fxRate,
+                note: valForm.note,
+              };
               const updated = [entry, ...(prop.valuations || [])].sort((a, b) => b.date.localeCompare(a.date));
-              onPatch({ market: updated[0].value, valuations: updated });
+              onPatch({
+                market_value: updated[0].market_value,
+                market_currency: updated[0].market_currency,
+                fx_rate_to_cad: updated[0].fx_rate_to_cad,
+                market: getMarketValueCad(updated[0]),
+                valuations: updated,
+              });
               setValForm({ date:"", value:"", note:"" });
               setValFormOpen(false);
             }
@@ -2412,7 +2528,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                           style={{ width:"100%", padding:"8px 10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", boxSizing:"border-box" }} />
                       </div>
                       <div>
-                        <div style={{ fontSize:11, color:C.muted, marginBottom:4, fontFamily:C.sans }}>Market Value ($)</div>
+                        <div style={{ fontSize:11, color:C.muted, marginBottom:4, fontFamily:C.sans }}>{`Market Value (${marketCurrency})`}</div>
                         <input type="number" value={valForm.value} onChange={e => setValForm(f => ({ ...f, value:e.target.value }))} placeholder="e.g. 2000000"
                           style={{ width:"100%", padding:"8px 10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:13, fontFamily:C.mono, outline:"none", boxSizing:"border-box" }} />
                       </div>
@@ -2447,7 +2563,10 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                             <div>
                               <div style={{ fontSize:12, color:C.textDim, marginBottom:4 }}>{v.date}</div>
-                              <div style={{ fontSize:20, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(v.value)}</div>
+                              <div style={{ fontSize:20, fontFamily:C.mono, fontWeight:700, color:C.text }}>
+                                {v.market_currency && v.market_currency !== "CAD" ? formatNativeMoney(v.market_value, v.market_currency) : $F(v.value)}
+                              </div>
+                              {v.market_currency && v.market_currency !== "CAD" && <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>{`≈ ${$F(v.value)} at 1 ${v.market_currency} = C$${getFxRateToCad(v).toFixed(2)}`}</div>}
                               {v.note && <div style={{ fontSize:11, color:C.textMid, marginTop:4 }}>{v.note}</div>}
                             </div>
                             {delta !== null && (
@@ -3526,13 +3645,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalREEqGross = data.properties.reduce((s, p) => s + propGrossEquity(p), 0);
   const totalREEq      = data.properties.reduce((s, p) => s + propJMFEquity(p), 0); // JMF-attributable gross equity
   const totalRENetSale = data.properties.reduce((s, p) => {
-    const mkt = safe(p.market);
+    const mkt = getMarketValueCad(p);
     const fee = mkt * 0.035;
     const selling = fee + (fee * 0.13) + 5000;
     return s + ((mkt - propCurrentMortgageBalance(p) - selling) * propOwnership(p));
   }, 0); // JMF net proceeds if all RE sold
   const totalRELiquid = totalRENetSale; // alias — liquid = JMF net after selling costs, ownership-adjusted
-  const totalREVal     = data.properties.reduce((s, p) => s + safe(p.market), 0);
+  const totalREVal     = data.properties.reduce((s, p) => s + getMarketValueCad(p), 0);
   const totalREDbt     = data.properties.reduce((s, p) => s + propCurrentMortgageBalance(p), 0);
   const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
   const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
@@ -3627,14 +3746,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   function saveSnapshot(note) {
     const indNet = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
     const snapNW = data.properties.reduce((s, p) => {
-      const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+      const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
       return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
     }, 0)
       + data.individuals.reduce((s, f) => s + indNet(f), 0)
       + data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0);
     const snapREEq  = data.properties.reduce((s, p) => s + propJMFEquity(p), 0);
     const snapRELiq = data.properties.reduce((s, p) => {
-      const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+      const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
       return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
     }, 0);
     const snap = {
@@ -3645,7 +3764,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       individualBreakdown: data.individuals.map(f => ({ id: f.id, name: f.name, net: indNet(f) })),
       businessBreakdown: data.businesses.map(b => ({ id: b.id, name: b.name, eq: safe(b.cashAccounts) - safe(b.liabilities), type: b.type })),
       reBreakdown: data.properties.map(p => {
-        const mkt = safe(p.market); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
+        const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
         return { id: p.id, name: p.name, market: mkt, debt: propCurrentMortgageBalance(p), equity: propJMFEquity(p), liquid: (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p) };
       }),
     };
@@ -3876,7 +3995,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               <Label>Real Estate Portfolio</Label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
                 {data.properties.map(p => {
-                  const eq = safe(p.market) - propCurrentMortgageBalance(p);
+                  const eq = getMarketValueCad(p) - propCurrentMortgageBalance(p);
                   return (
                     <div key={p.id} onClick={() => setTab("realestate")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.boxShadow = C.shadowMd; }}
@@ -3959,6 +4078,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         {/* ── REAL ESTATE ── */}
         {tab === "realestate" && (() => {
           const pastMonths = monthsBetween(SYSTEM_START, currentYM()).slice(0, -1);
+          const groupedProperties = [
+            ["Canada", data.properties.filter(p => (p.country || "Canada") === "Canada")],
+            ["Azerbaijan", data.properties.filter(p => p.country === "Azerbaijan")],
+          ].filter(([, props]) => props.length > 0);
           const missedRents = data.properties
             .filter(p => pastMonths.some(m => propertyOutstandingForMonth(p, data.rentPayments || [], m) > 0))
             .flatMap(p => pastMonths.filter(m => {
@@ -3981,7 +4104,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
               {[
-                { label: "Portfolio Value",    val: $K(totalREVal),    color: C.text,  sub: "Gross (5 properties)" },
+                { label: "Portfolio Value",    val: $K(totalREVal),    color: C.text,  sub: `Gross (${data.properties.length} properties)` },
                 { label: "Total Debt",        val: $K(totalREDbt),    color: C.red,   sub: "All mortgages" },
                 { label: "Gross Equity",      val: $K(totalREEqGross),color: C.amber, sub: "100% of all equity" },
                 { label: "JMF Equity",        val: $K(totalREEq),     color: C.gold,  sub: "Ownership-adjusted" },
@@ -3999,17 +4122,31 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
               Click any property to expand. The real estate view now focuses on overview, mortgage, operating expenses, leases, and a lease-aware ledger.
             </div>
-            {data.properties.map(p => (
-              <PropCard
-                key={p.id}
-                prop={p}
-                rentPayments={data.rentPayments || []}
-                onUpdate={(f, v) => updProp(p.id, f, v)}
-                onPatch={patch => updPropPatch(p.id, patch)}
-                onSaveRentPayment={updRentPayment}
-                isAdmin={true}
-              />
-            ))}
+            {groupedProperties.map(([country, props]) => {
+              const meta = getCountryMeta(country);
+              return (
+                <div key={country} style={{ marginBottom: 24 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14, padding:"10px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12 }}>
+                    <span style={{ fontSize:18, lineHeight:1 }}>{meta.flag}</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:C.text, letterSpacing:"0.06em", textTransform:"uppercase" }}>{meta.label}</div>
+                      <div style={{ fontSize:10, color:C.textDim }}>{props.length} propert{props.length === 1 ? "y" : "ies"}</div>
+                    </div>
+                  </div>
+                  {props.map(p => (
+                    <PropCard
+                      key={p.id}
+                      prop={p}
+                      rentPayments={data.rentPayments || []}
+                      onUpdate={(f, v) => updProp(p.id, f, v)}
+                      onPatch={patch => updPropPatch(p.id, patch)}
+                      onSaveRentPayment={updRentPayment}
+                      isAdmin={true}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
           );
         })()}
@@ -4383,7 +4520,10 @@ export default function App() {
           // Valuation log is the source of truth for market value.
           // Latest entry by date wins; fall back to p.market from mergeById if no log exists.
           const sortedVals = (p.valuations || []).slice().sort((a, b) => b.date.localeCompare(a.date));
-          const activeMarket = sortedVals.length > 0 ? sortedVals[0].value : safe(p.market);
+          const latestVal = sortedVals[0];
+          const activeMarketValue = latestVal ? getNativeMarketValue(latestVal) : getNativeMarketValue(p);
+          const activeMarketCurrency = latestVal?.market_currency || latestVal?.currency || p.market_currency || "CAD";
+          const activeFxRate = latestVal ? getFxRateToCad({ ...p, ...latestVal, market_currency: activeMarketCurrency }) : getFxRateToCad(p);
           return {
             ...p,
             ...(balFix     !== undefined && { mortgage:            balFix     }),
@@ -4394,7 +4534,10 @@ export default function App() {
             ...(pifix      !== undefined && { monthly_pi:          pifix      }),
             ...(taxfix     !== undefined && { monthly_payment_tax: taxfix     }),
             ...(pmtfix     !== undefined && { monthlyPayment:      pmtfix     }),
-            market: activeMarket,
+            market_value: activeMarketValue,
+            market_currency: activeMarketCurrency,
+            fx_rate_to_cad: activeFxRate,
+            market: getMarketValueCad({ market_value: activeMarketValue, market_currency: activeMarketCurrency, fx_rate_to_cad: activeFxRate }),
           };
         });
         saveToDB("properties", correctedProps);
