@@ -1820,9 +1820,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const displayLiquid = isPartial ? jmfLiquid : liquidValue;
   const displayLiquidColor = displayLiquid > 0 ? C.green : C.red;
   const ledgers = propertyLeaseLedgers(prop, rentPayments);
-  const nextExpected = propertyExpectedRentForMonth(prop, currentYM());
-  const collectedThisMonth = propertyCollectedRentForMonth(prop, rentPayments, currentYM());
-  const collectedTotal = propertyCollectedRentTotal(prop, rentPayments);
+  const nextExpected = propertyOutstandingForMonth(prop, rentPayments, currentYM());
 
   // Build amortization schedule for Payment Schedule tab
   const curYM = currentYM();
@@ -2259,16 +2257,9 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               </div>
 
               <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
-                  <div>
-                    <Label>Rent Ledger</Label>
-                    <div style={{ fontSize:12, color:C.textDim }}>Lease-aware rent due, payments, deposit credit, and remaining value through expiry.</div>
-                  </div>
-                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Due this month: <strong style={{ color:C.text }}>{$F(nextExpected)}</strong></span>
-                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected this month: <strong style={{ color:collectedThisMonth > 0 ? C.green : C.text }}>{$F(collectedThisMonth)}</strong></span>
-                    <span style={{ background:C.bg, borderRadius:999, padding:"6px 10px", fontSize:11, color:C.textMid }}>Collected total: <strong style={{ color:C.green }}>{$F(collectedTotal)}</strong></span>
-                  </div>
+                <div style={{ marginBottom:14 }}>
+                  <Label>Rent Ledger</Label>
+                  <div style={{ fontSize:12, color:C.textDim }}>Lease-aware rent schedule with payment and prepaid coverage tracking.</div>
                 </div>
                 {ledgers.length === 0 ? (
                   <div style={{ fontSize:13, color:C.textDim }}>Add a tenant lease to generate a rent ledger for this property.</div>
@@ -2282,14 +2273,11 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                             <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>{formatDate(ledger.lease.lease_start_date)} - {formatDate(ledger.lease.lease_end_date)} · {ledger.lease.payment_frequency}</div>
                           </div>
                           {(() => {
-                            const cov = getLedgerCoverageSummary(ledger);
+                            const totalPaid = ledger.totalPaid + ledger.totalCredited;
                             const chips = [
-                              { label:"Lease Value", value:$F(ledger.totalDue), color:C.text },
-                              { label:"Paid", value:$F(ledger.totalPaid), color:C.green },
-                              ...(cov.paidThroughMonth ? [{ label:"Paid Through", value:monthLabel(cov.paidThroughMonth), color:C.gold }] : []),
-                              ...(cov.nextDueRow ? [{ label:"Next Due", value:formatDate(cov.nextDueRow.dueDate), color:C.amber }] : []),
-                              { label:"Outstanding", value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
-                              { label:"Remaining", value:$F(ledger.remainingLeaseValue), color:ledger.remainingLeaseValue > 0 ? C.amber : C.green },
+                              { label:"Lease Value",  value:$F(ledger.totalDue),        color:C.text  },
+                              { label:"Total Paid",   value:$F(totalPaid),               color:C.green },
+                              { label:"Outstanding",  value:$F(ledger.totalOutstanding), color:ledger.totalOutstanding > 0 ? C.red : C.green },
                             ];
                             return (
                               <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
