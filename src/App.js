@@ -146,6 +146,13 @@ function currentYM() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+function periodDateForYM(ym) {
+  return ym ? `${ym}-01` : "";
+}
+function ymFromPeriodDate(value) {
+  if (!value) return "";
+  return String(value).slice(0, 7);
+}
 function monthsBetween(startYM, endYM) {
   const months = [];
   let [sy, sm] = startYM.split("-").map(Number);
@@ -1508,7 +1515,7 @@ function LoginScreen() {
 
 // ─── MEMBER VIEW ──────────────────────────────────────────────────────────────
 // user.id = auth UUID  |  user.profile.individual_id = individuals[].id
-function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
+function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onLogout }) {
   const [saved, setSaved]               = useState(false);
   const [cashModal, setCashModal]       = useState(false);
   const [showSubModal, setShowSubModal] = useState(false);
@@ -1518,6 +1525,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
 
   const individualId = user.profile?.individual_id;
   const isAhmed      = individualId === 1;
+  const f = data.individuals.find(x => x.id === individualId);
 
   // All hooks run unconditionally before any early return
   useEffect(() => {
@@ -1527,29 +1535,38 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
         getSubmissionsForUser(user.id),
       ]);
 
-      // Find the most recent period with no pending/approved submission
-      const missing = periods.find(p => {
-        const sub = userSubs.find(s => s.period === p.period_date);
-        return !sub || sub.status === "rejected";
-      });
+      const currentMonth = currentYM();
+      const currentPeriodDate = periodDateForYM(currentMonth);
+      const currentPeriod = periods.find(p => ymFromPeriodDate(p.period_date) === currentMonth)
+        || { period_date: currentPeriodDate, label: monthLabel(currentMonth) };
+      const currentMonthSubmissions = userSubs.filter(s => ymFromPeriodDate(s.period) === currentMonth);
+      const validSubmission = currentMonthSubmissions.find(s => s.status !== "rejected") || null;
+      const currentMonthSubmission = validSubmission
+        || currentMonthSubmissions[0]
+        || null;
+      const hasLoggedSnapshot = !!(f?.accountsLog || []).some(e => e.month === currentMonth);
+      const hasValidSubmission = !!validSubmission;
 
-      if (missing) {
-        setMissingPeriod(missing);
-        // Find the existing submission for this period if it was rejected
-        const existingSub = userSubs.find(s => s.period === missing.period_date) || null;
-        setCurrentSub(existingSub);
-        setShowSubModal(true);
-      } else {
-        // No missing — show latest submission status
-        const latest = userSubs[0] || null;
-        setCurrentSub(latest);
+      if (hasValidSubmission) {
+        setCurrentSub(validSubmission);
+        setMissingPeriod(null);
         setShowSubModal(false);
+        return;
       }
+      if (hasLoggedSnapshot) {
+        setCurrentSub(null);
+        setMissingPeriod(null);
+        setShowSubModal(false);
+        return;
+      }
+
+      setCurrentSub(currentMonthSubmission);
+      setMissingPeriod(currentPeriod);
+      setShowSubModal(true);
     }
     checkPeriods();
-  }, [user.id]);
+  }, [user.id, f?.accountsLog]);
 
-  const f = data.individuals.find(x => x.id === individualId);
   if (!f) return <LoadingScreen />;
 
   const net        = safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
@@ -1567,6 +1584,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
     const ok = await createSubmission(user.id, missingPeriod.period_date, fields);
     if (ok) {
       setCurrentSub({ status: "pending", data: fields, period: missingPeriod.period_date });
+      setMissingPeriod(null);
       setShowSubModal(false);
     }
   };
@@ -1636,7 +1654,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
       {/* Member tab bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display:"flex", padding:"0 16px" }}>
-          {[["snapshot","My Snapshot"],["expenses","My Expenses"],["history","My History"]].map(([id, label]) => (
+          {[["snapshot","My Snapshot"],["history","My History"]].map(([id, label]) => (
             <button key={id} onClick={() => setMemberTab(id)}
               style={{ padding:"11px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background:"transparent", fontFamily:C.sans,
                 color: memberTab === id ? C.gold : C.textDim,
@@ -1646,13 +1664,6 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
           ))}
         </div>
       </div>
-
-      {/* My Expenses tab */}
-      {memberTab === "expenses" && (
-        <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
-          <ExpensesTab userId={user.id} isAdmin={false} allProfiles={[]} individuals={data.individuals} />
-        </div>
-      )}
 
       {/* My History tab */}
       {memberTab === "history" && (
@@ -1712,6 +1723,21 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
       {/* Content */}
       {memberTab === "snapshot" && (
       <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
+        {(() => {
+          const curYM = currentYM();
+          const logEntries = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+          const currentLog = logEntries.find(e => e.month === curYM) || null;
+          const incomeEntry = (f.monthlyIncome || []).find(p => p.month === curYM);
+          const reportedFields = [
+            ["Accounts", safe(currentLog?.accounts ?? f.accounts)],
+            ["Cash", safe(currentLog?.cash ?? f.cash)],
+            ["Securities", safe(currentLog?.securities ?? f.securities)],
+            ["Crypto", safe(currentLog?.crypto ?? f.crypto)],
+            ["Physical Assets", safe(currentLog?.physicalAssets ?? f.physicalAssets)],
+          ];
+          const reportedNet = reportedFields.reduce((sum, [, value]) => sum + safe(value), 0);
+          return (
+            <>
         <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 8 }}>Net Worth</div>
           <div style={{ fontSize: 48, fontWeight: 800, fontFamily: C.mono, color: isPositive ? C.gold : C.red, letterSpacing: -1 }}>{$F(net)}</div>
@@ -1734,6 +1760,39 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
             {currentSub.status === "rejected" && `Rejected. ${currentSub.admin_note || "Please resubmit."}`}
           </div>
         )}
+
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+            <div>
+              <Label>Current Reporting Snapshot</Label>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{monthLabel(curYM)}</div>
+              <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>
+                Your reporting view is scoped only to your account.
+              </div>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>Current Month Status</div>
+              <div style={{ fontSize:13, fontWeight:700, color: currentSub?.status === "approved" ? C.green : currentSub?.status === "pending" ? C.blue : currentLog ? C.gold : C.amber }}>
+                {currentSub?.status === "approved" ? "Submitted and approved"
+                  : currentSub?.status === "pending" ? "Submitted and awaiting review"
+                  : currentLog ? "Snapshot logged for this month"
+                  : "Submission needed"}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:10 }}>
+            {[
+              { label: "Live Net Worth", value: $F(net), color: isPositive ? C.gold : C.red },
+              { label: "Reported Net Worth", value: $F(reportedNet), color: reportedNet >= 0 ? C.gold : C.red },
+              { label: "Income", value: $F(incomeEntry?.income), color: C.green },
+            ].map(item => (
+              <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px" }}>
+                <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6 }}>{item.label}</div>
+                <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
 
         {/* Editable snapshot */}
         <Card style={{ marginBottom: 14 }}>
@@ -1760,28 +1819,84 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
           </div>
         </Card>
 
-        {/* Monthly Income submission */}
+        {/* Monthly reporting */}
         <Card style={{ marginBottom: 14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly Income</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4, gap:12, flexWrap:"wrap" }}>
+            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly Reporting</div>
             <span style={{ fontSize:10, color:C.textDim }}>{monthLabel(currentYM())}</span>
           </div>
           <div style={{ fontSize:12, color:C.textDim, marginBottom:16 }}>
-            Enter your total personal income for this month — salary, distributions, etc. This is reported to admin.
+            Keep your current month values clean and record a proper monthly snapshot for your own account.
           </div>
-          {(() => {
-            const entry = (f.monthlyIncome || []).find(p => p.month === currentYM());
-            const income = safe(entry?.income);
-            return (
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
-                <span style={{ fontSize:13, color:C.text }}>Income this month</span>
-                <EditNum value={income} onChange={v => {
-                  const ym = currentYM();
-                  if (onSaveIncome) onSaveIncome(f.id, ym, safe(v));
-                }} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+            <span style={{ fontSize:13, color:C.text }}>Income this month</span>
+            <EditNum value={safe(incomeEntry?.income)} onChange={v => {
+              if (onSaveIncome) onSaveIncome(f.id, curYM, safe(v));
+            }} />
+          </div>
+          <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:14, marginTop:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:12 }}>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>Monthly Snapshot Log</div>
+                <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>
+                  Save this month’s current values as your official snapshot.
+                </div>
               </div>
-            );
-          })()}
+              <button onClick={() => {
+                if (!onSaveAccountsLog) return;
+                onSaveAccountsLog(f.id, {
+                  month: curYM,
+                  cash: safe(f.cash),
+                  accounts: safe(f.accounts),
+                  securities: safe(f.securities),
+                  crypto: safe(f.crypto),
+                  physicalAssets: safe(f.physicalAssets),
+                  net,
+                  note: "Member snapshot",
+                });
+              }} style={{ padding:"8px 14px", background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                {currentLog ? "Update This Month" : "Save This Month"}
+              </button>
+            </div>
+            {currentLog ? (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:8 }}>
+                {reportedFields.map(([label, value]) => (
+                  <div key={label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px" }}>
+                    <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{label}</div>
+                    <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(value)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize:12, color:C.textDim }}>No saved snapshot for this month yet.</div>
+            )}
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly History</div>
+            <span style={{ fontSize:10, color:C.textDim }}>{logEntries.length} entr{logEntries.length === 1 ? "y" : "ies"}</span>
+          </div>
+          {logEntries.length === 0
+            ? <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>No monthly snapshots saved yet.</div>
+            : logEntries.slice(0, 6).map((e, i) => {
+              const entryNet = e.net != null ? e.net : safe(e.value);
+              return (
+                <div key={`${e.month}-${i}`} style={{ padding:"10px 0", borderBottom: i < Math.min(logEntries.length, 6) - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                    <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(e.month)}</span>
+                    <span style={{ fontFamily:C.mono, fontSize:14, color:entryNet >= 0 ? C.gold : C.red, fontWeight:700 }}>{$F(entryNet)}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                    {[["Cash", e.cash], ["Accounts", e.accounts], ["Securities", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([label, value]) => (
+                      value != null && value !== 0 ? <span key={label} style={{ fontSize:10, color:C.textDim }}>{label}: {$K(value)}</span> : null
+                    ))}
+                  </div>
+                  {e.updatedAt && <div style={{ fontSize:10, color:C.amber, marginTop:3 }}>Updated {new Date(e.updatedAt).toLocaleDateString()}</div>}
+                </div>
+              );
+            })}
         </Card>
 
         <Card>
@@ -1790,6 +1905,9 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onLogout }) {
           <Row label="Properties"        last={false}><span style={{ color: C.text, fontFamily: C.mono }}>{data.properties.length} holdings</span></Row>
           <Row label="Business entities" last={true}><span style={{ color: C.text, fontFamily: C.mono }}>{data.businesses.length} companies</span></Row>
         </Card>
+            </>
+          );
+        })()}
       </div>
       )}
     </div>
@@ -4616,6 +4734,20 @@ export default function App() {
         ? existing.map(p => p.month === month ? { ...p, income } : p)
         : [...existing, { month, income }];
       return { ...x, monthlyIncome: updated };
+    });
+    saveToDB("individuals", arr);
+    setData(d => ({ ...d, individuals: arr }));
+  }} onSaveAccountsLog={(indId, entry) => {
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.accountsLog || [];
+      const ts = new Date().toISOString();
+      const newEntry = { ...entry, timestamp: ts };
+      const alreadyExists = existing.some(e => e.month === entry.month);
+      const log = alreadyExists
+        ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
+        : [...existing, { ...newEntry, capturedAt: ts }];
+      return { ...x, accountsLog: log };
     });
     saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
