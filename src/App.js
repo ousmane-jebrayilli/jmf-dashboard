@@ -604,18 +604,7 @@ function propertyExpectedRentForMonth(prop, month) {
     return sum + safe(row?.amount);
   }, 0);
 }
-function propertyCollectedRentForMonth(prop, rentPayments, month) {
-  return (rentPayments || [])
-    .map(normalizeRentPayment)
-    .filter(entry => entry.propertyId === prop.id && entry.type === "payment" && entry.month === month)
-    .reduce((sum, entry) => sum + safe(entry.amount), 0);
-}
-function propertyCollectedRentTotal(prop, rentPayments) {
-  return (rentPayments || [])
-    .map(normalizeRentPayment)
-    .filter(entry => entry.propertyId === prop.id && entry.type === "payment")
-    .reduce((sum, entry) => sum + safe(entry.amount), 0);
-}
+
 function propertyOutstandingForMonth(prop, rentPayments, month) {
   return propertyLeaseLedgers(prop, rentPayments).reduce((sum, item) => {
     const row = item.ledger.rows.find(r => r.month === month);
