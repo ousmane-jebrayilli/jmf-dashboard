@@ -3043,12 +3043,193 @@ function ExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
   );
 }
 
-// ─── HISTORY TAB ──────────────────────────────────────────────────────────────
+// ─── REPORT MODAL ─────────────────────────────────────────────────────────────
+function ReportModal({ snapshot: s, data, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  function buildPayload() {
+    const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
+    const cfPropOut  = data.properties.reduce((sum, p) => sum + propMonthlyOut(p), 0);
+    const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
+    return {
+      reportMonth: s.month,
+      generatedAt: new Date().toISOString(),
+      kpis: { netWorth: s.nw, liquidRE: s.reLiquid, reEquity: s.reEquity, individuals: s.individuals, businesses: s.businesses },
+      cashFlow: { rentalIncome: cfRentIn, propertyObligations: cfPropOut, otherObligations: cfOtherOut, net: cfRentIn - cfPropOut - cfOtherOut },
+      realEstate: (s.reBreakdown || []).map(p => ({ name: p.name, market: p.market, debt: p.debt, equity: p.equity, liquid: p.liquid })),
+      individuals: (s.individualBreakdown || []).map(i => ({ name: i.name, net: i.net })),
+      businesses: (s.businessBreakdown || []).map(b => ({ name: b.name, equity: b.eq, type: b.type })),
+      notes: s.note || "",
+    };
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(JSON.stringify(buildPayload(), null, 2))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  function handlePrint() {
+    const styleEl = document.createElement("style");
+    styleEl.id = "jmf-print-style";
+    styleEl.textContent = `@media print { body > * { visibility: hidden; } #jmf-report-content, #jmf-report-content * { visibility: visible; } #jmf-report-content { position: fixed; top: 0; left: 0; width: 100%; padding: 40px; box-sizing: border-box; } }`;
+    document.head.appendChild(styleEl);
+    window.print();
+    document.head.removeChild(styleEl);
+  }
+
+  const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
+  const cfPropOut  = data.properties.reduce((sum, p) => sum + propMonthlyOut(p), 0);
+  const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
+  const cfNet      = cfRentIn - cfPropOut - cfOtherOut;
+  const rowSt = { display: "flex", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid #e5e5e5", fontSize: 13 };
+  const secHd = { fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#888", fontWeight: 700, marginBottom: 10, marginTop: 30 };
+  const mono  = { fontFamily: "monospace", fontWeight: 700 };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
+      {/* Action bar */}
+      <div style={{ position: "fixed", top: 16, right: 24, display: "flex", gap: 10, zIndex: 10000 }}>
+        <button onClick={handleCopy}
+          style={{ fontSize: 12, background: copied ? "#1A6B33" : C.surface, color: copied ? "#fff" : C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 600 }}>
+          {copied ? "✓ Copied" : "Copy JSON"}
+        </button>
+        <button onClick={handlePrint}
+          style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 700 }}>
+          Print / Save PDF
+        </button>
+        <button onClick={onClose}
+          style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>
+          ✕ Close
+        </button>
+      </div>
+
+      {/* Report content */}
+      <div id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: "48px 52px", maxWidth: 720, width: "100%", marginTop: 16, fontFamily: "Georgia, serif" }}>
+
+        {/* 1. Cover */}
+        <div style={{ textAlign: "center", marginBottom: 40, paddingBottom: 32, borderBottom: "2px solid #111" }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "#999", marginBottom: 10, fontFamily: "sans-serif" }}>JMF Family Office</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: "#111", letterSpacing: "-0.5px", marginBottom: 6, fontFamily: "sans-serif" }}>Monthly Financial Report</div>
+          <div style={{ fontSize: 20, color: "#444", fontWeight: 500 }}>{monthLabel(s.month)}</div>
+          <div style={{ fontSize: 11, color: "#999", marginTop: 10, fontFamily: "sans-serif" }}>
+            Captured {new Date(s.capturedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+            {s.updatedAt && ` · Updated ${new Date(s.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`}
+          </div>
+        </div>
+
+        {/* 2. KPIs */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Key Metrics</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e5e5e5", border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+          {[
+            { label: "Net Worth",       val: $F(s.nw),        color: s.nw >= 0 ? "#1A6B33" : "#CC2222" },
+            { label: "Liquid RE Value", val: $K(s.reLiquid),  color: "#7A6010" },
+            { label: "RE Equity",       val: $K(s.reEquity),  color: "#7A6010" },
+            { label: "Individuals",     val: $K(s.individuals), color: s.individuals >= 0 ? "#1A6B33" : "#CC2222" },
+            { label: "Business Equity", val: $K(s.businesses), color: "#1A3F6B" },
+          ].map((k, i) => (
+            <div key={i} style={{ background: "#fff", padding: "16px 20px" }}>
+              <div style={{ fontSize: 9, color: "#999", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6, fontFamily: "sans-serif" }}>{k.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "monospace", color: k.color }}>{k.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 3. Consolidated Snapshot */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Consolidated Snapshot</div>
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+          {(s.individualBreakdown || []).map((x, i) => (
+            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
+              <span style={{ color: "#555" }}>{x.name}</span>
+              <span style={{ ...mono, color: x.net >= 0 ? "#1A6B33" : "#CC2222" }}>{$F(x.net)}</span>
+            </div>
+          ))}
+          {(s.reBreakdown || []).map((x, i) => (
+            <div key={`re-${i}`} style={{ ...rowSt, background: "#fff" }}>
+              <span style={{ color: "#555" }}>{x.name} <span style={{ fontSize: 10, color: "#aaa" }}>Real Estate</span></span>
+              <span style={{ ...mono, color: "#7A6010" }}>{$K(x.liquid)}</span>
+            </div>
+          ))}
+          {(s.businessBreakdown || []).filter(b => b.type !== "nonprofit").map((x, i) => (
+            <div key={`biz-${i}`} style={{ ...rowSt, background: "#fafafa" }}>
+              <span style={{ color: "#555" }}>{x.name} <span style={{ fontSize: 10, color: "#aaa" }}>Business</span></span>
+              <span style={{ ...mono, color: "#1A3F6B" }}>{$F(x.eq)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", background: "#111", color: "#fff" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>Total Net Worth</span>
+            <span style={{ ...mono, fontSize: 15, color: s.nw >= 0 ? "#7EC896" : "#FF9999" }}>{$F(s.nw)}</span>
+          </div>
+        </div>
+
+        {/* 4. Cash Flow */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Cash Flow (Live)</div>
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+          {[
+            { label: "Rental Income",        val: cfRentIn    },
+            { label: "Property Obligations", val: -cfPropOut  },
+            { label: "Other Obligations",    val: -cfOtherOut },
+          ].map((row, i) => (
+            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
+              <span style={{ color: "#555" }}>{row.label}</span>
+              <span style={{ ...mono, color: row.val >= 0 ? "#1A6B33" : "#CC2222" }}>{row.val >= 0 ? "+" : ""}{$F(row.val)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", background: "#111", color: "#fff" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>Net Cash Flow</span>
+            <span style={{ ...mono, fontSize: 15, color: cfNet >= 0 ? "#7EC896" : "#FF9999" }}>{cfNet >= 0 ? "+" : ""}{$F(cfNet)}</span>
+          </div>
+        </div>
+
+        {/* 5. Real Estate Portfolio */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Real Estate Portfolio</div>
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: "#111", color: "#ccc", padding: "8px 16px", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "sans-serif" }}>
+            {["Property", "Market", "Debt", "Liquid"].map(h => <div key={h}>{h}</div>)}
+          </div>
+          {(s.reBreakdown || []).map((x, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", padding: "9px 16px", borderBottom: "1px solid #e5e5e5", background: i % 2 === 0 ? "#fafafa" : "#fff", fontSize: 12 }}>
+              <div style={{ fontWeight: 600, color: "#222" }}>{x.name}</div>
+              <div style={{ fontFamily: "monospace", color: "#555" }}>{$K(x.market)}</div>
+              <div style={{ fontFamily: "monospace", color: "#CC2222" }}>{$K(x.debt)}</div>
+              <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#7A6010" }}>{$K(x.liquid)}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 6. Businesses */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Business Entities</div>
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+          {(s.businessBreakdown || []).map((x, i) => (
+            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
+              <span style={{ color: "#555" }}>{x.name}{x.type === "nonprofit" ? " (Non-Profit)" : ""}</span>
+              <span style={{ ...mono, color: x.eq >= 0 ? "#1A3F6B" : "#CC2222" }}>{$F(x.eq)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 7. Notes & Risks */}
+        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Notes &amp; Risk Commentary</div>
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: "16px 20px", fontSize: 13, color: "#444", lineHeight: 1.8, background: "#fafafa", minHeight: 60 }}>
+          {s.note ? s.note : <span style={{ color: "#bbb", fontStyle: "italic" }}>No notes recorded for this snapshot.</span>}
+        </div>
+
+        {/* Footer */}
+        <div style={{ marginTop: 40, paddingTop: 20, borderTop: "1px solid #e5e5e5", display: "flex", justifyContent: "space-between", fontSize: 10, color: "#bbb", fontFamily: "sans-serif" }}>
+          <span>JMF Family Office — Confidential</span>
+          <span>Generated {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REPORTS TAB ──────────────────────────────────────────────────────────────
 function HistoryTab({ data, onSaveSnapshot }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [confirmEdit, setConfirmEdit] = useState(false);
+  const [reportSnap, setReportSnap] = useState(null);
   const snapshots = [...(data.snapshots || [])].reverse();
   const curYM = currentYM();
   const hasThisMonth = (data.snapshots || []).some(s => s.month === curYM);
@@ -3056,6 +3237,7 @@ function HistoryTab({ data, onSaveSnapshot }) {
   if (drill) {
     return (
       <div>
+        {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} />}
         <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>Snapshot — {monthLabel(drill.month)}</div>
@@ -3123,6 +3305,7 @@ function HistoryTab({ data, onSaveSnapshot }) {
 
   return (
     <div>
+      {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} />}
       {/* Capture Snapshot */}
       <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -3182,6 +3365,10 @@ function HistoryTab({ data, onSaveSnapshot }) {
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
             </div>
+            <button onClick={e => { e.stopPropagation(); setReportSnap(s); }}
+              style={{ fontSize: 11, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+              Generate Report
+            </button>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 800, color: s.nw >= 0 ? C.gold : C.red }}>{$F(s.nw)}</div>
               <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net Worth</div>
@@ -3455,7 +3642,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "History"];
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "Reports"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
@@ -4018,8 +4205,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           );
         })()}
 
-        {/* ── HISTORY ── */}
-        {tab === "history" && (
+        {/* ── REPORTS ── */}
+        {tab === "reports" && (
           <HistoryTab data={data} onSaveSnapshot={note => saveSnapshot(note)} />
         )}
 
