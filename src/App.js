@@ -4250,35 +4250,30 @@ export default function App() {
           4: 1523755.81,  // 51 Ahchie Crt.
           5: 894768.98,   // 4 New Seabury Dr.
         };
-        // Temporary market override — protects against stale Supabase values overriding DEFAULT via mergeById.
-        // Remove per-property entries here once Valuation Log becomes the source of truth for market value.
-        const marketFix = {
-          1: 2000000,   // 27 Roytec Rd.
-          2: 1200000,   // Farr Ave.
-          3: 2850000,   // 121 Milky Way
-          4: 1750000,   // 51 Ahchie Crt.
-          5: 958800,    // 4 New Seabury Dr.
-        };
         const correctedProps = mergedProperties.map(p => {
-          const balFix  = correctedBalances[p.id];
+          const balFix     = correctedBalances[p.id];
           const rateFix    = { 3: 5.79,                    4: 5.79                    }[p.id];
-          const rateStrFix = { 3: "5.79%",                4: "5.79%"                 }[p.id];
+          const rateStrFix = { 3: "5.79%",                 4: "5.79%"                 }[p.id];
           const rateTypFix = { 3: "12 Month Fixed Closed", 4: "12 Month Fixed Closed" }[p.id];
           const matFix     = { 3: "Apr 1, 2027",           4: "Apr 1, 2027"           }[p.id];
           const pifix      = { 3: 11722.76,                4: 9107                    }[p.id];
           const taxfix     = { 3: 905.29,                  4: 1235.14                 }[p.id];
           const pmtfix     = { 3: 12628.05,                4: 10342.14                }[p.id];
+          // Valuation log is the source of truth for market value.
+          // Latest entry by date wins; fall back to p.market from mergeById if no log exists.
+          const sortedVals = (p.valuations || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+          const activeMarket = sortedVals.length > 0 ? sortedVals[0].value : safe(p.market);
           return {
             ...p,
-            ...(balFix     !== undefined && { mortgage:             balFix     }),
-            ...(rateFix    !== undefined && { interest_rate:        rateFix    }),
-            ...(rateStrFix !== undefined && { rate:                 rateStrFix }),
-            ...(rateTypFix !== undefined && { rateType:             rateTypFix }),
-            ...(matFix     !== undefined && { maturity:             matFix     }),
-            ...(pifix      !== undefined && { monthly_pi:           pifix      }),
-            ...(taxfix     !== undefined && { monthly_payment_tax:  taxfix     }),
-            ...(pmtfix     !== undefined && { monthlyPayment:       pmtfix     }),
-            ...(marketFix[p.id] !== undefined && { market:          marketFix[p.id] }),
+            ...(balFix     !== undefined && { mortgage:            balFix     }),
+            ...(rateFix    !== undefined && { interest_rate:       rateFix    }),
+            ...(rateStrFix !== undefined && { rate:                rateStrFix }),
+            ...(rateTypFix !== undefined && { rateType:            rateTypFix }),
+            ...(matFix     !== undefined && { maturity:            matFix     }),
+            ...(pifix      !== undefined && { monthly_pi:          pifix      }),
+            ...(taxfix     !== undefined && { monthly_payment_tax: taxfix     }),
+            ...(pmtfix     !== undefined && { monthlyPayment:      pmtfix     }),
+            market: activeMarket,
           };
         });
         saveToDB("properties", correctedProps);
@@ -4306,12 +4301,7 @@ export default function App() {
       }
     }
 
-    // Restore existing session on page load
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (!cancelled) bootstrap(s);
-    });
-
-    // React to auth state changes (login, logout, token refresh)
+    // React to auth state changes (login, logout, token refresh, and initial session restore)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (cancelled) return;
       if (event === "SIGNED_OUT") {
