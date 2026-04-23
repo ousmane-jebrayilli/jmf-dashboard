@@ -551,14 +551,19 @@ function buildLeaseLedger(unit, prop, rentPayments) {
     acc[entry.month] = (acc[entry.month] || 0) + safe(entry.amount);
     return acc;
   }, {});
+  // Allocate deposit: first month, then last month, then intermediate months in order
   let remainingCredit = lease.deposit_applies_to_rent ? safe(lease.deposit_received) : 0;
-  const rows = schedule.map(item => {
-    const paid = safe(paymentByMonth[item.month]);
-    const creditApplied = Math.min(Math.max(item.amount - paid, 0), remainingCredit);
-    remainingCredit = Math.max(0, remainingCredit - creditApplied);
-    const outstanding = Math.max(0, item.amount - paid - creditApplied);
-    return { ...item, paid, creditApplied, outstanding };
-  });
+  const baseRows = schedule.map(item => ({ ...item, paid: safe(paymentByMonth[item.month]), creditApplied: 0 }));
+  function applyCredit(row) {
+    const gap = Math.max(row.amount - row.paid, 0);
+    const applied = Math.min(gap, remainingCredit);
+    remainingCredit -= applied;
+    row.creditApplied += applied;
+  }
+  if (baseRows.length > 0) applyCredit(baseRows[0]);
+  if (baseRows.length > 1) applyCredit(baseRows[baseRows.length - 1]);
+  for (let i = 1; i < baseRows.length - 1; i++) applyCredit(baseRows[i]);
+  const rows = baseRows.map(row => ({ ...row, outstanding: Math.max(0, row.amount - row.paid - row.creditApplied) }));
   const totalDue = rows.reduce((sum, row) => sum + row.amount, 0);
   const totalPaid = rows.reduce((sum, row) => sum + row.paid, 0);
   const totalCredited = rows.reduce((sum, row) => sum + row.creditApplied, 0);
@@ -2330,12 +2335,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                   {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
                                 </div>
                                 <div>
-                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.creditApplied > 0 && row.outstanding === 0 ? C.gold : row.outstanding > 0 ? C.red : C.green }}>
-                                    {row.creditApplied > 0 && row.outstanding === 0
-                                      ? "Covered"
-                                      : row.outstanding > 0
-                                        ? `Owing ${$F(row.outstanding)}`
-                                        : "Settled"}
+                                  <div style={{ fontFamily:C.mono, fontSize:13, color: row.outstanding === 0 ? C.green : C.red }}>
+                                    {row.outstanding === 0 ? "Paid" : "Unpaid"}
                                   </div>
                                 </div>
                                 <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
