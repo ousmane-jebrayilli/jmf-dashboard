@@ -2975,7 +2975,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin }
 }
 
 // ─── EXPENSES TAB ─────────────────────────────────────────────────────────────
-function ExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
+// eslint-disable-next-line no-unused-vars
+function AdminExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
   const [subTab, setSubTab]               = useState("thismonth");
   const [expenses, setExpenses]           = useState(null); // null = loading
   const [allFamilyExp, setAllFamilyExp]   = useState([]);
