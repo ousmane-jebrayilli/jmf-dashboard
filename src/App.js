@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 /*
@@ -102,6 +102,44 @@ const $K = (n) => {
 const $F = (n, d = 0) =>
   new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: d }).format(safe(n));
 
+const scriptLoaders = {};
+const recentReportDownloads = new Map();
+function loadScriptOnce(src, globalName) {
+  if (globalName && window[globalName]) return Promise.resolve(window[globalName]);
+  if (scriptLoaders[src]) return scriptLoaders[src];
+  scriptLoaders[src] = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(globalName ? window[globalName] : true), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve(globalName ? window[globalName] : true);
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+  return scriptLoaders[src];
+}
+async function loadPdfTools() {
+  const [jspdfNs, html2canvas] = await Promise.all([
+    loadScriptOnce("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", "jspdf"),
+    loadScriptOnce("https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js", "html2canvas"),
+  ]);
+  const jsPDF = jspdfNs?.jsPDF;
+  if (!jsPDF || !html2canvas) throw new Error("PDF tools unavailable");
+  return { jsPDF, html2canvas };
+}
+function shouldAutoDownloadReport(key) {
+  const now = Date.now();
+  const last = recentReportDownloads.get(key) || 0;
+  if (now - last < 1500) return false;
+  recentReportDownloads.set(key, now);
+  return true;
+}
+
 // ─── TIME HELPERS ─────────────────────────────────────────────────────────────
 const SYSTEM_START = "2026-04"; // April 2026 — first tracking month
 function currentYM() {
@@ -122,6 +160,12 @@ function monthLabel(ym) {
   if (!ym) return "";
   const [y, m] = ym.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-CA", { month: "short", year: "numeric" });
+}
+function reportFileName(ym) {
+  if (!ym) return "JMF_Report.pdf";
+  const [y, m] = ym.split("-").map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }).replace(/\s+/g, "_");
+  return `JMF_Report_${label}.pdf`;
 }
 function monthIndex(ym) {
   const [y, m] = (ym || SYSTEM_START).split("-").map(Number);
@@ -3045,8 +3089,11 @@ function ExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
 }
 
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
-function ReportModal({ snapshot: s, data, onClose }) {
+function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  const reportRef = useRef(null);
 
   function buildPayload() {
     const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
@@ -3069,14 +3116,60 @@ function ReportModal({ snapshot: s, data, onClose }) {
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
-  function handlePrint() {
-    const styleEl = document.createElement("style");
-    styleEl.id = "jmf-print-style";
-    styleEl.textContent = `@media print { body > * { visibility: hidden; } #jmf-report-content, #jmf-report-content * { visibility: visible; } #jmf-report-content { position: fixed; top: 0; left: 0; width: 100%; padding: 40px; box-sizing: border-box; } }`;
-    document.head.appendChild(styleEl);
-    window.print();
-    document.head.removeChild(styleEl);
+  async function handleDownloadPdf() {
+    if (!reportRef.current || downloading) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const { jsPDF, html2canvas } = await loadPdfTools();
+      await new Promise(resolve => setTimeout(resolve, 60));
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        logging: false,
+      });
+      const imageData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "pt", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imageWidth = pageWidth;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      let heightLeft = imageHeight;
+      let position = 0;
+
+      pdf.addImage(imageData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imageHeight;
+        pdf.addPage();
+        pdf.addImage(imageData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+        heightLeft -= pageHeight;
+      }
+
+      const generatedAt = new Date().toISOString();
+      pdf.save(reportFileName(s.month));
+      onGenerated?.({
+        snapshotMonth: s.month,
+        snapshotCapturedAt: s.capturedAt,
+        generatedAt,
+      });
+    } catch (error) {
+      console.error("Report PDF download failed", error);
+      setDownloadError("PDF download failed. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
   }
+
+  useEffect(() => {
+    const downloadKey = `${s.month}-${s.capturedAt || "snapshot"}`;
+    if (!shouldAutoDownloadReport(downloadKey)) return;
+    handleDownloadPdf();
+    // Intentionally run once per modal open; StrictMode double-mount is guarded above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
   const cfPropOut  = data.properties.reduce((sum, p) => sum + propMonthlyOut(p), 0);
@@ -3089,14 +3182,21 @@ function ReportModal({ snapshot: s, data, onClose }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
       {/* Action bar */}
-      <div style={{ position: "fixed", top: 16, right: 24, display: "flex", gap: 10, zIndex: 10000 }}>
+      <div style={{ position: "fixed", top: 16, right: 24, display: "flex", gap: 10, zIndex: 10000, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100vw - 32px)" }}>
+        {downloadError && <span style={{ fontSize: 11, color: "#FFD4D4", letterSpacing: "0.04em" }}>{downloadError}</span>}
+        {!downloadError && (
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", letterSpacing: "0.04em" }}>
+            {downloading ? "Preparing PDF..." : "PDF download starts automatically"}
+          </span>
+        )}
         <button onClick={handleCopy}
           style={{ fontSize: 12, background: copied ? "#1A6B33" : C.surface, color: copied ? "#fff" : C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 600 }}>
           {copied ? "✓ Copied" : "Copy JSON"}
         </button>
-        <button onClick={handlePrint}
+        <button onClick={handleDownloadPdf}
+          disabled={downloading}
           style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 700 }}>
-          Print / Save PDF
+          {downloading ? "Preparing..." : "Download PDF"}
         </button>
         <button onClick={onClose}
           style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>
@@ -3105,7 +3205,7 @@ function ReportModal({ snapshot: s, data, onClose }) {
       </div>
 
       {/* Report content */}
-      <div id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: "48px 52px", maxWidth: 720, width: "100%", marginTop: 16, fontFamily: "Georgia, serif" }}>
+      <div ref={reportRef} id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: "48px 52px", maxWidth: 720, width: "100%", marginTop: 16, fontFamily: "Georgia, serif" }}>
 
         {/* 1. Cover */}
         <div style={{ textAlign: "center", marginBottom: 40, paddingBottom: 32, borderBottom: "2px solid #111" }}>
@@ -3225,7 +3325,7 @@ function ReportModal({ snapshot: s, data, onClose }) {
 }
 
 // ─── REPORTS TAB ──────────────────────────────────────────────────────────────
-function HistoryTab({ data, onSaveSnapshot, onGenerateReport }) {
+function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -3238,7 +3338,7 @@ function HistoryTab({ data, onSaveSnapshot, onGenerateReport }) {
   if (drill) {
     return (
       <div>
-        {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} />}
+        {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
         <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>Snapshot — {monthLabel(drill.month)}</div>
@@ -3306,7 +3406,7 @@ function HistoryTab({ data, onSaveSnapshot, onGenerateReport }) {
 
   return (
     <div>
-      {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} />}
+      {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
       {/* Capture Snapshot */}
       <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -3368,7 +3468,6 @@ function HistoryTab({ data, onSaveSnapshot, onGenerateReport }) {
             </div>
             <button onClick={e => {
               e.stopPropagation();
-              onGenerateReport(s);
               setReportSnap(s);
             }}
               style={{ fontSize: 11, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -3562,12 +3661,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     showSaved();
     return snap;
   }
-  function recordReportGeneration(snapshot) {
-    const entry = {
-      snapshotMonth: snapshot.month,
-      snapshotCapturedAt: snapshot.capturedAt,
-      generatedAt: new Date().toISOString(),
-    };
+  function recordReportGeneration(entry) {
     const updated = [...(data.reportHistory || []), entry];
     saveToDB("reportHistory", updated);
     setData(d => ({ ...d, reportHistory: updated }));
@@ -4233,7 +4327,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           <HistoryTab
             data={data}
             onSaveSnapshot={note => saveSnapshot(note)}
-            onGenerateReport={snapshot => recordReportGeneration(snapshot)}
+            onReportGenerated={entry => recordReportGeneration(entry)}
           />
         )}
 
