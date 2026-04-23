@@ -391,12 +391,7 @@ const DEFAULT = {
     income: [
       { label:"Other income", amount:0, note:"" },
     ],
-    obligations: [
-      { label:"121 Milky Way mortgage",  amount:12628, note:"5.79% · Equitable · Apr 2027" },
-      { label:"51 Ahchie Crt. mortgage", amount:10342, note:"5.79% · Equitable · Apr 2027" },
-      { label:"4 New Seabury mortgage",  amount:5979,  note:"5.94% · Equitable · Dec 2029" },
-      { label:"27 Roytec Rd. mortgage",  amount:0,     note:"TD Bank · P+1.80% (≈6.25%) · pending" },
-    ],
+    obligations: [], // property obligations now derived live from Real Estate data via propMonthlyOut()
   },
 
   rentPayments: [], // { id, propertyId, unitId, leaseId, month:"YYYY-MM", amount, date, type:"payment", note }
@@ -865,7 +860,9 @@ function CashFlowGraph({ data }) {
     }, 0);
     const other  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
     const tIn    = bizIn + rentIn + indIn + other;
-    const tOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+    const tPropOut  = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+    const tOtherOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+    const tOut      = tPropOut + tOtherOut;
     return { month: m, ncf: tIn - tOut, tIn, tOut };
   });
   const maxAbs   = Math.max(1, ...values.map(v => Math.abs(v.ncf)));
@@ -3859,9 +3856,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             const e = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
             return s + safe(e?.income);
           }, 0);
-          const cfOther  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
+          const cfOther    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
           const cfTotalIn  = cfBizIn + cfRentIn + cfPayroll + cfOther;
-          const cfTotalOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+          const cfPropOut  = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+          const cfOtherOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+          const cfTotalOut = cfPropOut + cfOtherOut;
           const cfGap      = cfTotalIn - cfTotalOut;
           return (
             <div>
@@ -3957,16 +3956,47 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
                 <Card>
                   <div style={{ fontSize: 11, color: C.red, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↓ Monthly Obligations</div>
-                  {data.cashflow.obligations.map((item, i) => (
-                    <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
-                        <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                        <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
-                        <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+
+                  {/* Live property obligations — derived from Real Estate fixed monthly operating expenses */}
+                  {data.properties.map(p => {
+                    const total = propMonthlyOut(p);
+                    const mtg   = getMortgageOperatingPayment(p);
+                    const tax   = safe(p.monthlyTax);
+                    const ins   = safe(p.monthly_insurance);
+                    const maint = safe(p.maintenance_reserve_monthly);
+                    const parts = [
+                      mtg   > 0 && `Mortgage ${$K(mtg)}`,
+                      tax   > 0 && `Tax ${$K(tax)}`,
+                      ins   > 0 && `Insurance ${$K(ins)}`,
+                      maint > 0 && `Maintenance ${$K(maint)}`,
+                    ].filter(Boolean).join(" · ");
+                    return (
+                      <div key={p.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                          <span style={{ fontSize: 13, color: C.text }}>{p.name}</span>
+                          <span style={{ fontFamily: C.mono, fontSize: 14, color: total > 0 ? C.red : C.textDim }}>{total > 0 ? $F(total) : "—"}</span>
+                        </div>
+                        {parts && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{parts}</div>}
                       </div>
-                      {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
+                    );
+                  })}
+
+                  {/* Non-property fixed obligations (manual) */}
+                  {data.cashflow.obligations.length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      {data.cashflow.obligations.map((item, i) => (
+                        <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
+                            <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
+                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
+                            <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                          </div>
+                          {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+
                   <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
                     <span style={{ color: C.textMid }}>Total out</span>
                     <span style={{ fontFamily: C.mono, fontSize: 15, color: C.red }}>{$F(cfTotalOut)}</span>
