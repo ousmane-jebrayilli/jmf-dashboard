@@ -91,6 +91,26 @@ const C = {
   sans:        "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
 
+// ─── RESPONSIVE HOOKS ────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [v, setV] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 768);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return v;
+}
+function useIsSmall() {
+  const [v, setV] = useState(() => window.innerWidth < 480);
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 480);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return v;
+}
+
 // ─── NUMBER HELPERS ───────────────────────────────────────────────────────────
 const safe = (n) => (isNaN(n) || n == null ? 0 : Number(n));
 const $K = (n) => {
@@ -1076,11 +1096,12 @@ function CashFlowGraph({ data }) {
 // ─── CASH MODAL ───────────────────────────────────────────────────────────────
 function CashModal({ current, onSave, onClose }) {
   const [val, setVal] = useState(safe(current));
+  const isMobile = useIsMobile();
   const save = () => { onSave(safe(val)); onClose(); };
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 12 : 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 8px 48px rgba(0,0,0,0.12)" }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? "20px 16px" : 28, width: "100%", maxWidth: 360, boxShadow: "0 8px 48px rgba(0,0,0,0.12)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Cash Vault</div>
         <div style={{ fontSize: 13, color: C.textDim, marginBottom: 20, lineHeight: 1.6 }}>
           Enter Ahmed's current physical cash. Updates net worth immediately.
@@ -1106,11 +1127,12 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
   const [received, setReceived] = useState(safe(current?.amount));
   const [note, setNote] = useState(current?.note || "");
   const [date, setDate] = useState(current?.date || `${month}-01`);
+  const isMobile = useIsMobile();
   const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:14, fontFamily:C.mono, outline:"none", boxSizing:"border-box", marginBottom:14 };
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20 }}
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding: isMobile ? 12 : 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, width:"100%", maxWidth:360, boxShadow:"0 8px 48px rgba(0,0,0,0.14)" }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding: isMobile ? "20px 16px" : 28, width:"100%", maxWidth:360, boxShadow:"0 8px 48px rgba(0,0,0,0.14)" }}>
         <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:4 }}>Log Rent Payment</div>
         <div style={{ fontSize:13, color:C.textDim, marginBottom:8 }}>{propertyName} · {unitLabel} · {monthLabel(month)}</div>
         <div style={{ background:C.bg, borderRadius:10, padding:"10px 12px", marginBottom:18, fontSize:12, color:C.textMid, lineHeight:1.6 }}>
@@ -1144,6 +1166,7 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
   const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(p => [p.id, ""])));
   const [profitVals, setProfitVals] = useState(() => Object.fromEntries(missingProfits.map(b => [b.id, ""])));
   const [saving, setSaving]         = useState(false);
+  const isMobile = useIsMobile();
 
   if (missingRent.length === 0 && missingProfits.length === 0) return null;
 
@@ -1161,10 +1184,10 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
   };
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(7,15,30,0.55)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding:20 }}>
+    <div style={{ position:"fixed", inset:0, background:"rgba(7,15,30,0.55)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding: isMobile ? 12 : 20 }}>
       <div style={{ background:C.surface, borderRadius:20, width:"100%", maxWidth:460, boxShadow:"0 24px 80px rgba(0,0,0,0.28)", overflow:"hidden" }}>
         {/* Gold accent header */}
-        <div style={{ background:`linear-gradient(135deg, ${C.nav} 0%, #1A2E52 100%)`, padding:"22px 28px 20px" }}>
+        <div style={{ background:`linear-gradient(135deg, ${C.nav} 0%, #1A2E52 100%)`, padding: isMobile ? "18px 20px 16px" : "22px 28px 20px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
             <div style={{ width:8, height:8, borderRadius:"50%", background:C.gold, boxShadow:`0 0 8px ${C.gold}` }} />
             <div style={{ fontSize:11, fontWeight:700, color:C.gold, letterSpacing:"0.12em", textTransform:"uppercase" }}>Monthly Update Required</div>
@@ -1175,7 +1198,7 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
           </div>
         </div>
 
-        <div style={{ padding:"24px 28px 28px", maxHeight:"60vh", overflowY:"auto" }}>
+        <div style={{ padding: isMobile ? "20px 20px 24px" : "24px 28px 28px", maxHeight:"70vh", overflowY:"auto" }}>
           {/* Rent section */}
           {missingRent.length > 0 && (
             <div style={{ marginBottom: 24 }}>
@@ -1246,6 +1269,7 @@ function AddPersonalExpenseModal({ userId, onSave, onClose }) {
   const [description, setDescription]   = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Debit");
   const [saving, setSaving]             = useState(false);
+  const isMobile = useIsMobile();
 
   const inp = {
     width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`,
@@ -1268,9 +1292,9 @@ function AddPersonalExpenseModal({ userId, onSave, onClose }) {
   };
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding:20 }}
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1200, padding: isMobile ? 12 : 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:18, padding:28, width:"100%", maxWidth:440, boxShadow:"0 12px 60px rgba(0,0,0,0.18)", maxHeight:"92vh", overflowY:"auto" }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:18, padding: isMobile ? "20px 16px" : 28, width:"100%", maxWidth:440, boxShadow:"0 12px 60px rgba(0,0,0,0.18)", maxHeight:"92vh", overflowY:"auto" }}>
         <div style={{ fontSize:17, fontWeight:700, color:C.text, marginBottom:20 }}>Add Expense</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:4 }}>
           <div>
@@ -1324,6 +1348,7 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
     physicalAssets: safe(currentData?.physicalAssets),
   });
   const [submitting, setSubmitting] = useState(false);
+  const isMobile = useIsMobile();
   const set = (k, v) => setFields(f => ({ ...f, [k]: safe(v) }));
 
   const rows = [
@@ -1341,8 +1366,8 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 8px 48px rgba(0,0,0,0.14)", maxHeight: "90vh", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 12 : 20 }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? "20px 16px" : 28, width: "100%", maxWidth: 420, boxShadow: "0 8px 48px rgba(0,0,0,0.14)", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Monthly Update Required</div>
         <div style={{ fontSize: 13, color: C.textDim, marginBottom: 24, lineHeight: 1.6 }}>
           Submit your financial snapshot for <strong style={{ color: C.text }}>{periodLabel}</strong>. Ahmed will review and approve.
@@ -1522,6 +1547,8 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
   const [currentSub, setCurrentSub]     = useState(undefined); // undefined=loading
   const [missingPeriod, setMissingPeriod] = useState(null);   // { period_date, label }
   const [memberTab, setMemberTab]       = useState("snapshot");
+  const isMobile = useIsMobile();
+  const isSmall = useIsSmall();
 
   const individualId = user.profile?.individual_id;
   const isAhmed      = individualId === 1;
@@ -1627,25 +1654,25 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
       )}
 
       {/* Nav */}
-      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: "0 14px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
             <div style={{ width:5, height:5, borderRadius:"50%", background:C.gold }} />
-            <span style={{ fontSize: 15, fontWeight: 800, color: C.gold, letterSpacing:"0.08em", flexShrink: 0 }}>JMF</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: C.gold, letterSpacing:"0.08em" }}>JMF</span>
           </div>
-          <span style={{ fontSize: 12, color: C.navText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✓ SAVED</span>}
+          {!isSmall && <span style={{ fontSize: 11, color: C.navText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>}
+          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>✓</span>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {subStatusBadge()}
-          {cashStale && (
+          {cashStale && !isSmall && (
             <button onClick={() => setCashModal(true)}
-              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
-              Cash not updated
+              style={{ fontSize: 10, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontWeight: 600 }}>
+              Cash stale
             </button>
           )}
           <button onClick={onLogout}
-            style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 11, padding: "4px 12px", cursor: "pointer" }}>
+            style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: "4px 10px", cursor: "pointer" }}>
             Sign out
           </button>
         </div>
@@ -1667,7 +1694,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
 
       {/* My History tab */}
       {memberTab === "history" && (
-        <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
+        <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 540, margin: "0 auto" }}>
           {(() => {
             const myLog = [...(f.accountsLog || [])].reverse();
             const snapshots = [...(data.snapshots || [])].reverse();
@@ -1722,7 +1749,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
 
       {/* Content */}
       {memberTab === "snapshot" && (
-      <div style={{ padding: 20, maxWidth: 540, margin: "0 auto" }}>
+      <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 540, margin: "0 auto" }}>
         {(() => {
           const curYM = currentYM();
           const logEntries = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""));
@@ -2039,6 +2066,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const [editingUnit, setEditingUnit] = useState(null);
   const [loggingRent, setLoggingRent] = useState(null);
   const [scheduleRows, setScheduleRows] = useState(12);
+  const isMobile = useIsMobile();
 
   const mortgage = calculateMortgageSnapshot(prop, currentYM());
   const market = getMarketValueCad(prop);
@@ -2120,7 +2148,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   }
 
   const tabStyle = (id) => ({
-    padding: "11px 18px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+    padding: isMobile ? "9px 12px" : "11px 18px", fontSize: isMobile ? 11 : 12, fontWeight: 600, border: "none", cursor: "pointer",
     background: "transparent", fontFamily: C.sans, whiteSpace: "nowrap",
     color: propTab === id ? C.gold : C.textDim,
     borderBottom: propTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
@@ -2154,8 +2182,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
       )}
 
       {/* Card header — click to open/close */}
-      <div onClick={() => { setOpen(o => { if (o) setPropTab("overview"); return !o; }); }} style={{ padding:"18px 22px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", gap:14 }}>
-        <div style={{ minWidth:0, flex:1 }}>
+      <div onClick={() => { setOpen(o => { if (o) setPropTab("overview"); return !o; }); }} style={{ padding: isMobile ? "14px 16px" : "18px 22px", cursor:"pointer", display:"flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "center", justifyContent:"space-between", gap: isMobile ? 12 : 14 }}>
+        <div style={{ minWidth:0, flex: isMobile ? undefined : 1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:8 }}>
             <StatusPill status={prop.status} />
             <OccupancyBadge status={occupancyStatus} />
@@ -2167,7 +2195,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
             {[prop.location, prop.lender, prop.rate, isPartial ? prop.co_owner : ""].filter(Boolean).join(" · ")}
           </div>
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(84px, 1fr))", gap:10, minWidth:360 }}>
+        <div style={{ display:"grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, minmax(84px, 1fr))", gap: isMobile ? 8 : 10, width: isMobile ? "100%" : undefined, minWidth: isMobile ? undefined : 360 }}>
           {[
             { label:"Market",                              value:hasForeignCurrency ? formatNativeMoney(marketLocal, marketCurrency) : $K(market), color:C.text },
             { label:"Debt",                                value:$K(balance),       color:C.red               },
@@ -2187,8 +2215,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
         <div style={{ borderTop:`1px solid ${C.border}` }}>
 
           {/* Tab bar */}
-          <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
-            <div style={{ display:"flex" }}>
+          <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto", WebkitOverflowScrolling:"touch", scrollbarWidth:"none", msOverflowStyle:"none" }}>
+            <div style={{ display:"flex", minWidth:"max-content" }}>
               {[["overview","Overview"],["schedule","Payment Schedule"],["tenants","Tenants & Rent"],["valuation","Valuation"]].map(([id, label]) => (
                 <button key={id} onClick={e => { e.stopPropagation(); setPropTab(id); }} style={tabStyle(id)}>{label}</button>
               ))}
@@ -2421,6 +2449,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               <div>
                 <Label>Monthly Schedule</Label>
                 <div style={{ marginTop:10, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                  <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+                  <div style={{ minWidth:420 }}>
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, background:C.bg, padding:"10px 14px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
                     <span>Month</span><span style={{ textAlign:"right" }}>Payment</span><span style={{ textAlign:"right", color:C.red }}>Interest</span><span style={{ textAlign:"right", color:C.green }}>Principal</span><span style={{ textAlign:"right" }}>Balance</span>
                   </div>
@@ -2433,6 +2463,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                       <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{$F(row.balance)}</span>
                     </div>
                   ))}
+                  </div>
+                  </div>
                 </div>
                 {scheduleData.length > 12 && (
                   <button onClick={() => setScheduleRows(r => r === 12 ? 24 : 12)}
@@ -3332,6 +3364,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const reportRef = useRef(null);
+  const isMobile = useIsMobile();
 
   function buildPayload() {
     const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
@@ -3420,7 +3453,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
       {/* Action bar */}
-      <div style={{ position: "fixed", top: 16, right: 24, display: "flex", gap: 10, zIndex: 10000, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100vw - 32px)" }}>
+      <div style={{ position: "fixed", top: isMobile ? 10 : 16, right: isMobile ? 10 : 24, display: "flex", gap: isMobile ? 6 : 10, zIndex: 10000, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: isMobile ? "calc(100vw - 20px)" : "calc(100vw - 32px)" }}>
         {downloadError && <span style={{ fontSize: 11, color: "#FFD4D4", letterSpacing: "0.04em" }}>{downloadError}</span>}
         {!downloadError && (
           <span style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", letterSpacing: "0.04em" }}>
@@ -3443,7 +3476,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
       </div>
 
       {/* Report content */}
-      <div ref={reportRef} id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: "48px 52px", maxWidth: 720, width: "100%", marginTop: 16, fontFamily: "Georgia, serif" }}>
+      <div ref={reportRef} id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: isMobile ? "28px 20px" : "48px 52px", maxWidth: 720, width: "100%", marginTop: isMobile ? 52 : 16, fontFamily: "Georgia, serif" }}>
 
         {/* 1. Cover */}
         <div style={{ textAlign: "center", marginBottom: 40, paddingBottom: 32, borderBottom: "2px solid #111" }}>
@@ -3567,6 +3600,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const isMobile = useIsMobile();
   const [confirmEdit, setConfirmEdit] = useState(false);
   const [reportSnap, setReportSnap] = useState(null);
   const snapshots = [...(data.snapshots || [])].reverse();
@@ -3697,24 +3731,26 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
       {snapshots.length === 0
         ? <div style={{ textAlign: "center", padding: "48px 0", color: C.textDim, fontSize: 13 }}>No snapshots captured yet.</div>
         : snapshots.map((s, i) => (
-          <div key={i} onClick={() => setDrill(s)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 8, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s" }}
+          <div key={i} onClick={() => setDrill(s)} style={{ padding: isMobile ? "14px 16px" : "14px 18px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 8, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.boxShadow = C.shadowMd; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
-              <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: isMobile ? 10 : 0 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{monthLabel(s.month)}</div>
+                <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{new Date(s.capturedAt).toLocaleDateString()}{s.note ? ` · ${s.note}` : ""}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 800, color: s.nw >= 0 ? C.gold : C.red }}>{$F(s.nw)}</div>
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net Worth</div>
+              </div>
             </div>
             <button onClick={e => {
               e.stopPropagation();
               setReportSnap(s);
             }}
-              style={{ fontSize: 11, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+              style={{ fontSize: 11, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", width: isMobile ? "100%" : undefined, textAlign: isMobile ? "center" : undefined }}>
               Generate Report
             </button>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 800, color: s.nw >= 0 ? C.gold : C.red }}>{$F(s.nw)}</div>
-              <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net Worth</div>
-            </div>
           </div>
         ))
       }
@@ -3736,6 +3772,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
   const [accLogForm, setAccLogForm] = useState({ month: currentYM(), cash: 0, accounts: 0, securities: 0, crypto: 0, physicalAssets: 0, note: "" });
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+  const isMobile = useIsMobile();
+  const isSmall = useIsSmall();
 
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
@@ -4013,41 +4051,41 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         />
       )}
       {/* NAV */}
-      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: isMobile ? "0 14px" : "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: isMobile ? 52 : 56, position: "sticky", top: 0, zIndex: 100, minHeight: isMobile ? 52 : 56 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, minWidth: 0, flexShrink: 1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink: 0 }}>
             <div style={{ width:6, height:6, borderRadius:"50%", background:C.gold, boxShadow:`0 0 8px ${C.gold}` }} />
-            <span style={{ fontSize: 17, fontWeight: 800, color: C.gold, letterSpacing: "0.1em" }}>JMF</span>
+            <span style={{ fontSize: isMobile ? 15 : 17, fontWeight: 800, color: C.gold, letterSpacing: "0.1em" }}>JMF</span>
           </div>
-          <span style={{ fontSize: 11, color: C.navText, letterSpacing:"0.05em" }}>Family Office</span>
-          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 8px", letterSpacing:"0.04em" }}>✓ SAVED</span>}
+          {!isSmall && <span style={{ fontSize: 11, color: C.navText, letterSpacing:"0.05em", whiteSpace:"nowrap" }}>Family Office</span>}
+          {saved && <span style={{ fontSize: 10, color: "#FFF", background: C.green, borderRadius: 4, padding: "2px 8px", letterSpacing:"0.04em", flexShrink:0 }}>✓</span>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {pendingSubs.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 10, flexShrink: 0 }}>
+          {pendingSubs.length > 0 && !isSmall && (
             <button onClick={() => setTab("overview")}
-              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
-              {pendingSubs.length} pending review
+              style={{ fontSize: 10, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontWeight: 600 }}>
+              {pendingSubs.length} pending
             </button>
           )}
-          {cashStale && (
+          {cashStale && !isSmall && (
             <button onClick={() => setCashModal(true)}
-              style={{ fontSize: 11, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
-              Cash not updated
+              style={{ fontSize: 10, color: C.amber, background: "rgba(183,119,13,0.15)", border: `1px solid rgba(183,119,13,0.3)`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontWeight: 600 }}>
+              Cash stale
             </button>
           )}
-          <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, background: "rgba(184,150,46,0.15)", border:`1px solid rgba(184,150,46,0.25)`, borderRadius: 4, padding: "3px 8px", letterSpacing:"0.06em" }}>ADMIN</span>
-          <span style={{ fontSize: 12, color: C.navText }}>{user.profile?.display_name || user.email}</span>
-          <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>Sign out</button>
+          <span style={{ fontSize: 9, fontWeight: 700, color: C.gold, background: "rgba(184,150,46,0.15)", border:`1px solid rgba(184,150,46,0.25)`, borderRadius: 4, padding: "2px 6px", letterSpacing:"0.06em", flexShrink:0 }}>ADMIN</span>
+          {!isMobile && <span style={{ fontSize: 12, color: C.navText, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.profile?.display_name || user.email}</span>}
+          <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: isMobile ? "4px 8px" : "5px 12px", cursor: "pointer", flexShrink:0, whiteSpace:"nowrap" }}>Sign out</button>
         </div>
       </div>
 
       {/* HERO */}
-      <div style={{ background: `linear-gradient(160deg, ${C.nav} 0%, #152238 100%)`, padding: "52px 28px 44px", textAlign: "center" }}>
-        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 16 }}>JMF Consolidated Net Worth</div>
-        <div style={{ fontSize: 62, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? "#FF6B6B" : C.gold, letterSpacing: -2, lineHeight: 1, textShadow: totalNW >= 0 ? `0 0 40px rgba(184,150,46,0.3)` : "none" }}>
+      <div style={{ background: `linear-gradient(160deg, ${C.nav} 0%, #152238 100%)`, padding: isMobile ? (isSmall ? "28px 16px 24px" : "36px 20px 30px") : "52px 28px 44px", textAlign: "center" }}>
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: isMobile ? 10 : 16 }}>JMF Consolidated Net Worth</div>
+        <div style={{ fontSize: isMobile ? (isSmall ? 36 : 44) : 62, fontWeight: 800, fontFamily: C.mono, color: totalNW < 0 ? "#FF6B6B" : C.gold, letterSpacing: isMobile ? -1 : -2, lineHeight: 1, textShadow: totalNW >= 0 ? `0 0 40px rgba(184,150,46,0.3)` : "none" }}>
           {$F(totalNW)}
         </div>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 16, letterSpacing: "0.06em" }}>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: isMobile ? 10 : 16, letterSpacing: "0.06em" }}>
           {heroSubtitle}
         </div>
       </div>
@@ -4060,10 +4098,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             { label: "Net of Individuals",  val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                   color: totalPers < 0 ? C.red : C.green },
             { label: "Business Equity",     val: $K(totalBiz),   sub: "Operating corps only",                                                       color: C.blue  },
           ].map((k, i, arr) => (
-            <div key={i} style={{ flex:1, padding: "18px 24px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", textAlign:"center" }}>
-              <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 8 }}>{k.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: C.mono, color: k.color }}>{k.val}</div>
-              <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>{k.sub}</div>
+            <div key={i} style={{ flex:1, padding: isMobile ? "12px 10px" : "18px 24px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", textAlign:"center" }}>
+              <div style={{ fontSize: 8, color: C.textDim, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: isMobile ? 4 : 8 }}>{k.label}</div>
+              <div style={{ fontSize: isMobile ? (isSmall ? 15 : 17) : 22, fontWeight: 800, fontFamily: C.mono, color: k.color }}>{k.val}</div>
+              <div style={{ fontSize: 9, color: C.textDim, marginTop: isMobile ? 2 : 4 }}>{k.sub}</div>
             </div>
           ))}
         </div>
@@ -4071,11 +4109,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
       {/* TABS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent:"center", padding: "0 28px" }}>
-          <div style={{ display: "flex", overflowX:"auto", justifyContent:"center", width:"100%", maxWidth:860 }}>
+        <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", scrollbarWidth:"none", msOverflowStyle:"none" }}>
+          <div style={{ display: "flex", justifyContent: isMobile ? "flex-start" : "center", minWidth:"max-content", padding: isMobile ? "0 8px" : "0 28px" }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(tabId(t))}
-              style={{ padding: "12px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textDim, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans, transition:"color 0.15s" }}>
+              style={{ padding: isMobile ? "10px 13px" : "12px 18px", fontSize: isMobile ? 11 : 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", cursor: "pointer", background: "transparent", color: tab === tabId(t) ? C.gold : C.textDim, borderBottom: tab === tabId(t) ? `2px solid ${C.gold}` : "2px solid transparent", whiteSpace: "nowrap", fontFamily: C.sans, transition:"color 0.15s" }}>
               {t}
             </button>
           ))}
@@ -4084,7 +4122,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       </div>
 
       {/* PAGE CONTENT */}
-      <div style={{ padding: "24px 28px", maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ padding: isMobile ? "16px 14px" : "24px 28px", maxWidth: 1200, margin: "0 auto" }}>
 
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
@@ -4209,7 +4247,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           return (
           <div>
             {missedRents.length > 0 && (
-              <div style={{ background:`linear-gradient(135deg, ${C.red} 0%, #922B21 100%)`, borderRadius:12, padding:"14px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:14, boxShadow:`0 4px 16px rgba(192,57,43,0.3)` }}>
+              <div style={{ background:`linear-gradient(135deg, ${C.red} 0%, #922B21 100%)`, borderRadius:12, padding: isMobile ? "12px 14px" : "14px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:14, boxShadow:`0 4px 16px rgba(192,57,43,0.3)` }}>
                 <div style={{ width:8, height:8, borderRadius:"50%", background:"#FFF", flexShrink:0, boxShadow:"0 0 8px rgba(255,255,255,0.8)" }} />
                 <div>
                   <div style={{ fontSize:13, fontWeight:700, color:"#FFF", marginBottom:2 }}>
