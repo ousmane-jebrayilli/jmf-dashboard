@@ -110,6 +110,18 @@ function useIsSmall() {
   }, []);
   return v;
 }
+function usePeriodStatus(monthKey) {
+  const [ps, setPs] = useState({ status: "open", is_locked: false, loading: true });
+  useEffect(() => {
+    if (!monthKey) return;
+    supabase.rpc("get_period_status", { p_month_key: monthKey })
+      .then(({ data }) => {
+        if (data) setPs({ ...data, loading: false });
+        else setPs({ status: "open", is_locked: false, loading: false });
+      });
+  }, [monthKey]);
+  return ps;
+}
 
 // ─── NUMBER HELPERS ───────────────────────────────────────────────────────────
 const safe = (n) => (isNaN(n) || n == null ? 0 : Number(n));
@@ -2057,7 +2069,7 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
   );
 }
 
-function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, isAdmin }) {
+function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, isAdmin, periodLocked }) {
   const [open, setOpen] = useState(false);
   const [propTab, setPropTab] = useState("overview");
   const [taxNoteOpen, setTaxNoteOpen] = useState(false);
@@ -2614,9 +2626,12 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                     {row.outstanding === 0 ? "Paid" : "Unpaid"}
                                   </div>
                                 </div>
-                                <button onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
-                                  style={{ fontSize:11, padding:"6px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, cursor:"pointer", fontWeight:700 }}>
-                                  {current ? "Edit" : "Log"}
+                                <button
+                                  onClick={() => { if (!(periodLocked && row.month === currentYM())) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
+                                  disabled={periodLocked && row.month === currentYM()}
+                                  title={periodLocked && row.month === currentYM() ? "Period is locked" : undefined}
+                                  style={{ fontSize:11, padding:"6px 10px", background: periodLocked && row.month === currentYM() ? C.border : C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: periodLocked && row.month === currentYM() ? C.textDim : C.textMid, cursor: periodLocked && row.month === currentYM() ? "not-allowed" : "pointer", fontWeight:700 }}>
+                                  {periodLocked && row.month === currentYM() ? "🔒" : current ? "Edit" : "Log"}
                                 </button>
                               </div>
                             );
@@ -2777,10 +2792,11 @@ function MaintenanceAlertsWidget() {
 }
 
 // ─── BUSINESS CARD ────────────────────────────────────────────────────────────
-function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin }) {
+function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, periodLockedMonth }) {
   const [open, setOpen] = useState(false);
   const [bizTab, setBizTab] = useState("overview");
   const isNonProfit = biz.type === "nonprofit";
+  const canEditRow = (month) => isAdmin && month !== periodLockedMonth;
   const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
 
   const monthlyRows = monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse();
@@ -2916,17 +2932,17 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin }
                             <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
                               <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
                               <div style={{ textAlign:"right" }}>
-                                {isAdmin
+                                {canEditRow(row.month)
                                   ? <EditNum value={row.revenue} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "revenue", v)} />
                                   : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>}
                               </div>
                               <div style={{ textAlign:"right" }}>
-                                {isAdmin
+                                {canEditRow(row.month)
                                   ? <EditNum value={row.expenses} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "expenses", v)} />
                                   : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>}
                               </div>
                               <div style={{ textAlign:"right" }}>
-                                {isAdmin
+                                {canEditRow(row.month)
                                   ? <EditNum value={row.profit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(row.month, "profit", v) : onUpdateProfit && onUpdateProfit(row.month, v))} />
                                   : <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{(row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null) ? $F(row.profit) : "—"}</span>}
                               </div>
@@ -3774,6 +3790,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
+  const [periodStatus, setPeriodStatus]       = useState({ status: "open", is_locked: false, loading: true });
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overrideReason, setOverrideReason]   = useState("");
+  const [periodLoading, setPeriodLoading]     = useState(false);
 
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
@@ -3796,6 +3817,36 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       setShowReminder(true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Period status ──
+  useEffect(() => { refreshPeriodStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function refreshPeriodStatus() {
+    const { data: ps } = await supabase.rpc("get_period_status", { p_month_key: currentYM() });
+    if (ps) setPeriodStatus({ ...ps, loading: false });
+  }
+  async function handleClosePeriod() {
+    setPeriodLoading(true);
+    setShowCloseConfirm(false);
+    await supabase.rpc("close_monthly_period", { p_month_key: currentYM(), p_admin_id: user.id });
+    await refreshPeriodStatus();
+    setPeriodLoading(false);
+  }
+  async function handleOverridePeriod() {
+    if (!overrideReason.trim()) return;
+    setPeriodLoading(true);
+    setShowOverrideModal(false);
+    await supabase.rpc("admin_override_period", { p_month_key: currentYM(), p_admin_id: user.id, p_override_reason: overrideReason.trim() });
+    await refreshPeriodStatus();
+    setOverrideReason("");
+    setPeriodLoading(false);
+  }
+  async function handleRelockPeriod() {
+    setPeriodLoading(true);
+    await supabase.rpc("relock_after_override", { p_month_key: currentYM(), p_admin_id: user.id });
+    await refreshPeriodStatus();
+    setPeriodLoading(false);
+  }
 
   // ── Derived totals (ASWC excluded from business equity) ──
   const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
@@ -4041,6 +4092,44 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
+
+      {/* ── Close Month confirmation ── */}
+      {showCloseConfirm && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:C.surface, borderRadius:14, padding:28, maxWidth:400, width:"100%", boxShadow:C.shadowMd }}>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:12 }}>Close {monthLabel(currentYM())}?</div>
+            <div style={{ fontSize:13, color:C.textMid, marginBottom:24, lineHeight:1.6 }}>
+              This will lock all financial data for this month. No further edits will be possible without an admin override. This action is permanent unless manually overridden.
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={() => setShowCloseConfirm(false)} style={{ fontSize:13, background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 18px", cursor:"pointer", color:C.textMid }}>Cancel</button>
+              <button onClick={handleClosePeriod} style={{ fontSize:13, background:C.red, color:"#FFF", border:"none", borderRadius:8, padding:"8px 18px", cursor:"pointer", fontWeight:700 }}>Yes, Close Month</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Override modal ── */}
+      {showOverrideModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:C.surface, borderRadius:14, padding:28, maxWidth:440, width:"100%", boxShadow:C.shadowMd }}>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>Override Locked Period</div>
+            <div style={{ fontSize:13, color:C.textMid, marginBottom:16, lineHeight:1.6 }}>
+              You are unlocking <strong>{monthLabel(currentYM())}</strong>. A reason is required and will be saved to the audit trail.
+            </div>
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, color:C.textDim, marginBottom:6, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>Override reason *</div>
+              <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="e.g. Correcting rent entry for Unit 2B"
+                style={{ width:"100%", padding:"10px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.bg, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", resize:"vertical", minHeight:80, boxSizing:"border-box" }} />
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={() => { setShowOverrideModal(false); setOverrideReason(""); }} style={{ fontSize:13, background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 18px", cursor:"pointer", color:C.textMid }}>Cancel</button>
+              <button onClick={handleOverridePeriod} disabled={!overrideReason.trim()} style={{ fontSize:13, background:C.amber, color:"#FFF", border:"none", borderRadius:8, padding:"8px 18px", cursor: overrideReason.trim() ? "pointer" : "not-allowed", fontWeight:700, opacity: overrideReason.trim() ? 1 : 0.5 }}>Unlock Period</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showReminder && (
         <ReminderModal
           missingRent={reminderData.missingRent}
@@ -4106,6 +4195,47 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           ))}
         </div>
       </div>
+
+      {/* PERIOD STATUS BAR */}
+      {!periodStatus.loading && (() => {
+        const isLocked   = periodStatus.is_locked;
+        const isOverride = periodStatus.status === "admin_override";
+        const barBg      = isLocked ? C.redLight   : isOverride ? C.amberLight  : C.greenLight;
+        const barBorder  = isLocked ? "#F5C6C3"    : isOverride ? "#F0D080"     : "#A8D8B8";
+        const labelColor = isLocked ? C.red         : isOverride ? C.amber       : C.green;
+        const label      = isLocked ? "🔒 FINALIZED" : isOverride ? "⚠ ADMIN OVERRIDE" : "● OPEN";
+        return (
+          <div style={{ background:barBg, borderBottom:`1px solid ${barBorder}`, padding: isMobile ? "8px 14px" : "10px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+              <span style={{ fontSize:11, fontWeight:700, color:labelColor, letterSpacing:"0.06em" }}>{label}</span>
+              <span style={{ fontSize:11, color:C.textMid }}>{monthLabel(currentYM())}</span>
+              {isOverride && periodStatus.override_reason && (
+                <span style={{ fontSize:10, color:C.amber, fontStyle:"italic" }}>"{periodStatus.override_reason}"</span>
+              )}
+            </div>
+            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+              {!isLocked && !isOverride && (
+                <button onClick={() => setShowCloseConfirm(true)} disabled={periodLoading}
+                  style={{ fontSize:11, background:C.red, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
+                  Close Month
+                </button>
+              )}
+              {isLocked && (
+                <button onClick={() => setShowOverrideModal(true)} disabled={periodLoading}
+                  style={{ fontSize:11, background:C.amber, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
+                  Override
+                </button>
+              )}
+              {isOverride && (
+                <button onClick={handleRelockPeriod} disabled={periodLoading}
+                  style={{ fontSize:11, background:C.red, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
+                  Re-lock
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* TABS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
@@ -4299,6 +4429,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       onPatch={patch => updPropPatch(p.id, patch)}
                       onSaveRentPayment={updRentPayment}
                       isAdmin={true}
+                      periodLocked={periodStatus.is_locked}
                     />
                   ))}
                 </div>
@@ -4384,11 +4515,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                             <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
                               style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
                           </div>
-                          <button onClick={() => {
-                            const net = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
-                            updIndAccountsLog(f.id, { month: accLogForm.month, cash: safe(accLogForm.cash), accounts: safe(accLogForm.accounts), securities: safe(accLogForm.securities), crypto: safe(accLogForm.crypto), physicalAssets: safe(accLogForm.physicalAssets), net, note: accLogForm.note });
-                            setAccLogOpen(null);
-                          }} style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontWeight: 700 }}>
+                          {periodStatus.is_locked && accLogForm.month === curYM && (
+                            <div style={{ fontSize:11, color:C.red, marginBottom:8 }}>🔒 {monthLabel(curYM)} is locked. Choose a different month or use Override to unlock.</div>
+                          )}
+                          <button
+                            disabled={periodStatus.is_locked && accLogForm.month === curYM}
+                            onClick={() => {
+                              const net = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
+                              updIndAccountsLog(f.id, { month: accLogForm.month, cash: safe(accLogForm.cash), accounts: safe(accLogForm.accounts), securities: safe(accLogForm.securities), crypto: safe(accLogForm.crypto), physicalAssets: safe(accLogForm.physicalAssets), net, note: accLogForm.note });
+                              setAccLogOpen(null);
+                            }}
+                            style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: periodStatus.is_locked && accLogForm.month === curYM ? "not-allowed" : "pointer", fontWeight: 700, opacity: periodStatus.is_locked && accLogForm.month === curYM ? 0.4 : 1 }}>
                             Save
                           </button>
                         </div>
@@ -4443,7 +4580,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
               Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} periodLockedMonth={periodStatus.is_locked ? curYM : null} />)}
           </div>
         )}
 
@@ -4551,8 +4688,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
                         <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} />
-                        <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} locked={periodStatus.is_locked} />
+                        {!periodStatus.is_locked && <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>}
                       </div>
                     </div>
                   ))}
@@ -4597,8 +4734,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                         <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
                             <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} />
-                            <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} locked={periodStatus.is_locked} />
+                            {!periodStatus.is_locked && <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>}
                           </div>
                           {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
                         </div>
