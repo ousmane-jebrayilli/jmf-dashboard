@@ -536,6 +536,30 @@ async function saveToDB(key, value) {
   try { await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() }); }
   catch (e) { console.error("DB save failed", e); }
 }
+
+// ─── PHASE 4: RELATIONAL WRITE HELPERS ───────────────────────────────────────
+async function ensurePeriodExists(monthKey) {
+  await supabase.from("monthly_periods").upsert(
+    { month_key: monthKey, label: monthLabel(monthKey), status: "open" },
+    { onConflict: "month_key", ignoreDuplicates: true }
+  );
+}
+async function writeIndividualLog(indId, entry, userId) {
+  await ensurePeriodExists(entry.month);
+  await supabase.from("monthly_individual_logs").upsert({
+    month_key:       entry.month,
+    individual_id:   indId,
+    cash:            safe(entry.cash),
+    accounts:        safe(entry.accounts),
+    securities:      safe(entry.securities),
+    crypto:          safe(entry.crypto),
+    physical_assets: safe(entry.physicalAssets),
+    note:            entry.note || null,
+    updated_at:      new Date().toISOString(),
+    updated_by:      userId || null,
+  }, { onConflict: "month_key,individual_id" });
+}
+
 function mergeById(defaults, dbArr) {
   return defaults.map(def => {
     const db = (dbArr || []).find(x => x.id === def.id) || {};
@@ -3936,6 +3960,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       return { ...x, monthlyIncome: updated };
     });
     saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    ensurePeriodExists(month).then(() =>
+      supabase.from("monthly_individual_logs").upsert(
+        { month_key: month, individual_id: indId, monthly_income: safe(income), updated_at: new Date().toISOString() },
+        { onConflict: "month_key,individual_id" }
+      )
+    ).catch(() => {});
   }
   function updIndAccountsLog(indId, entry) {
     const arr = data.individuals.map(x => {
@@ -3950,6 +3980,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       return { ...x, accountsLog: log };
     });
     saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    writeIndividualLog(indId, entry, user.id).catch(() => {});
   }
   function saveSnapshot(note) {
     const indNet = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
@@ -3986,6 +4017,25 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     saveToDB("snapshots", updated);
     setData(d => ({ ...d, snapshots: updated }));
     showSaved();
+    const cfIncome = data.cashflow?.income || [];
+    const cfObl    = data.cashflow?.obligations || [];
+    const cfNet    = cfIncome.reduce((s, x) => s + safe(x.amount), 0) - cfObl.reduce((s, x) => s + safe(x.amount), 0);
+    ensurePeriodExists(snap.month).then(() =>
+      supabase.from("monthly_snapshots").upsert({
+        month_key:            snap.month,
+        nw:                   snap.nw,
+        re_equity:            snap.reEquity,
+        re_liquid:            snap.reLiquid,
+        individuals_total:    snap.individuals,
+        businesses_total:     snap.businesses,
+        individual_breakdown: snap.individualBreakdown,
+        re_breakdown:         snap.reBreakdown,
+        business_breakdown:   snap.businessBreakdown,
+        cash_flow_snapshot:   { income: cfIncome, obligations: cfObl, net: cfNet },
+        note:                 snap.note || null,
+        updated_at:           new Date().toISOString(),
+      }, { onConflict: "month_key" })
+    ).catch(() => {});
     return snap;
   }
   function recordReportGeneration(entry) {
@@ -4005,8 +4055,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       return { ...b, monthlyProfits: updated };
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    ensurePeriodExists(month).then(() =>
+      supabase.from("monthly_business_logs").upsert(
+        { month_key: month, business_id: bizId, profit: safe(profit), updated_at: new Date().toISOString() },
+        { onConflict: "month_key,business_id" }
+      )
+    ).catch(() => {});
   }
   function updBizProfitField(bizId, month, field, value) {
+    let capturedEntry = null;
     const arr = data.businesses.map(b => {
       if (b.id !== bizId) return b;
       const existing = b.monthlyProfits || [];
@@ -4018,6 +4075,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
       }
 
+      capturedEntry = nextEntry;
+
       const updated = has
         ? existing.map(p => p.month === month ? nextEntry : p)
         : [...existing, nextEntry];
@@ -4025,6 +4084,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       return { ...b, monthlyProfits: updated };
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    if (capturedEntry) {
+      ensurePeriodExists(month).then(() =>
+        supabase.from("monthly_business_logs").upsert({
+          month_key:   month,
+          business_id: bizId,
+          revenue:     safe(capturedEntry.revenue),
+          expenses:    safe(capturedEntry.expenses),
+          profit:      safe(capturedEntry.profit),
+          updated_at:  new Date().toISOString(),
+        }, { onConflict: "month_key,business_id" })
+      ).catch(() => {});
+    }
   }
   function updRentPayment(payloadOrPropertyId, month, received, note) {
     const payload = typeof payloadOrPropertyId === "object"
@@ -4048,17 +4119,63 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       ? existing.map((r, i) => i === idx ? entry : r)
       : [...existing, entry];
     saveToDB("rentPayments", updated); setData(d => ({ ...d, rentPayments: updated })); showSaved();
+    (async () => {
+      try {
+        await ensurePeriodExists(payload.month);
+        const { data: existing_row } = await supabase
+          .from("monthly_rent_logs")
+          .select("id")
+          .eq("month_key",    payload.month)
+          .eq("property_id",  payload.propertyId)
+          .eq("unit_id",      String(payload.unitId || ""))
+          .eq("payment_type", "payment")
+          .maybeSingle();
+        const dbRow = {
+          month_key:    payload.month,
+          property_id:  payload.propertyId,
+          unit_id:      String(payload.unitId || ""),
+          lease_id:     payload.leaseId || null,
+          amount:       safe(payload.amount),
+          payment_date: payload.date || `${payload.month}-01`,
+          payment_type: "payment",
+          note:         payload.note || null,
+          updated_at:   new Date().toISOString(),
+        };
+        if (existing_row?.id) {
+          await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id);
+        } else {
+          await supabase.from("monthly_rent_logs").insert(dbRow);
+        }
+      } catch {}
+    })();
+  }
+  function writeCashflowLog(cf) {
+    const mk  = currentYM();
+    const inc = cf.income      || [];
+    const obl = cf.obligations || [];
+    ensurePeriodExists(mk).then(() =>
+      supabase.from("monthly_cashflow_logs").upsert({
+        month_key:         mk,
+        income:            inc,
+        obligations:       obl,
+        total_income:      inc.reduce((s, x) => s + safe(x.amount), 0),
+        total_obligations: obl.reduce((s, x) => s + safe(x.amount), 0),
+        updated_at:        new Date().toISOString(),
+      }, { onConflict: "month_key" })
+    ).catch(() => {});
   }
   function updCF(type, idx, v) {
     const a = [...data.cashflow[type]];
     a[idx] = { ...a[idx], amount: safe(v) };
     const cf = { ...data.cashflow, [type]: a };
     saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+    writeCashflowLog(cf);
   }
   function delCF(type, idx) {
     const a = data.cashflow[type].filter((_, i) => i !== idx);
     const cf = { ...data.cashflow, [type]: a };
     saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+    writeCashflowLog(cf);
   }
 
   // ── Approve: apply submitted data to individuals, mark approved ──
@@ -4079,6 +4196,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     setData(prev => ({ ...prev, individuals: arr }));
     setPendingSubs(s => s.filter(x => x.id !== sub.id));
     showSaved();
+    if (sub.period) {
+      const monthKey = sub.period.slice(0, 7);
+      writeIndividualLog(individualId, { month: monthKey, ...sub.data }, user.id).catch(() => {});
+    }
   }
 
   async function handleReject(subId, note) {
@@ -4927,5 +5048,6 @@ export default function App() {
     });
     saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    writeIndividualLog(indId, entry, currentUser.id).catch(() => {});
   }} onLogout={logout} />;
 }
