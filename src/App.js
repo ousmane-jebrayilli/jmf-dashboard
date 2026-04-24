@@ -110,18 +110,7 @@ function useIsSmall() {
   }, []);
   return v;
 }
-function usePeriodStatus(monthKey) {
-  const [ps, setPs] = useState({ status: "open", is_locked: false, loading: true });
-  useEffect(() => {
-    if (!monthKey) return;
-    supabase.rpc("get_period_status", { p_month_key: monthKey })
-      .then(({ data }) => {
-        if (data) setPs({ ...data, loading: false });
-        else setPs({ status: "open", is_locked: false, loading: false });
-      });
-  }, [monthKey]);
-  return ps;
-}
+
 
 // ─── NUMBER HELPERS ───────────────────────────────────────────────────────────
 const safe = (n) => (isNaN(n) || n == null ? 0 : Number(n));
