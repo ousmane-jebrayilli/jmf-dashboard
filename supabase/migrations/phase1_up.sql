@@ -220,7 +220,7 @@ COMMENT ON COLUMN public.monthly_rent_logs.payment_type IS 'payment=normal rent.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.monthly_cashflow_logs (
-  id                NUMERIC  PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                UUID     PRIMARY KEY DEFAULT gen_random_uuid(),
   month_key         TEXT     NOT NULL UNIQUE REFERENCES public.monthly_periods(month_key) ON DELETE RESTRICT,
 
   income            JSONB    NOT NULL DEFAULT '[]'::jsonb,
