@@ -1,13 +1,61 @@
+/* ─── RESET & BASE ────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* The body fills the safe-area padding zone on #root, so we color it to
+     match the nav bar (#0B1829) — the status bar area looks like part of the nav. */
+  background: #0B1829;
+
+  /* Prevent overscroll bounce / pull-to-refresh on mobile WebView */
+  overscroll-behavior: none;
+
+  /* Disable text selection across the app (family office, not a doc reader) */
+  -webkit-user-select: none;
+  user-select: none;
+
+  /* Prevent callout on long-press (iOS) */
+  -webkit-touch-callout: none;
+}
+
+/* Allow selection inside inputs and textareas */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ─── SAFE AREA SUPPORT ───────────────────────────────────────────────────── */
+/*
+  Capacitor sets viewport-fit=cover so the WebView fills the entire screen
+  including behind the status bar and home indicator.
+  Components that need to account for the notch / Dynamic Island / home bar
+  should use these CSS custom properties, which are exported for JS if needed.
+*/
+:root {
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+}
+
+/* The root div gets top padding so content is never under the status bar. */
+#root {
+  padding-top:    env(safe-area-inset-top);
+  padding-right:  env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left:   env(safe-area-inset-left);
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
