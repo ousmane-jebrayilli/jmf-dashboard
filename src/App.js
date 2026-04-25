@@ -3924,9 +3924,95 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   );
 }
 
+// ─── SNAPSHOT BREAKDOWN MODAL ─────────────────────────────────────────────────
+function SnapshotBreakdownModal({ item, month, onClose }) {
+  const isInd = item._type === "individual";
+  const hasDetail = isInd ? typeof item.cash !== "undefined" : typeof item.cashAccounts !== "undefined";
+  const title = `${item.name} — ${monthLabel(month)} Snapshot`;
+
+  let rows = [];
+  let netLabel = "";
+  let netVal = 0;
+  let netColor = C.text;
+
+  if (isInd) {
+    if (hasDetail) {
+      rows = [
+        { label: "Cash",            val: item.cash },
+        { label: "Accounts",        val: item.accounts },
+        { label: "Securities",      val: item.securities },
+        { label: "Crypto",          val: item.crypto },
+        { label: "Physical assets", val: item.physicalAssets },
+      ];
+    }
+    netLabel = "Net worth";
+    netVal   = item.net;
+    netColor = item.net >= 0 ? C.green : C.red;
+  } else {
+    if (hasDetail) {
+      const other = item.otherLiabilities || 0;
+      rows = [
+        { label: "Cash & accounts",  val: item.cashAccounts, positive: true },
+        { label: "divider" },
+        item.taxPayable  > 0 && { label: "CRA payable",       val: -item.taxPayable },
+        item.creditCards > 0 && { label: "Credit cards",      val: -item.creditCards },
+        other            > 0 && { label: "Other liabilities", val: -other },
+        { label: "Total liabilities", val: -item.liabilities, bold: true },
+      ].filter(Boolean);
+      if (item.monthlyProfit != null) {
+        rows.push({ label: "divider" });
+        rows.push({ label: "Monthly profit (this month)", val: item.monthlyProfit, positive: item.monthlyProfit >= 0 });
+      }
+    }
+    netLabel = "Net equity";
+    netVal   = item.eq;
+    netColor = item.eq >= 0 ? C.blue : C.red;
+  }
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:299, background:"rgba(0,0,0,0.45)" }} />
+      <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)", zIndex:300, width:380, maxWidth:"calc(100vw - 32px)", background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, boxShadow:"0 12px 60px rgba(0,0,0,0.28)", overflow:"hidden" }}>
+        <div style={{ padding:"16px 20px 14px", borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:2 }}>{title}</div>
+          <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>Point-in-time breakdown</div>
+        </div>
+        <div style={{ padding:"14px 20px 20px" }}>
+          {!hasDetail ? (
+            <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic", padding:"8px 0" }}>
+              Detailed breakdown not available for this snapshot.
+            </div>
+          ) : (
+            <div>
+              {rows.map((row, i) => {
+                if (row.label === "divider") return <div key={i} style={{ borderTop:`1px solid ${C.border}`, margin:"8px 0" }} />;
+                const valColor = row.bold ? C.text : (row.val >= 0 ? (row.positive !== false ? C.green : C.text) : C.red);
+                return (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"5px 0", fontSize:13 }}>
+                    <span style={{ color: row.bold ? C.text : C.textMid, fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
+                    <span style={{ fontFamily:C.mono, fontWeight: row.bold ? 700 : 600, color: valColor }}>{$F(row.val)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ borderTop:`2px solid ${C.border}`, marginTop: hasDetail ? 10 : 6, paddingTop:10, display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+            <span style={{ fontSize:14, fontWeight:700, color:C.text }}>{netLabel}</span>
+            <span style={{ fontFamily:C.mono, fontSize:18, fontWeight:700, color:netColor }}>{$F(netVal)}</span>
+          </div>
+        </div>
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:"10px 20px" }}>
+          <button onClick={onClose} style={{ width:"100%", padding:"8px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:12, fontWeight:600, cursor:"pointer" }}>Close</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── REPORTS TAB ──────────────────────────────────────────────────────────────
 function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
   const [drill, setDrill] = useState(null); // snapshot object
+  const [breakdownItem, setBreakdownItem] = useState(null); // { ...row, _type, _month }
   const [snapNote, setSnapNote] = useState("");
   const [showNoteInput, setShowNoteInput] = useState(false);
   const isMobile = useIsMobile();
@@ -3940,6 +4026,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
     return (
       <div>
         {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
+        {breakdownItem && <SnapshotBreakdownModal item={breakdownItem} month={drill.month} onClose={() => setBreakdownItem(null)} />}
         <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>Snapshot — {monthLabel(drill.month)}</div>
@@ -3965,9 +4052,12 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
           <Card style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Individuals</div>
             {drill.individualBreakdown.map((x, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+              <div key={i} onClick={() => setBreakdownItem({ ...x, _type: "individual" })}
+                style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13, cursor: "pointer", borderRadius: 4, transition: "background 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ color: C.textMid }}>{x.name}</span>
-                <span style={{ fontFamily: C.mono, color: x.net >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(x.net)}</span>
+                <span style={{ fontFamily: C.mono, color: x.net >= 0 ? C.green : C.red, fontWeight: 700 }}>{$F(x.net)} ›</span>
               </div>
             ))}
           </Card>
@@ -3994,9 +4084,12 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
           <Card>
             <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Businesses</div>
             {drill.businessBreakdown.map((x, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+              <div key={i} onClick={() => setBreakdownItem({ ...x, _type: "business" })}
+                style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13, cursor: "pointer", borderRadius: 4, transition: "background 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ color: C.textMid }}>{x.name}{x.type === "nonprofit" ? " (NP)" : ""}</span>
-                <span style={{ fontFamily: C.mono, color: x.eq >= 0 ? C.blue : C.red, fontWeight: 700 }}>{$F(x.eq)}</span>
+                <span style={{ fontFamily: C.mono, color: x.eq >= 0 ? C.blue : C.red, fontWeight: 700 }}>{$F(x.eq)} ›</span>
               </div>
             ))}
           </Card>
@@ -4297,8 +4390,28 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       reEquity: snapREEq, reLiquid: snapRELiq,
       individuals: data.individuals.reduce((s, f) => s + indNet(f), 0),
       businesses: data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0),
-      individualBreakdown: data.individuals.map(f => ({ id: f.id, name: f.name, net: indNet(f) })),
-      businessBreakdown: data.businesses.map(b => ({ id: b.id, name: b.name, eq: safe(b.cashAccounts) - safe(b.liabilities), type: b.type })),
+      individualBreakdown: data.individuals.map(f => ({
+        id: f.id, name: f.name,
+        cash: safe(f.cash), accounts: safe(f.accounts),
+        securities: safe(f.securities), crypto: safe(f.crypto),
+        physicalAssets: safe(f.physicalAssets),
+        net: indNet(f),
+      })),
+      businessBreakdown: data.businesses.map(b => {
+        const mp = (b.monthlyProfits || []).find(p => p.month === currentYM());
+        const other = Math.max(0, safe(b.liabilities) - safe(b.taxPayable) - safe(b.creditCards));
+        return {
+          id: b.id, name: b.name, type: b.type,
+          cashAccounts: safe(b.cashAccounts),
+          taxPayable: safe(b.taxPayable),
+          creditCards: safe(b.creditCards),
+          otherLiabilities: other,
+          liabilities: safe(b.liabilities),
+          revenue: safe(b.revenue), expenses: safe(b.expenses),
+          monthlyProfit: mp != null ? safe(mp.profit) : null,
+          eq: safe(b.cashAccounts) - safe(b.liabilities),
+        };
+      }),
       reBreakdown: data.properties.map(p => {
         const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
         return { id: p.id, name: p.name, market: mkt, debt: propCurrentMortgageBalance(p), equity: propJMFEquity(p), liquid: (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p) };
