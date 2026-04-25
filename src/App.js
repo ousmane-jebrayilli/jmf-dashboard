@@ -2614,42 +2614,85 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                             </div>
                           );
                         })()}
-                        <div style={{ padding:"0 16px 14px" }}>
-                          <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                            <span>Month</span>
-                            <span>Due Date</span>
-                            <span>Rent Due</span>
-                            <span>Paid</span>
-                            <span>Status</span>
-                            <span></span>
-                          </div>
-                          {ledger.rows.map((row, idx) => {
-                            const current = ledger.payments.find(entry => entry.month === row.month);
-                            return (
-                              <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
-                                <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
-                                <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
-                                <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
-                                <div>
-                                  <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
-                                  {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
-                                </div>
-                                <div>
-                                  <div style={{ fontFamily:C.mono, fontSize:13, color: row.outstanding === 0 ? C.green : C.red }}>
-                                    {row.outstanding === 0 ? "Paid" : "Unpaid"}
+                        {isMobile ? (
+                          /* ── MOBILE: stacked card per month ── */
+                          <div style={{ padding:"0 14px 14px", display:"flex", flexDirection:"column", gap:10, paddingTop:12 }}>
+                            {ledger.rows.map((row) => {
+                              const current = ledger.payments.find(entry => entry.month === row.month);
+                              const locked  = periodLocked && row.month === currentYM();
+                              const isPaid  = row.outstanding === 0;
+                              return (
+                                <div key={`${unit.id}-${row.month}`} style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                                  {/* top row: month + status badge */}
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px 8px" }}>
+                                    <span style={{ fontSize:14, fontWeight:700, color:C.text }}>{monthLabel(row.month)}</span>
+                                    <span style={{ fontSize:11, fontWeight:700, color: isPaid ? C.green : C.red, background: isPaid ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)", padding:"3px 10px", borderRadius:20 }}>
+                                      {isPaid ? "Paid" : "Unpaid"}
+                                    </span>
                                   </div>
+                                  {/* amount row: Rent Due / Paid */}
+                                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, padding:"0 14px 10px" }}>
+                                    <div>
+                                      <div style={{ fontSize:10, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Rent Due</div>
+                                      <div style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color:C.text }}>{$F(row.amount)}</div>
+                                    </div>
+                                    <div>
+                                      <div style={{ fontSize:10, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Paid</div>
+                                      <div style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color: row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                                      {current?.note && <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>{current.note}</div>}
+                                    </div>
+                                  </div>
+                                  {/* full-width Log/Edit button */}
+                                  <button
+                                    onClick={() => { if (!locked) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
+                                    disabled={locked}
+                                    title={locked ? "Period is locked" : undefined}
+                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, borderTop:`1px solid ${C.border}`, border:"none", borderTop:`1px solid ${C.border}`, background: locked ? C.bg : C.goldLight, color: locked ? C.textDim : C.goldText, cursor: locked ? "not-allowed" : "pointer", borderRadius:0 }}>
+                                    {locked ? "🔒 Period Locked" : current ? "Edit Payment" : "Log Payment"}
+                                  </button>
                                 </div>
-                                <button
-                                  onClick={() => { if (!(periodLocked && row.month === currentYM())) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
-                                  disabled={periodLocked && row.month === currentYM()}
-                                  title={periodLocked && row.month === currentYM() ? "Period is locked" : undefined}
-                                  style={{ fontSize:11, padding:"6px 10px", background: periodLocked && row.month === currentYM() ? C.border : C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: periodLocked && row.month === currentYM() ? C.textDim : C.textMid, cursor: periodLocked && row.month === currentYM() ? "not-allowed" : "pointer", fontWeight:700 }}>
-                                  {periodLocked && row.month === currentYM() ? "🔒" : current ? "Edit" : "Log"}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          /* ── DESKTOP: original grid table ── */
+                          <div style={{ padding:"0 16px 14px" }}>
+                            <div style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"12px 0 8px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                              <span>Month</span>
+                              <span>Due Date</span>
+                              <span>Rent Due</span>
+                              <span>Paid</span>
+                              <span>Status</span>
+                              <span></span>
+                            </div>
+                            {ledger.rows.map((row, idx) => {
+                              const current = ledger.payments.find(entry => entry.month === row.month);
+                              return (
+                                <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                                  <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
+                                  <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
+                                  <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
+                                  <div>
+                                    <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                                    {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontFamily:C.mono, fontSize:13, color: row.outstanding === 0 ? C.green : C.red }}>
+                                      {row.outstanding === 0 ? "Paid" : "Unpaid"}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => { if (!(periodLocked && row.month === currentYM())) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
+                                    disabled={periodLocked && row.month === currentYM()}
+                                    title={periodLocked && row.month === currentYM() ? "Period is locked" : undefined}
+                                    style={{ fontSize:11, padding:"6px 10px", background: periodLocked && row.month === currentYM() ? C.border : C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: periodLocked && row.month === currentYM() ? C.textDim : C.textMid, cursor: periodLocked && row.month === currentYM() ? "not-allowed" : "pointer", fontWeight:700 }}>
+                                    {periodLocked && row.month === currentYM() ? "🔒" : current ? "Edit" : "Log"}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
