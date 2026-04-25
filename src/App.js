@@ -509,6 +509,9 @@ const DEFAULT = {
   },
 
   rentPayments: [], // { id, propertyId, unitId, leaseId, month:"YYYY-MM", amount, date, type:"payment", note }
+
+  // Notification completion state — persisted, minimal (content is always computed from live data)
+  notificationsMeta: { completedIds: [], lastSeenAt: "" },
 };
 
 // ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
@@ -554,6 +557,131 @@ function mergeById(defaults, dbArr) {
     const db = (dbArr || []).find(x => x.id === def.id) || {};
     return { ...def, ...db };
   });
+}
+
+// ─── NOTIFICATION ENGINE ──────────────────────────────────────────────────────
+// Pure function — derives all Phase 1 notifications from live data.
+// Persisted state (completedIds) is handled separately in notificationsMeta.
+function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId) {
+  const ym = currentYM();
+  const out = [];
+
+  if (isAdmin) {
+    // 1. Rent overdue — past months with outstanding balance
+    for (const prop of (data.properties || [])) {
+      const ledgers = propertyLeaseLedgers(prop, data.rentPayments || []);
+      for (const { unit, ledger } of ledgers) {
+        for (const row of ledger.rows) {
+          if (row.month < ym && row.outstanding > 0) {
+            out.push({
+              id: `rent-overdue-${prop.id}-${unit.id}-${row.month}`,
+              type: "rent_overdue", category: "Real Estate",
+              title: "Rent Overdue",
+              description: `${prop.name} · ${unit.label || unit.id}`,
+              detail: `${monthLabel(row.month)} — ${$F(row.outstanding)} outstanding`,
+              month: row.month, severity: "high",
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Rent due this month, not yet paid
+    for (const prop of (data.properties || [])) {
+      const ledgers = propertyLeaseLedgers(prop, data.rentPayments || []);
+      for (const { unit, ledger } of ledgers) {
+        const row = ledger.rows.find(r => r.month === ym);
+        if (row && row.outstanding > 0) {
+          out.push({
+            id: `rent-due-${prop.id}-${unit.id}-${ym}`,
+            type: "rent_due", category: "Real Estate",
+            title: "Rent Due This Month",
+            description: `${prop.name} · ${unit.label || unit.id}`,
+            detail: `${monthLabel(ym)} — ${$F(row.outstanding)} unpaid`,
+            month: ym, severity: "medium",
+          });
+        }
+      }
+    }
+
+    // 3. Individual monthly snapshot missing
+    for (const ind of (data.individuals || [])) {
+      const hasLog = (ind.accountsLog || []).some(e => e.month === ym);
+      const profile = profiles.find(p => p.individual_id === ind.id);
+      const hasPendingSub = profile
+        ? pendingSubs.some(s => s.user_id === profile.id && s.period?.slice(0, 7) === ym)
+        : false;
+      if (!hasLog && !hasPendingSub) {
+        out.push({
+          id: `submission-needed-${ind.id}-${ym}`,
+          type: "submission_needed", category: "Individuals",
+          title: "Monthly Update Missing",
+          description: ind.name,
+          detail: `${monthLabel(ym)} — no snapshot logged`,
+          month: ym, individualId: ind.id, severity: "medium",
+        });
+      }
+    }
+
+    // 4. Pending submissions awaiting admin review
+    for (const sub of pendingSubs) {
+      const profile = profiles.find(p => p.id === sub.user_id);
+      const ind = (data.individuals || []).find(x => x.id === profile?.individual_id);
+      const subYM = sub.period ? sub.period.slice(0, 7) : ym;
+      out.push({
+        id: `submission-pending-${sub.id}`,
+        type: "submission_pending", category: "Individuals",
+        title: "Submission Pending Review",
+        description: ind?.name || profile?.display_name || "Member",
+        detail: `Submitted ${monthLabel(subYM)}`,
+        month: subYM, submissionId: sub.id, severity: "low",
+      });
+    }
+
+    // 5. Business P&L missing for current month
+    for (const biz of (data.businesses || []).filter(b => b.type !== "nonprofit")) {
+      const has = (biz.monthlyProfits || []).find(p => p.month === ym);
+      if (!has) {
+        out.push({
+          id: `biz-pl-${biz.id}-${ym}`,
+          type: "biz_pl_needed", category: "Businesses",
+          title: "P&L Not Entered",
+          description: biz.name,
+          detail: `${monthLabel(ym)} — no profit/loss recorded`,
+          month: ym, bizId: biz.id, severity: "medium",
+        });
+      }
+    }
+
+    // 6. Monthly snapshot not captured
+    if (!(data.snapshots || []).some(s => s.month === ym)) {
+      out.push({
+        id: `snapshot-${ym}`,
+        type: "snapshot_needed", category: "Reports",
+        title: "Monthly Snapshot Not Captured",
+        description: `${monthLabel(ym)} report pending`,
+        detail: "Go to Reports tab to capture",
+        month: ym, severity: "low",
+      });
+    }
+  } else {
+    // Member: only their own submission status
+    if (individualId) {
+      const ind = (data.individuals || []).find(x => x.id === individualId);
+      if (ind && !(ind.accountsLog || []).some(e => e.month === ym)) {
+        out.push({
+          id: `submission-needed-${individualId}-${ym}`,
+          type: "submission_needed", category: "Your Updates",
+          title: "Monthly Snapshot Needed",
+          description: `${monthLabel(ym)} update required`,
+          detail: "Submit your monthly financial update",
+          month: ym, individualId, severity: "medium",
+        });
+      }
+    }
+  }
+
+  return out;
 }
 
 function getFxRateToCad(propOrEntry) {
@@ -1493,6 +1621,106 @@ function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject
   );
 }
 
+// ─── NOTIFICATION UI ──────────────────────────────────────────────────────────
+const NOTIF_COLOR = {
+  rent_overdue:       "#EF4444",
+  rent_due:           "#F59E0B",
+  submission_needed:  "#F59E0B",
+  submission_pending: "#3B82F6",
+  biz_pl_needed:      "#F59E0B",
+  snapshot_needed:    "#8B5CF6",
+};
+const NOTIF_DOT = {
+  rent_overdue: "●", rent_due: "●", submission_needed: "●",
+  submission_pending: "●", biz_pl_needed: "●", snapshot_needed: "●",
+};
+
+function NotificationRow({ n, onComplete, completed }) {
+  const color = NOTIF_COLOR[n.type] || C.textMid;
+  return (
+    <div style={{
+      padding:"10px 12px", borderRadius:8,
+      background: completed ? C.bg : C.surface,
+      border: `1px solid ${C.border}`,
+      borderLeft: `3px solid ${completed ? C.border : color}`,
+      display:"flex", alignItems:"flex-start", gap:10,
+      opacity: completed ? 0.5 : 1,
+    }}>
+      <span style={{ fontSize:10, color: completed ? C.textDim : color, marginTop:2, flexShrink:0 }}>
+        {completed ? "✓" : (NOTIF_DOT[n.type] || "●")}
+      </span>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:12, fontWeight:600, color: completed ? C.textDim : C.text, marginBottom:1 }}>{n.title}</div>
+        <div style={{ fontSize:11, color: C.textMid, marginBottom:1 }}>{n.description}</div>
+        {n.detail && <div style={{ fontSize:10, color:C.textDim }}>{n.detail}</div>}
+        <div style={{ fontSize:9, color:C.textDim, marginTop:3, letterSpacing:"0.07em", textTransform:"uppercase" }}>{n.category}</div>
+      </div>
+      {onComplete && !completed && (
+        <button onClick={() => onComplete(n.id)}
+          style={{ fontSize:10, padding:"3px 8px", borderRadius:5, background:"transparent", border:`1px solid ${C.border}`, color:C.textDim, cursor:"pointer", fontWeight:600, flexShrink:0, whiteSpace:"nowrap", marginTop:1 }}>
+          Done
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NotificationPanel({ notifications, completedIds, onComplete, onClose, isAdmin }) {
+  const [showCompleted, setShowCompleted] = useState(false);
+  const done = completedIds || [];
+  const pending   = notifications.filter(n => !done.includes(n.id));
+  const completed = notifications.filter(n =>  done.includes(n.id));
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:149 }} />
+      <div style={{
+        position:"absolute", top:"calc(100% + 8px)", right:0,
+        width:360, maxWidth:"calc(100vw - 20px)",
+        background:C.surface, border:`1px solid ${C.border}`,
+        borderRadius:14, boxShadow:"0 8px 48px rgba(0,0,0,0.18)",
+        zIndex:150, overflow:"hidden",
+        maxHeight:"80vh", display:"flex", flexDirection:"column",
+      }}>
+        {/* Header */}
+        <div style={{ padding:"14px 16px 10px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <span style={{ fontSize:14, fontWeight:700, color:C.text }}>Notifications</span>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.textDim, fontSize:16, cursor:"pointer", padding:"0 4px", lineHeight:1 }}>✕</button>
+        </div>
+        {/* Body */}
+        <div style={{ overflowY:"auto", flex:1 }}>
+          {/* Pending */}
+          <div style={{ padding:"12px 14px 8px" }}>
+            <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
+              Pending{pending.length > 0 ? ` (${pending.length})` : ""}
+            </div>
+            {pending.length === 0
+              ? <div style={{ fontSize:13, color:C.textDim, padding:"10px 0 6px", textAlign:"center" }}>All clear ✓</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {pending.map(n => <NotificationRow key={n.id} n={n} onComplete={isAdmin ? onComplete : null} completed={false} />)}
+                </div>
+            }
+          </div>
+          {/* Completed */}
+          {completed.length > 0 && (
+            <div style={{ padding:"8px 14px 14px", borderTop:`1px solid ${C.border}` }}>
+              <button onClick={() => setShowCompleted(s => !s)}
+                style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5, marginBottom: showCompleted ? 8 : 0 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Completed ({completed.length})</span>
+                <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
+              </button>
+              {showCompleted && (
+                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen() {
   const [email, setEmail]     = useState("");
@@ -1572,6 +1800,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
   const [currentSub, setCurrentSub]     = useState(undefined); // undefined=loading
   const [missingPeriod, setMissingPeriod] = useState(null);   // { period_date, label }
   const [memberTab, setMemberTab]       = useState("snapshot");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
 
@@ -1696,6 +1925,34 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
               Cash stale
             </button>
           )}
+          {/* Notification bell */}
+          {(() => {
+            const memberNotifs = computeNotifications(data, [], [], false, individualId);
+            const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
+            const pendingCount = memberNotifs.filter(n => !(meta.completedIds || []).includes(n.id)).length;
+            return (
+              <div style={{ position:"relative" }}>
+                <button onClick={() => setNotificationsOpen(o => !o)}
+                  style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:14, padding:"3px 8px", cursor:"pointer", lineHeight:1, position:"relative" }}>
+                  🔔
+                  {pendingCount > 0 && (
+                    <span style={{ position:"absolute", top:-5, right:-5, background:"#EF4444", color:"#fff", fontSize:9, fontWeight:700, borderRadius:10, padding:"1px 4px", minWidth:14, textAlign:"center", lineHeight:"14px" }}>
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+                {notificationsOpen && (
+                  <NotificationPanel
+                    notifications={memberNotifs}
+                    completedIds={meta.completedIds || []}
+                    onComplete={null}
+                    onClose={() => setNotificationsOpen(false)}
+                    isAdmin={false}
+                  />
+                )}
+              </div>
+            );
+          })()}
           <button onClick={onLogout}
             style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: "4px 10px", cursor: "pointer" }}>
             Sign out
@@ -2647,7 +2904,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                     onClick={() => { if (!locked) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
                                     disabled={locked}
                                     title={locked ? "Period is locked" : undefined}
-                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, borderTop:`1px solid ${C.border}`, border:"none", borderTop:`1px solid ${C.border}`, background: locked ? C.bg : C.goldLight, color: locked ? C.textDim : C.goldText, cursor: locked ? "not-allowed" : "pointer", borderRadius:0 }}>
+                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, border:"none", borderTop:`1px solid ${C.border}`, background: locked ? C.bg : C.goldLight, color: locked ? C.textDim : C.goldText, cursor: locked ? "not-allowed" : "pointer", borderRadius:0 }}>
                                     {locked ? "🔒 Period Locked" : current ? "Edit Payment" : "Log Payment"}
                                   </button>
                                 </div>
@@ -3851,6 +4108,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [overrideReason, setOverrideReason]   = useState("");
   const [periodLoading, setPeriodLoading]     = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
@@ -3859,6 +4117,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       setProfiles(profs);
     });
   }, [tab]);
+
+  function completeNotification(id) {
+    const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
+    const updated = { ...meta, completedIds: [...new Set([...(meta.completedIds || []), id])] };
+    saveToDB("notificationsMeta", updated);
+    setData(d => ({ ...d, notificationsMeta: updated }));
+  }
 
   // ── One-time reminder check on mount ──
   useEffect(() => {
@@ -4315,6 +4580,34 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               Cash stale
             </button>
           )}
+          {/* Notification bell */}
+          {(() => {
+            const notifications = computeNotifications(data, profiles, pendingSubs, true, null);
+            const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
+            const pendingCount = notifications.filter(n => !(meta.completedIds || []).includes(n.id)).length;
+            return (
+              <div style={{ position:"relative" }}>
+                <button onClick={() => setNotificationsOpen(o => !o)}
+                  style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:14, padding:"3px 8px", cursor:"pointer", lineHeight:1, position:"relative", flexShrink:0 }}>
+                  🔔
+                  {pendingCount > 0 && (
+                    <span style={{ position:"absolute", top:-5, right:-5, background:"#EF4444", color:"#fff", fontSize:9, fontWeight:700, borderRadius:10, padding:"1px 4px", minWidth:14, textAlign:"center", lineHeight:"14px" }}>
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+                {notificationsOpen && (
+                  <NotificationPanel
+                    notifications={notifications}
+                    completedIds={meta.completedIds || []}
+                    onComplete={completeNotification}
+                    onClose={() => setNotificationsOpen(false)}
+                    isAdmin={true}
+                  />
+                )}
+              </div>
+            );
+          })()}
           <span style={{ fontSize: 9, fontWeight: 700, color: C.gold, background: "rgba(184,150,46,0.15)", border:`1px solid rgba(184,150,46,0.25)`, borderRadius: 4, padding: "2px 6px", letterSpacing:"0.06em", flexShrink:0 }}>ADMIN</span>
           {!isMobile && <span style={{ fontSize: 12, color: C.navText, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.profile?.display_name || user.email}</span>}
           <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: isMobile ? "4px 8px" : "5px 12px", cursor: "pointer", flexShrink:0, whiteSpace:"nowrap" }}>Sign out</button>
