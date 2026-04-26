@@ -1667,9 +1667,66 @@ function NotificationRow({ n, onComplete, completed }) {
 
 function NotificationPanel({ notifications, completedIds, onComplete, onClose, isAdmin }) {
   const [showCompleted, setShowCompleted] = useState(false);
+  const isMobile = useIsMobile();
   const done = completedIds || [];
   const pending   = notifications.filter(n => !done.includes(n.id));
   const completed = notifications.filter(n =>  done.includes(n.id));
+
+  const body = (
+    <>
+      {/* Pending */}
+      <div style={{ padding:"12px 14px 8px" }}>
+        <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
+          Pending{pending.length > 0 ? ` (${pending.length})` : ""}
+        </div>
+        {pending.length === 0
+          ? <div style={{ fontSize:13, color:C.textDim, padding:"10px 0 6px", textAlign:"center" }}>All clear ✓</div>
+          : <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+              {pending.map(n => <NotificationRow key={n.id} n={n} onComplete={isAdmin ? onComplete : null} completed={false} />)}
+            </div>
+        }
+      </div>
+      {/* Completed */}
+      {completed.length > 0 && (
+        <div style={{ padding:"8px 14px 14px", borderTop:`1px solid ${C.border}` }}>
+          <button onClick={() => setShowCompleted(s => !s)}
+            style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5, marginBottom: showCompleted ? 8 : 0 }}>
+            <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Completed ({completed.length})</span>
+            <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
+          </button>
+          {showCompleted && (
+            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+              {completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:149, background:"rgba(0,0,0,0.4)" }} />
+        <div style={{
+          position:"fixed", bottom:0, left:0, right:0, zIndex:150,
+          background:C.surface, borderRadius:"20px 20px 0 0",
+          boxShadow:"0 -4px 32px rgba(0,0,0,0.22)",
+          maxHeight:"85vh", display:"flex", flexDirection:"column",
+          paddingBottom:"env(safe-area-inset-bottom)",
+        }}>
+          <div style={{ padding:"14px 16px 10px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+            <span style={{ fontSize:15, fontWeight:700, color:C.text }}>Notifications</span>
+            <button onClick={onClose} style={{ background:"none", border:"none", color:C.textDim, fontSize:20, cursor:"pointer", padding:"0 4px", lineHeight:1 }}>✕</button>
+          </div>
+          <div style={{ overflowY:"auto", flex:1, WebkitOverflowScrolling:"touch" }}>
+            {body}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:149 }} />
@@ -1681,40 +1738,12 @@ function NotificationPanel({ notifications, completedIds, onComplete, onClose, i
         zIndex:150, overflow:"hidden",
         maxHeight:"80vh", display:"flex", flexDirection:"column",
       }}>
-        {/* Header */}
         <div style={{ padding:"14px 16px 10px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
           <span style={{ fontSize:14, fontWeight:700, color:C.text }}>Notifications</span>
           <button onClick={onClose} style={{ background:"none", border:"none", color:C.textDim, fontSize:16, cursor:"pointer", padding:"0 4px", lineHeight:1 }}>✕</button>
         </div>
-        {/* Body */}
         <div style={{ overflowY:"auto", flex:1 }}>
-          {/* Pending */}
-          <div style={{ padding:"12px 14px 8px" }}>
-            <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
-              Pending{pending.length > 0 ? ` (${pending.length})` : ""}
-            </div>
-            {pending.length === 0
-              ? <div style={{ fontSize:13, color:C.textDim, padding:"10px 0 6px", textAlign:"center" }}>All clear ✓</div>
-              : <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-                  {pending.map(n => <NotificationRow key={n.id} n={n} onComplete={isAdmin ? onComplete : null} completed={false} />)}
-                </div>
-            }
-          </div>
-          {/* Completed */}
-          {completed.length > 0 && (
-            <div style={{ padding:"8px 14px 14px", borderTop:`1px solid ${C.border}` }}>
-              <button onClick={() => setShowCompleted(s => !s)}
-                style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5, marginBottom: showCompleted ? 8 : 0 }}>
-                <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Completed ({completed.length})</span>
-                <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
-              </button>
-              {showCompleted && (
-                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-                  {completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)}
-                </div>
-              )}
-            </div>
-          )}
+          {body}
         </div>
       </div>
     </>
@@ -2876,8 +2905,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                           <div style={{ padding:"0 14px 14px", display:"flex", flexDirection:"column", gap:10, paddingTop:12 }}>
                             {ledger.rows.map((row) => {
                               const current = ledger.payments.find(entry => entry.month === row.month);
-                              const locked  = periodLocked && row.month === currentYM();
                               const isPaid  = row.outstanding === 0;
+                              const displayPaid = row.paid + row.creditApplied;
                               return (
                                 <div key={`${unit.id}-${row.month}`} style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
                                   {/* top row: month + status badge */}
@@ -2895,17 +2924,18 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                     </div>
                                     <div>
                                       <div style={{ fontSize:10, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:2 }}>Paid</div>
-                                      <div style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color: row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                                      <div style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color: displayPaid > 0 ? C.green : C.textDim }}>
+                                        {displayPaid > 0 ? $F(displayPaid) : "—"}
+                                        {row.creditApplied > 0 && row.paid === 0 && <span style={{ fontSize:10, color:C.textDim, marginLeft:4 }}>(deposit)</span>}
+                                      </div>
                                       {current?.note && <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>{current.note}</div>}
                                     </div>
                                   </div>
                                   {/* full-width Log/Edit button */}
                                   <button
-                                    onClick={() => { if (!locked) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
-                                    disabled={locked}
-                                    title={locked ? "Period is locked" : undefined}
-                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, border:"none", borderTop:`1px solid ${C.border}`, background: locked ? C.bg : C.goldLight, color: locked ? C.textDim : C.goldText, cursor: locked ? "not-allowed" : "pointer", borderRadius:0 }}>
-                                    {locked ? "🔒 Period Locked" : current ? "Edit Payment" : "Log Payment"}
+                                    onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
+                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, border:"none", borderTop:`1px solid ${C.border}`, background: C.goldLight, color: C.goldText, cursor: "pointer", borderRadius:0 }}>
+                                    {current ? "Edit Payment" : "Log Payment"}
                                   </button>
                                 </div>
                               );
@@ -2924,13 +2954,17 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                             </div>
                             {ledger.rows.map((row, idx) => {
                               const current = ledger.payments.find(entry => entry.month === row.month);
+                              const displayPaid = row.paid + row.creditApplied;
                               return (
                                 <div key={`${unit.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"110px 110px 1fr 1fr 1fr 88px", gap:"8px", padding:"10px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
                                   <span style={{ fontSize:12, color:C.text }}>{monthLabel(row.month)}</span>
                                   <span style={{ fontSize:12, color:C.textMid }}>{formatDate(row.dueDate)}</span>
                                   <span style={{ fontFamily:C.mono, fontSize:13, color:C.text }}>{$F(row.amount)}</span>
                                   <div>
-                                    <div style={{ fontFamily:C.mono, fontSize:13, color:row.paid > 0 ? C.green : C.textDim }}>{row.paid > 0 ? $F(row.paid) : "—"}</div>
+                                    <div style={{ fontFamily:C.mono, fontSize:13, color: displayPaid > 0 ? C.green : C.textDim }}>
+                                      {displayPaid > 0 ? $F(displayPaid) : "—"}
+                                      {row.creditApplied > 0 && row.paid === 0 && <span style={{ fontSize:10, color:C.textDim, marginLeft:4 }}>(deposit)</span>}
+                                    </div>
                                     {current?.note && <div style={{ fontSize:10, color:C.textDim }}>{current.note}</div>}
                                   </div>
                                   <div>
@@ -2939,11 +2973,9 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                     </div>
                                   </div>
                                   <button
-                                    onClick={() => { if (!(periodLocked && row.month === currentYM())) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
-                                    disabled={periodLocked && row.month === currentYM()}
-                                    title={periodLocked && row.month === currentYM() ? "Period is locked" : undefined}
-                                    style={{ fontSize:11, padding:"6px 10px", background: periodLocked && row.month === currentYM() ? C.border : C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: periodLocked && row.month === currentYM() ? C.textDim : C.textMid, cursor: periodLocked && row.month === currentYM() ? "not-allowed" : "pointer", fontWeight:700 }}>
-                                    {periodLocked && row.month === currentYM() ? "🔒" : current ? "Edit" : "Log"}
+                                    onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
+                                    style={{ fontSize:11, padding:"6px 10px", background: C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: C.textMid, cursor: "pointer", fontWeight:700 }}>
+                                    {current ? "Edit" : "Log"}
                                   </button>
                                 </div>
                               );
