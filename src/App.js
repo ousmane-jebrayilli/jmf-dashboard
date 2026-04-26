@@ -202,6 +202,11 @@ function monthIndex(ym) {
 function monthDiff(fromYM, toYM) {
   return monthIndex(toYM) - monthIndex(fromYM);
 }
+function shiftYM(ym, n) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
 function ymFromDate(value) {
   return value ? value.slice(0, 7) : "";
 }
@@ -564,117 +569,171 @@ function mergeById(defaults, dbArr) {
 // Persisted state (completedIds) is handled separately in notificationsMeta.
 function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId) {
   const ym = currentYM();
+  const prevYM = shiftYM(ym, -1);
+  const nextYM = shiftYM(ym, 1);
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const dayOfMonth = today.getDate();
   const out = [];
 
+  function notifStatus(dueDateStr, completed) {
+    if (completed) return "completed";
+    return dueDateStr <= todayStr ? "overdue" : "upcoming";
+  }
+
   if (isAdmin) {
-    // 1 & 2. Rent notifications — status based on row.dueDate vs today
-    const todayStr = (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    })();
+    // ── Rent ─────────────────────────────────────────────────────────────────
     for (const prop of (data.properties || [])) {
       const ledgers = propertyLeaseLedgers(prop, data.rentPayments || []);
       for (const { unit, ledger } of ledgers) {
         let addedUpcoming = false;
         for (const row of ledger.rows) {
-          if (row.outstanding === 0) continue; // fully paid — no notification
           const due = row.dueDate || (row.month + "-01");
-          const isPending = due <= todayStr;
-          if (!isPending) {
-            // Upcoming: only emit the next one per unit to avoid spam
-            if (addedUpcoming) continue;
+          const completed = row.outstanding === 0;
+          const status = notifStatus(due, completed);
+          if (status === "upcoming") {
+            if (addedUpcoming) continue; // only next upcoming per unit
             addedUpcoming = true;
           }
           out.push({
             id: `rent-${prop.id}-${unit.id}-${row.month}`,
-            type: isPending ? (row.month < ym ? "rent_overdue" : "rent_due") : "rent_due",
+            type: status === "overdue" ? (row.month < ym ? "rent_overdue" : "rent_due") : "rent_due",
             category: "Real Estate",
-            title: isPending ? (row.month < ym ? "Rent Overdue" : "Log Rent Payment") : "Upcoming Rent",
+            title: status === "completed" ? "Rent Received" : status === "overdue" ? (row.month < ym ? "Rent Overdue" : "Log Rent Payment") : "Upcoming Rent",
             description: `${prop.name} · ${unit.label || unit.id}`,
-            detail: isPending
-              ? `${monthLabel(row.month)} — ${$F(row.outstanding)} ${row.month < ym ? "overdue" : "due"}`
-              : `Due ${due} — ${$F(row.outstanding)}`,
-            month: row.month, severity: isPending ? (row.month < ym ? "high" : "medium") : "low",
-            status: isPending ? "pending" : "upcoming",
+            detail: status === "upcoming"
+              ? `Due ${due} — ${$F(row.outstanding)}`
+              : status === "completed"
+              ? `${monthLabel(row.month)} — ${$F(row.amount)} received`
+              : `${monthLabel(row.month)} — ${$F(row.outstanding)} ${row.month < ym ? "overdue" : "due"}`,
+            month: row.month, dueDate: due,
+            severity: status === "overdue" && row.month < ym ? "high" : "medium",
+            status,
           });
         }
       }
     }
 
-    // 3. Individual monthly snapshot missing
+    // ── Individual snapshots — current month (overdue/completed) ─────────────
     for (const ind of (data.individuals || [])) {
-      const hasLog = (ind.accountsLog || []).some(e => e.month === ym);
-      const profile = profiles.find(p => p.individual_id === ind.id);
-      const hasPendingSub = profile
-        ? pendingSubs.some(s => s.user_id === profile.id && s.period?.slice(0, 7) === ym)
-        : false;
-      if (!hasLog && !hasPendingSub) {
-        out.push({
-          id: `submission-needed-${ind.id}-${ym}`,
-          type: "submission_needed", category: "Individuals",
-          title: "Monthly Update Missing",
-          description: ind.name,
-          detail: `${monthLabel(ym)} — no snapshot logged`,
-          month: ym, individualId: ind.id, severity: "medium",
-        });
-      }
+      const dueDate = ym + "-01";
+      const submitted = (ind.accountsLog || []).some(e => e.month === ym);
+      const hasPendingSub = (() => {
+        const profile = profiles.find(p => p.individual_id === ind.id);
+        return profile ? pendingSubs.some(s => s.user_id === profile.id && s.period?.slice(0,7) === ym) : false;
+      })();
+      const completed = submitted || hasPendingSub;
+      out.push({
+        id: `snapshot-ind-${ind.id}-${ym}`,
+        type: "submission_needed", category: "Individuals",
+        title: completed ? `Snapshot received — ${ind.name}` : `Snapshot due — ${ind.name}`,
+        description: ind.name,
+        detail: completed
+          ? `${monthLabel(ym)} snapshot submitted`
+          : `${monthLabel(ym)} personal snapshot not yet logged`,
+        month: ym, dueDate, individualId: ind.id,
+        severity: "medium", status: notifStatus(dueDate, completed),
+      });
     }
 
-    // 4. Pending submissions awaiting admin review
+    // ── Individual snapshots — next month (always upcoming) ───────────────────
+    for (const ind of (data.individuals || [])) {
+      const dueDate = nextYM + "-01";
+      out.push({
+        id: `snapshot-ind-${ind.id}-${nextYM}`,
+        type: "submission_needed", category: "Individuals",
+        title: `Upcoming snapshot — ${ind.name}`,
+        description: ind.name,
+        detail: `${monthLabel(nextYM)} snapshot due ${dueDate}`,
+        month: nextYM, dueDate, individualId: ind.id,
+        severity: "low", status: "upcoming",
+      });
+    }
+
+    // ── Pending member submissions awaiting admin review ───────────────────────
     for (const sub of pendingSubs) {
       const profile = profiles.find(p => p.id === sub.user_id);
       const ind = (data.individuals || []).find(x => x.id === profile?.individual_id);
-      const subYM = sub.period ? sub.period.slice(0, 7) : ym;
+      const subYM = sub.period ? sub.period.slice(0,7) : ym;
       out.push({
         id: `submission-pending-${sub.id}`,
         type: "submission_pending", category: "Individuals",
         title: "Submission Pending Review",
         description: ind?.name || profile?.display_name || "Member",
-        detail: `Submitted ${monthLabel(subYM)}`,
-        month: subYM, submissionId: sub.id, severity: "low",
+        detail: `Submitted ${monthLabel(subYM)} — awaiting admin review`,
+        month: subYM, dueDate: subYM + "-01",
+        severity: "low", status: "overdue",
       });
     }
 
-    // 5. Business P&L missing for current month
+    // ── Business P&L — previous month (due 5th of current month) ──────────────
     for (const biz of (data.businesses || []).filter(b => b.type !== "nonprofit")) {
-      const has = (biz.monthlyProfits || []).find(p => p.month === ym);
-      if (!has) {
-        out.push({
-          id: `biz-pl-${biz.id}-${ym}`,
-          type: "biz_pl_needed", category: "Businesses",
-          title: "P&L Not Entered",
-          description: biz.name,
-          detail: `${monthLabel(ym)} — no profit/loss recorded`,
-          month: ym, bizId: biz.id, severity: "medium",
-        });
-      }
-    }
-
-    // 6. Monthly snapshot not captured
-    if (!(data.snapshots || []).some(s => s.month === ym)) {
+      const dueDate = ym + "-05";
+      const completed = !!(biz.monthlyProfits || []).find(p => p.month === prevYM);
       out.push({
-        id: `snapshot-${ym}`,
-        type: "snapshot_needed", category: "Reports",
-        title: "Monthly Snapshot Not Captured",
-        description: `${monthLabel(ym)} report pending`,
-        detail: "Go to Reports tab to capture",
-        month: ym, severity: "low",
+        id: `biz-pl-${biz.id}-${prevYM}`,
+        type: "biz_pl_needed", category: "Businesses",
+        title: completed ? `P&L filed — ${biz.name}` : `P&L due — ${biz.name}`,
+        description: biz.name,
+        detail: completed
+          ? `${monthLabel(prevYM)} P&L recorded`
+          : `${monthLabel(prevYM)} P&L due ${dayOfMonth >= 5 ? "now" : `by ${dueDate}`}`,
+        month: prevYM, dueDate, bizId: biz.id,
+        severity: "medium", status: notifStatus(dueDate, completed),
       });
     }
+
+    // ── Business P&L — current month (due 5th of next month, always upcoming) ──
+    for (const biz of (data.businesses || []).filter(b => b.type !== "nonprofit")) {
+      const dueDate = nextYM + "-05";
+      out.push({
+        id: `biz-pl-${biz.id}-${ym}`,
+        type: "biz_pl_needed", category: "Businesses",
+        title: `Upcoming P&L — ${biz.name}`,
+        description: biz.name,
+        detail: `${monthLabel(ym)} P&L due ${dueDate}`,
+        month: ym, dueDate, bizId: biz.id,
+        severity: "low", status: "upcoming",
+      });
+    }
+
+    // ── Monthly consolidated snapshot ─────────────────────────────────────────
+    const snapCaptured = (data.snapshots || []).some(s => s.month === ym);
+    out.push({
+      id: `snapshot-${ym}`,
+      type: "snapshot_needed", category: "Reports",
+      title: snapCaptured ? "Snapshot captured" : "Monthly snapshot not captured",
+      description: `${monthLabel(ym)} consolidated report`,
+      detail: snapCaptured ? `${monthLabel(ym)} report snapshot locked` : "Go to Reports tab to capture",
+      month: ym, dueDate: ym + "-01",
+      severity: "low", status: snapCaptured ? "completed" : "overdue",
+    });
+
   } else {
-    // Member: only their own submission status
+    // ── Member: own current-month snapshot ────────────────────────────────────
     if (individualId) {
       const ind = (data.individuals || []).find(x => x.id === individualId);
-      if (ind && !(ind.accountsLog || []).some(e => e.month === ym)) {
-        out.push({
-          id: `submission-needed-${individualId}-${ym}`,
-          type: "submission_needed", category: "Your Updates",
-          title: "Monthly Snapshot Needed",
-          description: `${monthLabel(ym)} update required`,
-          detail: "Submit your monthly financial update",
-          month: ym, individualId, severity: "medium",
-        });
-      }
+      const dueDate = ym + "-01";
+      const submitted = ind ? (ind.accountsLog || []).some(e => e.month === ym) : false;
+      out.push({
+        id: `snapshot-ind-${individualId}-${ym}`,
+        type: "submission_needed", category: "Your Updates",
+        title: submitted ? "Snapshot submitted" : "Monthly snapshot due",
+        description: submitted ? `${monthLabel(ym)} update received` : `${monthLabel(ym)} update required`,
+        detail: submitted ? "Your snapshot has been recorded." : "Submit your monthly financial update",
+        month: ym, dueDate, individualId,
+        severity: "medium", status: notifStatus(dueDate, submitted),
+      });
+      // Upcoming next month
+      out.push({
+        id: `snapshot-ind-${individualId}-${nextYM}`,
+        type: "submission_needed", category: "Your Updates",
+        title: `Upcoming snapshot — ${monthLabel(nextYM)}`,
+        description: `${monthLabel(nextYM)} update due ${nextYM}-01`,
+        detail: "Your next monthly snapshot will be due on the 1st.",
+        month: nextYM, dueDate: nextYM + "-01", individualId,
+        severity: "low", status: "upcoming",
+      });
     }
   }
 
@@ -1665,39 +1724,57 @@ function NotificationRow({ n, onComplete, completed }) {
 function NotificationPanel({ notifications, completedIds, onComplete, onClose, isAdmin }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const isMobile = useIsMobile();
-  const done = completedIds || [];
-  const pending   = notifications.filter(n => !done.includes(n.id));
-  const completed = notifications.filter(n =>  done.includes(n.id));
+  const manualDone = completedIds || [];
 
-  const body = (
-    <>
-      {/* Pending */}
+  // A notification is completed if its status is "completed" OR manually marked done
+  const isCompleted = n => n.status === "completed" || manualDone.includes(n.id);
+
+  const upcoming  = notifications.filter(n => !isCompleted(n) && n.status === "upcoming")
+                                 .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+  const overdue   = notifications.filter(n => !isCompleted(n) && n.status !== "upcoming")
+                                 .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+  const completed = notifications.filter(n => isCompleted(n))
+                                 .sort((a, b) => (b.dueDate || "").localeCompare(a.dueDate || ""));
+
+  function Section({ label, items, color, emptyMsg, showDone, canComplete }) {
+    return (
       <div style={{ padding:"12px 14px 8px" }}>
-        <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
-          Pending{pending.length > 0 ? ` (${pending.length})` : ""}
+        <div style={{ fontSize:10, fontWeight:700, color: color || C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
+          {label}{items.length > 0 ? ` (${items.length})` : ""}
         </div>
-        {pending.length === 0
-          ? <div style={{ fontSize:13, color:C.textDim, padding:"10px 0 6px", textAlign:"center" }}>All clear ✓</div>
+        {items.length === 0
+          ? <div style={{ fontSize:12, color:C.textDim, padding:"6px 0 4px" }}>{emptyMsg}</div>
           : <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {pending.map(n => <NotificationRow key={n.id} n={n} onComplete={isAdmin ? onComplete : null} completed={false} />)}
+              {items.map(n => <NotificationRow key={n.id} n={n} onComplete={canComplete && isAdmin ? onComplete : null} completed={showDone} />)}
             </div>
         }
       </div>
-      {/* Completed */}
-      {completed.length > 0 && (
-        <div style={{ padding:"8px 14px 14px", borderTop:`1px solid ${C.border}` }}>
-          <button onClick={() => setShowCompleted(s => !s)}
-            style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center", gap:5, marginBottom: showCompleted ? 8 : 0 }}>
-            <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>Completed ({completed.length})</span>
-            <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
-          </button>
-          {showCompleted && (
-            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)}
-            </div>
-          )}
-        </div>
-      )}
+    );
+  }
+
+  const body = (
+    <>
+      <Section label="Upcoming"  items={upcoming}  color={C.textDim}  emptyMsg="No upcoming tasks."     showDone={false} canComplete={false} />
+      <div style={{ borderTop:`1px solid ${C.border}` }}>
+        <Section label="Overdue"   items={overdue}   color={C.red}      emptyMsg="All clear ✓"            showDone={false} canComplete={true}  />
+      </div>
+      <div style={{ borderTop:`1px solid ${C.border}` }}>
+        <button onClick={() => setShowCompleted(s => !s)}
+          style={{ background:"none", border:"none", padding:"10px 14px 6px", cursor:"pointer", display:"flex", alignItems:"center", gap:5, width:"100%" }}>
+          <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>
+            Completed{completed.length > 0 ? ` (${completed.length})` : ""}
+          </span>
+          <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
+        </button>
+        {showCompleted && (
+          <div style={{ padding:"0 14px 14px", display:"flex", flexDirection:"column", gap:7 }}>
+            {completed.length === 0
+              ? <div style={{ fontSize:12, color:C.textDim }}>Nothing completed yet.</div>
+              : completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)
+            }
+          </div>
+        )}
+      </div>
     </>
   );
 
@@ -5170,7 +5247,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
               Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} periodLockedMonth={periodStatus.is_locked ? curYM : null} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} periodLockedMonth={null} />)}
           </div>
         )}
 
@@ -5278,8 +5355,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
                         <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} locked={periodStatus.is_locked} />
-                        {!periodStatus.is_locked && <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>}
+                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} locked={false} />
+                        <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
                       </div>
                     </div>
                   ))}
@@ -5324,8 +5401,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                         <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
                             <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} locked={periodStatus.is_locked} />
-                            {!periodStatus.is_locked && <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>}
+                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} locked={false} />
+                            <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
                           </div>
                           {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
                         </div>
