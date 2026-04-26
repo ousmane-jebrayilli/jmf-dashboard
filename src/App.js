@@ -567,38 +567,35 @@ function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId
   const out = [];
 
   if (isAdmin) {
-    // 1. Rent overdue — past months with outstanding balance
+    // 1 & 2. Rent notifications — status based on row.dueDate vs today
+    const todayStr = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    })();
     for (const prop of (data.properties || [])) {
       const ledgers = propertyLeaseLedgers(prop, data.rentPayments || []);
       for (const { unit, ledger } of ledgers) {
+        let addedUpcoming = false;
         for (const row of ledger.rows) {
-          if (row.month < ym && row.outstanding > 0) {
-            out.push({
-              id: `rent-overdue-${prop.id}-${unit.id}-${row.month}`,
-              type: "rent_overdue", category: "Real Estate",
-              title: "Rent Overdue",
-              description: `${prop.name} · ${unit.label || unit.id}`,
-              detail: `${monthLabel(row.month)} — ${$F(row.outstanding)} outstanding`,
-              month: row.month, severity: "high",
-            });
+          if (row.outstanding === 0) continue; // fully paid — no notification
+          const due = row.dueDate || (row.month + "-01");
+          const isPending = due <= todayStr;
+          if (!isPending) {
+            // Upcoming: only emit the next one per unit to avoid spam
+            if (addedUpcoming) continue;
+            addedUpcoming = true;
           }
-        }
-      }
-    }
-
-    // 2. Rent due this month, not yet paid
-    for (const prop of (data.properties || [])) {
-      const ledgers = propertyLeaseLedgers(prop, data.rentPayments || []);
-      for (const { unit, ledger } of ledgers) {
-        const row = ledger.rows.find(r => r.month === ym);
-        if (row && row.outstanding > 0) {
           out.push({
-            id: `rent-due-${prop.id}-${unit.id}-${ym}`,
-            type: "rent_due", category: "Real Estate",
-            title: "Rent Due This Month",
+            id: `rent-${prop.id}-${unit.id}-${row.month}`,
+            type: isPending ? (row.month < ym ? "rent_overdue" : "rent_due") : "rent_due",
+            category: "Real Estate",
+            title: isPending ? (row.month < ym ? "Rent Overdue" : "Log Rent Payment") : "Upcoming Rent",
             description: `${prop.name} · ${unit.label || unit.id}`,
-            detail: `${monthLabel(ym)} — ${$F(row.outstanding)} unpaid`,
-            month: ym, severity: "medium",
+            detail: isPending
+              ? `${monthLabel(row.month)} — ${$F(row.outstanding)} ${row.month < ym ? "overdue" : "due"}`
+              : `Due ${due} — ${$F(row.outstanding)}`,
+            month: row.month, severity: isPending ? (row.month < ym ? "high" : "medium") : "low",
+            status: isPending ? "pending" : "upcoming",
           });
         }
       }
@@ -2933,9 +2930,10 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                   </div>
                                   {/* full-width Log/Edit button */}
                                   <button
-                                    onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
-                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, border:"none", borderTop:`1px solid ${C.border}`, background: C.goldLight, color: C.goldText, cursor: "pointer", borderRadius:0 }}>
-                                    {current ? "Edit Payment" : "Log Payment"}
+                                    onClick={() => { if (!isPaid) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
+                                    disabled={isPaid}
+                                    style={{ display:"block", width:"100%", padding:"11px", fontSize:13, fontWeight:700, border:"none", borderTop:`1px solid ${C.border}`, background: isPaid ? C.bg : C.goldLight, color: isPaid ? C.textDim : C.goldText, cursor: isPaid ? "default" : "pointer", borderRadius:0 }}>
+                                    {isPaid ? "Payment Complete" : current ? "Edit Payment" : "Log Payment"}
                                   </button>
                                 </div>
                               );
@@ -2973,9 +2971,10 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                                     </div>
                                   </div>
                                   <button
-                                    onClick={() => setLoggingRent({ unit, ledger, row, month: row.month, current })}
-                                    style={{ fontSize:11, padding:"6px 10px", background: C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: C.textMid, cursor: "pointer", fontWeight:700 }}>
-                                    {current ? "Edit" : "Log"}
+                                    onClick={() => { if (row.outstanding > 0) setLoggingRent({ unit, ledger, row, month: row.month, current }); }}
+                                    disabled={row.outstanding === 0}
+                                    style={{ fontSize:11, padding:"6px 10px", background: row.outstanding === 0 ? C.bg : C.surface, border:`1px solid ${C.border}`, borderRadius:8, color: row.outstanding === 0 ? C.textDim : C.textMid, cursor: row.outstanding === 0 ? "default" : "pointer", fontWeight:700 }}>
+                                    {row.outstanding === 0 ? "Paid" : current ? "Edit" : "Log"}
                                   </button>
                                 </div>
                               );
