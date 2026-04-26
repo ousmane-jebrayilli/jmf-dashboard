@@ -517,6 +517,17 @@ const DEFAULT = {
 
   // Notification completion state — persisted, minimal (content is always computed from live data)
   notificationsMeta: { completedIds: [], lastSeenAt: "" },
+
+  vehicles: [
+    { id:1, name:"Toyota Sienna 2020", year:2020, make:"Toyota", model:"Sienna",
+      owner:"Family", purchasePrice:0, purchaseDate:"", currentMarketValue:0,
+      loanBalance:0, monthlyPayment:0, paymentDueDay:1, mileage:0,
+      condition:"good", insuranceMonthly:0, notes:"Fully owned.", valuations:[] },
+    { id:2, name:"Mitsubishi Lancer", year:0, make:"Mitsubishi", model:"Lancer",
+      owner:"Family", purchasePrice:0, purchaseDate:"", currentMarketValue:0,
+      loanBalance:0, monthlyPayment:0, paymentDueDay:1, mileage:0,
+      condition:"good", insuranceMonthly:0, notes:"Has active loan.", valuations:[] },
+  ],
 };
 
 // ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
@@ -709,6 +720,22 @@ function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId
       severity: "low", status: snapCaptured ? "completed" : "overdue",
     });
 
+    // ── Vehicle payments ────────────────────────────────────────────────────────
+    for (const v of (data.vehicles || [])) {
+      if (safe(v.monthlyPayment) <= 0) continue;
+      const dueDay = safe(v.paymentDueDay) || 1;
+      const dueDateStr = `${ym}-${String(dueDay).padStart(2,"0")}`;
+      out.push({
+        id: `vehicle-payment-${v.id}-${ym}`,
+        type: "vehicle_payment", category: "Vehicles",
+        title: `${v.name} payment`,
+        description: `${v.make} ${v.model}`,
+        detail: `Monthly payment ${$F(v.monthlyPayment)} due ${dueDateStr}`,
+        month: ym, dueDate: dueDateStr,
+        severity: "medium", status: notifStatus(dueDateStr, false),
+      });
+    }
+
   } else {
     // ── Member: own current-month snapshot ────────────────────────────────────
     if (individualId) {
@@ -756,6 +783,10 @@ function getMarketValueCad(propOrEntry) {
   const nativeValue = getNativeMarketValue(propOrEntry);
   if (currency === "CAD") return nativeValue;
   return nativeValue * getFxRateToCad(propOrEntry);
+}
+function getVehicleMarketValue(v) {
+  const sorted = (v.valuations || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return sorted[0] ? safe(sorted[0].value) : safe(v.currentMarketValue);
 }
 function formatNativeMoney(amount, currency) {
   const value = safe(amount);
@@ -1685,10 +1716,12 @@ const NOTIF_COLOR = {
   submission_pending: "#3B82F6",
   biz_pl_needed:      "#F59E0B",
   snapshot_needed:    "#8B5CF6",
+  vehicle_payment:    "#B7770D",
 };
 const NOTIF_DOT = {
   rent_overdue: "●", rent_due: "●", submission_needed: "●",
   submission_pending: "●", biz_pl_needed: "●", snapshot_needed: "●",
+  vehicle_payment: "🚗",
 };
 
 function NotificationRow({ n, onComplete, completed }) {
@@ -1722,58 +1755,59 @@ function NotificationRow({ n, onComplete, completed }) {
 }
 
 function NotificationPanel({ notifications, completedIds, onComplete, onClose, isAdmin }) {
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [activeTab, setActiveTab] = useState("overdue");
   const isMobile = useIsMobile();
   const manualDone = completedIds || [];
 
-  // A notification is completed if its status is "completed" OR manually marked done
   const isCompleted = n => n.status === "completed" || manualDone.includes(n.id);
 
-  const upcoming  = notifications.filter(n => !isCompleted(n) && n.status === "upcoming")
-                                 .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
   const overdue   = notifications.filter(n => !isCompleted(n) && n.status !== "upcoming")
+                                 .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+  const upcoming  = notifications.filter(n => !isCompleted(n) && n.status === "upcoming")
                                  .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
   const completed = notifications.filter(n => isCompleted(n))
                                  .sort((a, b) => (b.dueDate || "").localeCompare(a.dueDate || ""));
 
-  function Section({ label, items, color, emptyMsg, showDone, canComplete }) {
-    return (
-      <div style={{ padding:"12px 14px 8px" }}>
-        <div style={{ fontSize:10, fontWeight:700, color: color || C.textDim, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>
-          {label}{items.length > 0 ? ` (${items.length})` : ""}
-        </div>
-        {items.length === 0
-          ? <div style={{ fontSize:12, color:C.textDim, padding:"6px 0 4px" }}>{emptyMsg}</div>
-          : <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {items.map(n => <NotificationRow key={n.id} n={n} onComplete={canComplete && isAdmin ? onComplete : null} completed={showDone} />)}
-            </div>
-        }
-      </div>
-    );
-  }
+  const TABS_NOTIF = [
+    { id:"overdue",   label:"Overdue",   count:overdue.length,   color:"#EF4444", badgeBg:"#EF4444" },
+    { id:"upcoming",  label:"Upcoming",  count:upcoming.length,  color:C.amber,   badgeBg:C.amber   },
+    { id:"completed", label:"Completed", count:completed.length, color:C.green,   badgeBg:C.green   },
+  ];
+
+  const activeItems = activeTab === "overdue" ? overdue : activeTab === "upcoming" ? upcoming : completed;
+  const canComplete = activeTab === "overdue" && isAdmin;
 
   const body = (
     <>
-      <Section label="Upcoming"  items={upcoming}  color={C.textDim}  emptyMsg="No upcoming tasks."     showDone={false} canComplete={false} />
-      <div style={{ borderTop:`1px solid ${C.border}` }}>
-        <Section label="Overdue"   items={overdue}   color={C.red}      emptyMsg="All clear ✓"            showDone={false} canComplete={true}  />
+      {/* Tab bar */}
+      <div style={{ display:"flex", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+        {TABS_NOTIF.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            style={{ flex:1, padding:"10px 6px 9px", fontSize:11, fontWeight:700, background:"none", border:"none",
+              borderBottom: activeTab === t.id ? `2px solid ${t.color}` : "2px solid transparent",
+              color: activeTab === t.id ? t.color : C.textDim, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
+            {t.label}
+            {t.count > 0 && (
+              <span style={{ background: activeTab === t.id ? t.badgeBg : C.border, color: activeTab === t.id ? "#fff" : C.textDim,
+                fontSize:9, fontWeight:700, borderRadius:10, padding:"1px 5px", minWidth:14, textAlign:"center" }}>
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
-      <div style={{ borderTop:`1px solid ${C.border}` }}>
-        <button onClick={() => setShowCompleted(s => !s)}
-          style={{ background:"none", border:"none", padding:"10px 14px 6px", cursor:"pointer", display:"flex", alignItems:"center", gap:5, width:"100%" }}>
-          <span style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.1em", textTransform:"uppercase" }}>
-            Completed{completed.length > 0 ? ` (${completed.length})` : ""}
-          </span>
-          <span style={{ fontSize:9, color:C.textDim }}>{showCompleted ? "▲" : "▼"}</span>
-        </button>
-        {showCompleted && (
-          <div style={{ padding:"0 14px 14px", display:"flex", flexDirection:"column", gap:7 }}>
-            {completed.length === 0
-              ? <div style={{ fontSize:12, color:C.textDim }}>Nothing completed yet.</div>
-              : completed.map(n => <NotificationRow key={n.id} n={n} onComplete={null} completed={true} />)
-            }
-          </div>
-        )}
+      {/* Tab content */}
+      <div style={{ padding:"12px 14px", display:"flex", flexDirection:"column", gap:7 }}>
+        {activeItems.length === 0
+          ? <div style={{ fontSize:12, color:C.textDim, padding:"6px 0" }}>
+              {activeTab === "overdue" ? "All clear ✓" : activeTab === "upcoming" ? "No upcoming tasks." : "Nothing completed yet."}
+            </div>
+          : activeItems.map(n => (
+              <NotificationRow key={n.id} n={n}
+                onComplete={canComplete ? onComplete : null}
+                completed={activeTab === "completed"} />
+            ))
+        }
       </div>
     </>
   );
@@ -2032,7 +2066,8 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
           {(() => {
             const memberNotifs = computeNotifications(data, [], [], false, individualId);
             const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
-            const pendingCount = memberNotifs.filter(n => !(meta.completedIds || []).includes(n.id)).length;
+            const memberDone = meta.completedIds || [];
+            const pendingCount = memberNotifs.filter(n => n.status !== "upcoming" && n.status !== "completed" && !memberDone.includes(n.id)).length;
             return (
               <div style={{ position:"relative" }}>
                 <button onClick={() => setNotificationsOpen(o => !o)}
@@ -4033,9 +4068,194 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
 }
 
 // ─── SNAPSHOT BREAKDOWN MODAL ─────────────────────────────────────────────────
+// ─── VEHICLE CARD ──────────────────────────────────────────────────────────────
+function VehicleCard({ vehicle: v, onUpdate, onAddValuation }) {
+  const [open, setOpen] = useState(false);
+  const [editField, setEditField] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [showValForm, setShowValForm] = useState(false);
+  const [valDate, setValDate] = useState(currentYM() + "-01");
+  const [valValue, setValValue] = useState("");
+  const [valNote, setValNote] = useState("");
+  const isMobile = useIsMobile();
+
+  const marketValue = getVehicleMarketValue(v);
+  const equity      = marketValue - safe(v.loanBalance);
+  const hasLoan     = safe(v.loanBalance) > 0 || safe(v.monthlyPayment) > 0;
+
+  function startEdit(field, current) {
+    setEditField(field);
+    setEditVal(String(current ?? ""));
+  }
+  function commitEdit() {
+    if (!editField) return;
+    const numFields = ["currentMarketValue","loanBalance","monthlyPayment","paymentDueDay","purchasePrice","mileage","insuranceMonthly"];
+    const val = numFields.includes(editField) ? safe(editVal) : editVal;
+    onUpdate({ [editField]: val });
+    setEditField(null);
+  }
+
+  const inp = { padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:7, background:C.bg, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none" };
+  const fieldRow = (label, field, display, numeric) => (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.border}`, gap:8 }}>
+      <span style={{ fontSize:12, color:C.textMid, flexShrink:0 }}>{label}</span>
+      {editField === field
+        ? <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+            <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)} onKeyDown={e => { if(e.key==="Enter") commitEdit(); if(e.key==="Escape") setEditField(null); }}
+              style={{ ...inp, width: numeric ? 120 : 180, textAlign: numeric ? "right" : "left" }} />
+            <button onClick={commitEdit} style={{ fontSize:11, background:C.gold, color:"#1A1508", border:"none", borderRadius:5, padding:"4px 10px", cursor:"pointer", fontWeight:700 }}>✓</button>
+            <button onClick={() => setEditField(null)} style={{ fontSize:11, background:"none", border:`1px solid ${C.border}`, borderRadius:5, padding:"4px 8px", cursor:"pointer", color:C.textDim }}>✕</button>
+          </div>
+        : <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontFamily: numeric ? C.mono : "inherit", fontSize:13, color:C.text, fontWeight: numeric ? 600 : 400 }}>{display}</span>
+            <button onClick={() => startEdit(field, v[field])} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textDim, fontSize:10, padding:"2px 7px", cursor:"pointer" }}>Edit</button>
+          </div>
+      }
+    </div>
+  );
+
+  return (
+    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:14, overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding: isMobile ? "14px 16px" : "16px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer" }}
+        onClick={() => setOpen(o => !o)}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, minWidth:0 }}>
+          <div style={{ fontSize:22, flexShrink:0 }}>🚗</div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{v.name}</div>
+            <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>{v.owner}{v.mileage > 0 ? ` · ${v.mileage.toLocaleString()} km` : ""}{v.condition ? ` · ${v.condition}` : ""}</div>
+          </div>
+        </div>
+        <div style={{ textAlign:"right", flexShrink:0 }}>
+          <div style={{ fontFamily:C.mono, fontSize:18, fontWeight:800, color: equity >= 0 ? C.amber : C.red }}>{$K(equity)}</div>
+          <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>Net equity</div>
+        </div>
+        <div style={{ fontSize:12, color:C.textDim, flexShrink:0 }}>{open ? "▲" : "▼"}</div>
+      </div>
+
+      {/* Collapsed summary strip */}
+      {!open && (
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:"8px 20px", display:"flex", gap:20, flexWrap:"wrap" }}>
+          {[
+            { label:"Market value", val:$K(marketValue), color:C.amber },
+            hasLoan && { label:"Loan balance",  val:$K(safe(v.loanBalance)), color:C.red },
+            safe(v.monthlyPayment) > 0 && { label:"Monthly payment", val:$F(v.monthlyPayment), color:C.textMid },
+          ].filter(Boolean).map((s, i) => (
+            <div key={i}>
+              <div style={{ fontSize:9, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>{s.label}</div>
+              <div style={{ fontFamily:C.mono, fontSize:13, fontWeight:700, color:s.color }}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Expanded detail */}
+      {open && (
+        <div style={{ borderTop:`1px solid ${C.border}`, padding: isMobile ? "14px 16px" : "16px 20px" }}>
+          <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap:"0 32px", marginBottom:16 }}>
+            <div>
+              {fieldRow("Year",            "year",             v.year || "—",                                 false)}
+              {fieldRow("Make",            "make",             v.make || "—",                                 false)}
+              {fieldRow("Model",           "model",            v.model || "—",                                false)}
+              {fieldRow("Owner",           "owner",            v.owner || "—",                                false)}
+              {fieldRow("Purchase price",  "purchasePrice",    v.purchasePrice > 0 ? $F(v.purchasePrice) : "—", true)}
+              {fieldRow("Purchase date",   "purchaseDate",     v.purchaseDate || "—",                         false)}
+            </div>
+            <div>
+              {fieldRow("Market value",    "currentMarketValue", $F(marketValue),                              true)}
+              {fieldRow("Loan balance",    "loanBalance",       $F(safe(v.loanBalance)),                       true)}
+              {fieldRow("Monthly payment", "monthlyPayment",    $F(safe(v.monthlyPayment)),                    true)}
+              {fieldRow("Payment due day", "paymentDueDay",     v.paymentDueDay || 1,                          true)}
+              {fieldRow("Insurance/mo",    "insuranceMonthly",  $F(safe(v.insuranceMonthly)),                  true)}
+              {fieldRow("Mileage (km)",    "mileage",           (v.mileage || 0).toLocaleString(),             true)}
+            </div>
+          </div>
+
+          {/* Condition */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontWeight:700 }}>Condition</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {["poor","fair","good","very good","excellent"].map(c => (
+                <button key={c} onClick={() => onUpdate({ condition: c })}
+                  style={{ fontSize:11, padding:"4px 10px", borderRadius:6, border:`1px solid ${v.condition === c ? C.amber : C.border}`, background: v.condition === c ? C.amberLight : "transparent", color: v.condition === c ? C.amber : C.textDim, cursor:"pointer", fontWeight: v.condition === c ? 700 : 400 }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontWeight:700 }}>Notes</div>
+            {editField === "notes"
+              ? <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <textarea value={editVal} onChange={e => setEditVal(e.target.value)} rows={2}
+                    style={{ ...inp, flex:1, resize:"vertical", fontSize:12 }} />
+                  <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                    <button onClick={commitEdit} style={{ fontSize:11, background:C.gold, color:"#1A1508", border:"none", borderRadius:5, padding:"5px 10px", cursor:"pointer", fontWeight:700 }}>✓</button>
+                    <button onClick={() => setEditField(null)} style={{ fontSize:11, background:"none", border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 8px", cursor:"pointer", color:C.textDim }}>✕</button>
+                  </div>
+                </div>
+              : <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                  <span style={{ fontSize:12, color: v.notes ? C.textMid : C.textDim, flex:1, fontStyle: v.notes ? "normal" : "italic" }}>{v.notes || "No notes."}</span>
+                  <button onClick={() => startEdit("notes", v.notes || "")} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textDim, fontSize:10, padding:"2px 7px", cursor:"pointer", flexShrink:0 }}>Edit</button>
+                </div>
+            }
+          </div>
+
+          {/* Valuation log */}
+          <div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:700 }}>Valuation Log</div>
+              <button onClick={() => setShowValForm(s => !s)}
+                style={{ fontSize:11, background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.textDim, padding:"3px 10px", cursor:"pointer" }}>
+                {showValForm ? "Cancel" : "+ Add"}
+              </button>
+            </div>
+            {showValForm && (
+              <div style={{ background:C.bg, borderRadius:8, padding:"12px 14px", marginBottom:10, display:"flex", flexWrap:"wrap", gap:10, alignItems:"flex-end" }}>
+                <div>
+                  <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>Date</div>
+                  <input type="date" value={valDate} onChange={e => setValDate(e.target.value)} style={{ ...inp, fontSize:12 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>Value (CAD)</div>
+                  <input type="number" value={valValue} onChange={e => setValValue(e.target.value)} placeholder="0" style={{ ...inp, width:120 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:C.textDim, marginBottom:4 }}>Note (optional)</div>
+                  <input value={valNote} onChange={e => setValNote(e.target.value)} placeholder="e.g. Black Book estimate" style={{ ...inp, width:180 }} />
+                </div>
+                <button onClick={() => {
+                  if (!valValue) return;
+                  onAddValuation({ date: valDate, value: safe(valValue), note: valNote });
+                  setValValue(""); setValNote(""); setShowValForm(false);
+                }} style={{ fontSize:12, background:C.gold, color:"#1A1508", border:"none", borderRadius:7, padding:"7px 14px", cursor:"pointer", fontWeight:700 }}>
+                  Save
+                </button>
+              </div>
+            )}
+            {(v.valuations || []).length === 0
+              ? <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>No valuations logged.</div>
+              : [...(v.valuations || [])].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((val, i) => (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"5px 0", borderBottom:`1px solid ${C.border}`, fontSize:12 }}>
+                    <span style={{ color:C.textDim }}>{val.date}</span>
+                    <span style={{ fontFamily:C.mono, fontWeight:700, color:C.amber }}>{$F(val.value)}</span>
+                    {val.note && <span style={{ fontSize:11, color:C.textDim, marginLeft:8 }}>{val.note}</span>}
+                  </div>
+                ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SnapshotBreakdownModal({ item, month, onClose }) {
   const isInd = item._type === "individual";
-  const hasDetail = isInd ? typeof item.cash !== "undefined" : typeof item.cashAccounts !== "undefined";
+  const isVehicle = item._type === "vehicle";
+  const hasDetail = isInd ? typeof item.cash !== "undefined" : isVehicle ? typeof item.marketValue !== "undefined" : typeof item.cashAccounts !== "undefined";
   const title = `${item.name} — ${monthLabel(month)} Snapshot`;
 
   let rows = [];
@@ -4056,6 +4276,16 @@ function SnapshotBreakdownModal({ item, month, onClose }) {
     netLabel = "Net worth";
     netVal   = item.net;
     netColor = item.net >= 0 ? C.green : C.red;
+  } else if (isVehicle) {
+    if (hasDetail) {
+      rows = [
+        { label: "Market value",  val: item.marketValue, positive: true },
+        { label: "Loan balance",  val: -item.loanBalance },
+      ];
+    }
+    netLabel = "Net equity";
+    netVal   = item.equity;
+    netColor = item.equity >= 0 ? C.amber : C.red;
   } else {
     if (hasDetail) {
       const other = item.otherLiabilities || 0;
@@ -4149,6 +4379,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
             { label: "RE Equity",      val: $K(drill.reEquity),   color: C.amber },
             { label: "Individuals",    val: $K(drill.individuals),color: drill.individuals >= 0 ? C.green : C.red },
             { label: "Businesses",     val: $K(drill.businesses), color: C.blue },
+            ...(drill.vehicles != null ? [{ label: "Vehicles", val: $K(drill.vehicles), color: C.amber }] : []),
           ].map((s, i) => (
             <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
@@ -4189,7 +4420,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
           </Card>
         )}
         {drill.businessBreakdown && (
-          <Card>
+          <Card style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Businesses</div>
             {drill.businessBreakdown.map((x, i) => (
               <div key={i} onClick={() => setBreakdownItem({ ...x, _type: "business" })}
@@ -4198,6 +4429,20 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ color: C.textMid }}>{x.name}{x.type === "nonprofit" ? " (NP)" : ""}</span>
                 <span style={{ fontFamily: C.mono, color: x.eq >= 0 ? C.blue : C.red, fontWeight: 700 }}>{$F(x.eq)} ›</span>
+              </div>
+            ))}
+          </Card>
+        )}
+        {drill.vehicleBreakdown && drill.vehicleBreakdown.length > 0 && (
+          <Card>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Vehicles</div>
+            {drill.vehicleBreakdown.map((x, i) => (
+              <div key={i} onClick={() => setBreakdownItem({ ...x, _type: "vehicle" })}
+                style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13, cursor: "pointer", borderRadius: 4, transition: "background 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ color: C.textMid }}>{x.name}</span>
+                <span style={{ fontFamily: C.mono, color: x.equity >= 0 ? C.amber : C.red, fontWeight: 700 }}>{$F(x.equity)} ›</span>
               </div>
             ))}
           </Card>
@@ -4383,9 +4628,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalRELiquid = totalRENetSale; // alias — liquid = JMF net after selling costs, ownership-adjusted
   const totalREVal     = data.properties.reduce((s, p) => s + getMarketValueCad(p), 0);
   const totalREDbt     = data.properties.reduce((s, p) => s + propCurrentMortgageBalance(p), 0);
-  const totalPers  = data.individuals.reduce((s, f) => s + indNet(f), 0);
-  const totalBiz   = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
-  const totalNW    = totalRENetSale + totalPers + totalBiz;
+  const totalPers     = data.individuals.reduce((s, f) => s + indNet(f), 0);
+  const totalBiz      = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
+  const totalVehicles = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v) - safe(v.loanBalance), 0);
+  const totalNW       = totalRENetSale + totalPers + totalBiz + totalVehicles;
   const curYM      = currentYM();
   const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
   const totalREIncome = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
@@ -4447,6 +4693,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
+  function updVehicle(id, patch) {
+    const arr = (data.vehicles || []).map(v => v.id === id ? { ...v, ...patch } : v);
+    saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
+  }
+  function addVehicleValuation(id, entry) {
+    const arr = (data.vehicles || []).map(v => {
+      if (v.id !== id) return v;
+      const existing = v.valuations || [];
+      return { ...v, valuations: [...existing, entry] };
+    });
+    saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
+  }
   function updIndIncome(indId, month, income) {
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
@@ -4482,12 +4740,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }
   function saveSnapshot(note) {
     const indNet = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
+    const snapVehicleTotal = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v) - safe(v.loanBalance), 0);
     const snapNW = data.properties.reduce((s, p) => {
       const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
       return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
     }, 0)
       + data.individuals.reduce((s, f) => s + indNet(f), 0)
-      + data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0);
+      + data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0)
+      + snapVehicleTotal;
     const snapREEq  = data.properties.reduce((s, p) => s + propJMFEquity(p), 0);
     const snapRELiq = data.properties.reduce((s, p) => {
       const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
@@ -4524,6 +4784,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
         return { id: p.id, name: p.name, market: mkt, debt: propCurrentMortgageBalance(p), equity: propJMFEquity(p), liquid: (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p) };
       }),
+      vehicles: snapVehicleTotal,
+      vehicleBreakdown: (data.vehicles || []).map(v => ({
+        id: v.id, name: v.name, year: v.year, make: v.make, model: v.model,
+        marketValue: getVehicleMarketValue(v), loanBalance: safe(v.loanBalance),
+        equity: getVehicleMarketValue(v) - safe(v.loanBalance),
+      })),
     };
     const existing = data.snapshots || [];
     const alreadyExists = existing.some(s => s.month === snap.month);
@@ -4725,7 +4991,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Cash Flow", "Reports"];
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Vehicles", "Cash Flow", "Reports"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
@@ -4805,7 +5071,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           {(() => {
             const notifications = computeNotifications(data, profiles, pendingSubs, true, null);
             const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
-            const pendingCount = notifications.filter(n => !(meta.completedIds || []).includes(n.id)).length;
+            const manualDone = meta.completedIds || [];
+            const pendingCount = notifications.filter(n => n.status !== "upcoming" && n.status !== "completed" && !manualDone.includes(n.id)).length;
             return (
               <div style={{ position:"relative" }}>
                 <button onClick={() => setNotificationsOpen(o => !o)}
@@ -4850,9 +5117,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", maxWidth: 800, margin: "0 auto" }}>
           {[
-            { label: "Liquid RE Value",     val: $K(totalRELiquid), sub: `${((totalRELiquid / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`, color: C.gold },
-            { label: "Net of Individuals",  val: $K(totalPers),  sub: totalPers < 0 ? "Deficit" : "All members",                                   color: totalPers < 0 ? C.red : C.green },
-            { label: "Business Equity",     val: $K(totalBiz),   sub: "Operating corps only",                                                       color: C.blue  },
+            { label: "Liquid RE Value",     val: $K(totalRELiquid),   sub: `${((totalRELiquid / Math.max(1, Math.abs(totalNW))) * 100).toFixed(0)}% of NW`, color: C.gold },
+            { label: "Net of Individuals",  val: $K(totalPers),       sub: totalPers < 0 ? "Deficit" : "All members",                                       color: totalPers < 0 ? C.red : C.green },
+            { label: "Business Equity",     val: $K(totalBiz),        sub: "Operating corps only",                                                           color: C.blue  },
+            { label: "Vehicles",            val: $K(totalVehicles),   sub: `${(data.vehicles || []).length} vehicles`,                                        color: C.amber },
           ].map((k, i, arr) => (
             <div key={i} style={{ flex:1, padding: isMobile ? "12px 10px" : "18px 24px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none", textAlign:"center" }}>
               <div style={{ fontSize: 8, color: C.textDim, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: isMobile ? 4 : 8 }}>{k.label}</div>
@@ -4929,9 +5197,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             {/* 3 summary cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
-                { label: "Liquid RE Value",     val: $K(totalRELiquid), color: C.gold,  accent: C.gold,  sub: `After selling costs · ${data.properties.length} properties`, bg: C.goldLight },
-                { label: "Net of Individuals", val: $K(totalPers),  color: totalPers < 0 ? C.red : C.green, accent: totalPers < 0 ? C.red : C.green, sub: `${data.individuals.length} members`, bg: totalPers < 0 ? C.redLight : C.greenLight },
-                { label: "Business Equity",    val: $K(totalBiz),   color: C.blue,  accent: C.blue,  sub: "Operating corps only", bg: C.blueLight },
+                { label: "Liquid RE Value",    val: $K(totalRELiquid),  color: C.gold,  accent: C.gold,  sub: `After selling costs · ${data.properties.length} properties`, bg: C.goldLight },
+                { label: "Net of Individuals", val: $K(totalPers),      color: totalPers < 0 ? C.red : C.green, accent: totalPers < 0 ? C.red : C.green, sub: `${data.individuals.length} members`, bg: totalPers < 0 ? C.redLight : C.greenLight },
+                { label: "Business Equity",    val: $K(totalBiz),       color: C.blue,  accent: C.blue,  sub: "Operating corps only", bg: C.blueLight },
+                { label: "Vehicles",           val: $K(totalVehicles),  color: C.amber, accent: C.amber, sub: `${(data.vehicles || []).length} vehicles · net equity`, bg: C.amberLight },
               ].map((s, i) => (
                 <div key={i} style={{ background: s.bg, borderRadius: 14, padding: "22px 24px", borderTop: `3px solid ${s.accent}`, boxShadow: C.shadow }}>
                   <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>{s.label}</div>
@@ -5023,6 +5292,31 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 })}
               </div>
             </Card>
+
+            {/* Vehicles mini-cards */}
+            {(data.vehicles || []).length > 0 && (
+              <Card accent={C.amber} style={{ marginBottom: 16, paddingTop: 24 }}>
+                <Label>Vehicles</Label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
+                  {(data.vehicles || []).map(v => {
+                    const mv  = getVehicleMarketValue(v);
+                    const eq  = mv - safe(v.loanBalance);
+                    return (
+                      <div key={v.id} onClick={() => setTab("vehicles")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = C.amber; e.currentTarget.style.boxShadow = C.shadowMd; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                          <span style={{ fontSize:18 }}>🚗</span>
+                          <div style={{ fontSize:12, fontWeight:600, color:C.text, lineHeight:1.3 }}>{v.name}</div>
+                        </div>
+                        <div style={{ fontSize:17, fontFamily:C.mono, fontWeight:800, color: eq >= 0 ? C.amber : C.red }}>{$K(eq)}</div>
+                        <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>Net equity{safe(v.monthlyPayment) > 0 ? ` · ${$K(v.monthlyPayment)}/mo` : ""}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
 
             {/* Cash flow graph */}
             <CashFlowGraph data={data} />
@@ -5251,6 +5545,30 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           </div>
         )}
 
+        {/* ── VEHICLES ── */}
+        {tab === "vehicles" && (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
+              {[
+                { label: "Total Market Value", val: $K((data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v), 0)), color: C.amber },
+                { label: "Total Loan Balance", val: $K((data.vehicles || []).reduce((s, v) => s + safe(v.loanBalance), 0)),    color: C.red   },
+                { label: "Net Vehicle Equity", val: $K(totalVehicles),                                                           color: totalVehicles >= 0 ? C.gold : C.red },
+                { label: "Monthly Payments",   val: $K((data.vehicles || []).reduce((s, v) => s + safe(v.monthlyPayment), 0)),  color: C.textMid },
+              ].map((s, i) => (
+                <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontSize: 20, fontFamily: C.mono, fontWeight: 700, color: s.color }}>{s.val}</div>
+                </div>
+              ))}
+            </div>
+            {(data.vehicles || []).map(v => (
+              <VehicleCard key={v.id} vehicle={v}
+                onUpdate={(patch) => updVehicle(v.id, patch)}
+                onAddValuation={(entry) => addVehicleValuation(v.id, entry)} />
+            ))}
+          </div>
+        )}
+
         {/* ── CASH FLOW ── */}
         {tab === "cashflow" && (() => {
           // Computed income for selected month
@@ -5265,10 +5583,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           }, 0);
           const cfOther    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
           const cfTotalIn  = cfBizIn + cfRentIn + cfPayroll + cfOther;
-          const cfPropOut  = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
-          const cfOtherOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
-          const cfTotalOut = cfPropOut + cfOtherOut;
-          const cfGap      = cfTotalIn - cfTotalOut;
+          const cfPropOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+          const cfOtherOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
+          const cfVehicleOut = (data.vehicles || []).reduce((s, v) => s + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
+          const cfTotalOut   = cfPropOut + cfOtherOut + cfVehicleOut;
+          const cfGap        = cfTotalIn - cfTotalOut;
           return (
             <div>
               {/* Month selector */}
@@ -5410,6 +5729,29 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     </div>
                   )}
 
+                  {/* Vehicle payments derived from Vehicles tab */}
+                  {cfVehicleOut > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", padding:"8px 0 4px", fontWeight:700 }}>Vehicles</div>
+                      {(data.vehicles || []).filter(v => safe(v.monthlyPayment) + safe(v.insuranceMonthly) > 0).map(v => {
+                        const total = safe(v.monthlyPayment) + safe(v.insuranceMonthly);
+                        const parts = [
+                          safe(v.monthlyPayment) > 0 && `Loan ${$K(v.monthlyPayment)}`,
+                          safe(v.insuranceMonthly) > 0 && `Insurance ${$K(v.insuranceMonthly)}`,
+                        ].filter(Boolean).join(" · ");
+                        return (
+                          <div key={v.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                              <span style={{ fontSize: 13, color: C.text }}>{v.name}</span>
+                              <span style={{ fontFamily: C.mono, fontSize: 14, color: C.red }}>{$F(total)}</span>
+                            </div>
+                            {parts && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{parts}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
                     <span style={{ color: C.textMid }}>Total out</span>
                     <span style={{ fontFamily: C.mono, fontSize: 15, color: C.red }}>{$F(cfTotalOut)}</span>
@@ -5507,6 +5849,7 @@ export default function App() {
           individuals:  mergeById(DEFAULT.individuals, dbData.individuals),
           properties:   correctedProps,
           businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
+          vehicles:     mergeById(DEFAULT.vehicles,    dbData.vehicles    || []),
           cashflow:     dbData.cashflow     || DEFAULT.cashflow,
           rentPayments: mergedRentPayments,
           reportHistory: dbData.reportHistory || [],
