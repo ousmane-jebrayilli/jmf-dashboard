@@ -287,10 +287,10 @@ const DEFAULT = {
   ],
 
   businesses: [
-    { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, monthlyProfits:[], notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
-    { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
-    { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, monthlyProfits:[], notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
-    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
+    { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
+    { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
+    { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
+    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
   ],
 
   properties: [
@@ -3248,13 +3248,430 @@ function MaintenanceAlertsWidget() {
 }
 
 // ─── BUSINESS CARD ────────────────────────────────────────────────────────────
-function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, periodLockedMonth }) {
+// ─── HISTORICAL DATA INPUT (per business) ─────────────────────────────────────
+function BizHistoricalTab({ biz, histStart, onSave }) {
+  const allHistMonths = monthsBetween(histStart, shiftYM(currentYM(), -1)).reverse();
+  const [selMonth, setSelMonth] = useState(allHistMonths[0] || "");
+  const [form, setForm] = useState({ revenue:"", expenses:"", profit:"", cashBalance:"", liabilities:"", notes:"", events:"" });
+  const [autoProfit, setAutoProfit] = useState(true);
+
+  const existing = (biz.historicalData || []).find(e => e.month === selMonth);
+
+  // When month changes, pre-fill from existing data
+  const loadMonth = (m) => {
+    setSelMonth(m);
+    const e = (biz.historicalData || []).find(x => x.month === m);
+    if (e) {
+      setForm({
+        revenue:      e.revenue     != null ? String(e.revenue)     : "",
+        expenses:     e.expenses    != null ? String(e.expenses)    : "",
+        profit:       e.profit      != null ? String(e.profit)      : "",
+        cashBalance:  e.cashBalance != null ? String(e.cashBalance) : "",
+        liabilities:  e.liabilities != null ? String(e.liabilities) : "",
+        notes:        e.notes  || "",
+        events:       e.events || "",
+      });
+    } else {
+      setForm({ revenue:"", expenses:"", profit:"", cashBalance:"", liabilities:"", notes:"", events:"" });
+    }
+  };
+
+  const computedProfit = autoProfit && form.revenue !== "" && form.expenses !== ""
+    ? safe(form.revenue) - safe(form.expenses) : null;
+  const displayProfit = autoProfit && computedProfit != null ? computedProfit : safe(form.profit);
+
+  function handleSave() {
+    if (!selMonth || !onSave) return;
+    const entry = {
+      month: selMonth,
+      revenue:     form.revenue     !== "" ? safe(form.revenue)     : null,
+      expenses:    form.expenses    !== "" ? safe(form.expenses)    : null,
+      profit:      autoProfit && computedProfit != null ? computedProfit : (form.profit !== "" ? safe(form.profit) : null),
+      cashBalance: form.cashBalance !== "" ? safe(form.cashBalance) : null,
+      liabilities: form.liabilities !== "" ? safe(form.liabilities) : null,
+      notes:       form.notes  || null,
+      events:      form.events || null,
+    };
+    onSave(entry);
+  }
+
+  const inp = { padding:"7px 11px", border:`1px solid ${C.border}`, borderRadius:7, background:C.bg, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", width:"100%", boxSizing:"border-box" };
+  const fieldSet = (label, key, type="number", hint="") => (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:4, fontWeight:600 }}>{label}{hint && <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0 }}> — {hint}</span>}</div>
+      <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        placeholder={type === "number" ? "0" : ""} style={inp} />
+    </div>
+  );
+
+  const sortedHistory = [...(biz.historicalData || [])].sort((a, b) => b.month.localeCompare(a.month));
+
+  return (
+    <div>
+      <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14, fontWeight:700 }}>
+        Historical Data Entry — {biz.name}
+      </div>
+      <div style={{ background:C.amberLight, border:`1px solid #F0D080`, borderRadius:8, padding:"10px 14px", marginBottom:18, fontSize:12, color:C.amber }}>
+        Isolated from live reports. Data here does not affect consolidated snapshots, cash flow, or notifications.
+      </div>
+
+      {/* Month selector */}
+      <div style={{ marginBottom:18 }}>
+        <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>Select Month</div>
+        <select value={selMonth} onChange={e => loadMonth(e.target.value)}
+          style={{ padding:"8px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:13, fontFamily:C.sans, cursor:"pointer", outline:"none", maxWidth:200 }}>
+          {allHistMonths.map(m => (
+            <option key={m} value={m}>
+              {monthLabel(m)}{(biz.historicalData || []).find(e => e.month === m) ? " ✓" : ""}
+            </option>
+          ))}
+        </select>
+        {existing && <span style={{ marginLeft:10, fontSize:11, color:C.green, fontWeight:600 }}>✓ Data saved</span>}
+      </div>
+
+      {selMonth && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:"0 28px" }}>
+          {/* Left column: P&L */}
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>P&L</div>
+            {fieldSet("Revenue", "revenue")}
+            {fieldSet("Expenses", "expenses")}
+            <div style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", fontWeight:600 }}>Profit</div>
+                <label style={{ display:"flex", alignItems:"center", gap:5, cursor:"pointer", fontSize:11, color:C.textDim }}>
+                  <input type="checkbox" checked={autoProfit} onChange={e => setAutoProfit(e.target.checked)} />
+                  Auto (Rev − Exp)
+                </label>
+              </div>
+              {autoProfit && computedProfit != null
+                ? <div style={{ padding:"7px 11px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:7, fontFamily:C.mono, fontSize:13, fontWeight:700, color: computedProfit >= 0 ? C.green : C.red }}>{$F(computedProfit)}</div>
+                : <input type="number" value={form.profit} onChange={e => setForm(f => ({ ...f, profit: e.target.value }))}
+                    placeholder="0" style={inp} />
+              }
+            </div>
+            <div style={{ marginBottom:12, padding:"10px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
+              <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>Margin</div>
+              <div style={{ fontFamily:C.mono, fontSize:15, fontWeight:700, color: safe(form.revenue) > 0 ? (displayProfit / safe(form.revenue) >= 0.15 ? C.green : C.amber) : C.textDim }}>
+                {safe(form.revenue) > 0 ? `${((displayProfit / safe(form.revenue)) * 100).toFixed(1)}%` : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Right column: Balance + Meta */}
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Balance Sheet (optional)</div>
+            {fieldSet("Cash Balance (end of month)", "cashBalance")}
+            {fieldSet("Liabilities (end of month)", "liabilities")}
+            <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", margin:"14px 0 10px" }}>Notes</div>
+            {fieldSet("Notes", "notes", "text")}
+            {fieldSet("Key Events / Milestones", "events", "text", "e.g. new contract, staff change")}
+          </div>
+        </div>
+      )}
+
+      {selMonth && (
+        <div style={{ display:"flex", gap:10, marginTop:8 }}>
+          <button onClick={handleSave}
+            style={{ fontSize:13, background:C.gold, color:"#1A1508", border:"none", borderRadius:8, padding:"9px 22px", cursor:"pointer", fontWeight:700 }}>
+            Save {monthLabel(selMonth)}
+          </button>
+          <button onClick={() => loadMonth(selMonth)}
+            style={{ fontSize:13, background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textDim, padding:"9px 16px", cursor:"pointer" }}>
+            Reset
+          </button>
+        </div>
+      )}
+
+      {/* Saved history table */}
+      {sortedHistory.length > 0 && (
+        <div style={{ marginTop:28 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Saved History ({sortedHistory.length} months)</div>
+          <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:8, padding:"8px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+              <span>Month</span><span style={{ textAlign:"right" }}>Revenue</span><span style={{ textAlign:"right" }}>Expenses</span><span style={{ textAlign:"right" }}>Profit</span>
+            </div>
+            {sortedHistory.map((e, i) => (
+              <div key={e.month} onClick={() => loadMonth(e.month)}
+                style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:8, padding:"9px 14px", borderBottom: i < sortedHistory.length - 1 ? `1px solid ${C.border}` : "none", cursor:"pointer", transition:"background 0.12s" }}
+                onMouseEnter={ev => ev.currentTarget.style.background = C.bg}
+                onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
+                <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(e.month)}</span>
+                <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{e.revenue != null ? $K(e.revenue) : "—"}</span>
+                <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{e.expenses != null ? $K(e.expenses) : "—"}</span>
+                <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color: (e.profit ?? 0) >= 0 ? C.gold : C.red, textAlign:"right" }}>{e.profit != null ? $K(e.profit) : "—"}</span>
+              </div>
+            ))}
+          </div>
+          {sortedHistory.some(e => e.events || e.notes) && (
+            <div style={{ marginTop:14 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Events & Notes</div>
+              {sortedHistory.filter(e => e.events || e.notes).map(e => (
+                <div key={e.month} style={{ padding:"8px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, marginBottom:6 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.gold, marginBottom:3 }}>{monthLabel(e.month)}</div>
+                  {e.events && <div style={{ fontSize:12, color:C.text, marginBottom:2 }}>📌 {e.events}</div>}
+                  {e.notes  && <div style={{ fontSize:12, color:C.textMid }}>{e.notes}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TRENDS ANALYTICS (per business) ──────────────────────────────────────────
+function BizTrendsTab({ biz, histStart }) {
+  const hist = [...(biz.historicalData || [])].sort((a, b) => a.month.localeCompare(b.month));
+  const hasData = hist.length > 0;
+
+  if (!hasData) {
+    return (
+      <div style={{ textAlign:"center", padding:"40px 20px", color:C.textDim }}>
+        <div style={{ fontSize:32, marginBottom:12 }}>📊</div>
+        <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>No historical data yet</div>
+        <div style={{ fontSize:12 }}>Switch to the Historical tab to start entering monthly data from {histStart}.</div>
+      </div>
+    );
+  }
+
+  // Build month series covering hist range
+  const firstM = hist[0].month;
+  const lastM  = hist[hist.length - 1].month;
+  const series = monthsBetween(firstM, lastM).map(m => {
+    const e = hist.find(x => x.month === m);
+    return {
+      month: m,
+      revenue:  e?.revenue  ?? null,
+      expenses: e?.expenses ?? null,
+      profit:   e?.profit   ?? null,
+      cash:     e?.cashBalance ?? null,
+    };
+  });
+
+  // ── Summary KPIs ──────────────────────────────────────────────────────────
+  const withRev  = series.filter(s => s.revenue != null);
+  const withProf = series.filter(s => s.profit  != null);
+  const totalRev  = withRev.reduce((s, x) => s + safe(x.revenue), 0);
+  const totalProf = withProf.reduce((s, x) => s + safe(x.profit), 0);
+  const avgMonthlyRev = withRev.length ? totalRev / withRev.length : 0;
+  const avgMonthlyProf = withProf.length ? totalProf / withProf.length : 0;
+  const overallMargin = totalRev > 0 ? (totalProf / totalRev) * 100 : null;
+
+  // CAGR by annual revenue
+  const byYear = {};
+  withRev.forEach(s => { const y = s.month.slice(0,4); byYear[y] = (byYear[y] || 0) + safe(s.revenue); });
+  const years = Object.keys(byYear).sort();
+  const cagrPct = years.length >= 2
+    ? (Math.pow(byYear[years[years.length-1]] / Math.max(1, byYear[years[0]]), 1 / (years.length - 1)) - 1) * 100
+    : null;
+
+  // Best / worst months
+  const profMonths = withProf.slice().sort((a, b) => safe(b.profit) - safe(a.profit));
+  const best3  = profMonths.slice(0, 3);
+  const worst3 = profMonths.slice(-3).reverse();
+
+  // T12M (trailing 12 from last entry)
+  const t12Series = series.slice(-12);
+  const t12Rev  = t12Series.filter(s => s.revenue != null).reduce((s, x) => s + safe(x.revenue), 0);
+  const t12Prof = t12Series.filter(s => s.profit  != null).reduce((s, x) => s + safe(x.profit),  0);
+
+  // YoY table: rows = months Jan-Dec, columns = years
+  const yoyMonths = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+  const yoyMonthLabels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // SVG mini bar chart helper
+  function MiniBarChart({ data: chartData, color, label, height = 80 }) {
+    const vals = chartData.map(d => d.val);
+    const maxV = Math.max(1, ...vals.map(Math.abs));
+    const barW = Math.max(4, Math.floor(500 / Math.max(chartData.length, 1)) - 2);
+    return (
+      <div>
+        <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8, fontWeight:600 }}>{label}</div>
+        <div style={{ overflowX:"auto" }}>
+          <svg width={Math.max(500, chartData.length * (barW + 2))} height={height + 28} style={{ display:"block" }}>
+            <line x1={0} y1={height} x2={Math.max(500, chartData.length * (barW + 2))} y2={height} stroke={C.border} strokeWidth={1} />
+            {chartData.map((d, i) => {
+              const x = i * (barW + 2);
+              const barH = Math.max(2, (Math.abs(safe(d.val)) / maxV) * (height - 4));
+              const y = d.val >= 0 ? height - barH : height;
+              const col = d.val == null ? C.border : (d.val >= 0 ? (color || C.gold) : C.red);
+              return (
+                <g key={i}>
+                  <rect x={x} y={y} width={barW} height={barH} fill={col} opacity={0.85} rx={1} />
+                  {chartData.length <= 24 && (
+                    <text x={x + barW/2} y={height + 14} textAnchor="middle" fontSize={7} fill={C.textDim} fontFamily={C.sans}>
+                      {d.month.slice(5)}
+                    </text>
+                  )}
+                  {chartData.length > 24 && i % 3 === 0 && (
+                    <text x={x + barW/2} y={height + 14} textAnchor="middle" fontSize={6} fill={C.textDim} fontFamily={C.sans}>
+                      {d.month.slice(2,4)}/{d.month.slice(5)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14, fontWeight:700 }}>
+        Trends & Analytics — {biz.name} · {firstM} → {lastM}
+      </div>
+
+      {/* KPI summary strip */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10, marginBottom:20 }}>
+        {[
+          { label:"Total Revenue",    val:$K(totalRev),                             color:C.gold },
+          { label:"Total Profit",     val:$K(totalProf),                            color:totalProf >= 0 ? C.green : C.red },
+          { label:"Avg Monthly Rev",  val:$K(avgMonthlyRev),                        color:C.text },
+          { label:"Avg Monthly Prof", val:$K(avgMonthlyProf),                       color:avgMonthlyProf >= 0 ? C.green : C.red },
+          { label:"Overall Margin",   val:overallMargin != null ? `${overallMargin.toFixed(1)}%` : "—", color:overallMargin != null && overallMargin >= 15 ? C.green : C.amber },
+          { label:"T12M Revenue",     val:$K(t12Rev),                               color:C.gold },
+          { label:"T12M Profit",      val:$K(t12Prof),                              color:t12Prof >= 0 ? C.green : C.red },
+          cagrPct != null && { label:"Revenue CAGR", val:`${cagrPct >= 0 ? "+" : ""}${cagrPct.toFixed(1)}%/yr`, color:cagrPct >= 0 ? C.green : C.red },
+        ].filter(Boolean).map((s, i) => (
+          <div key={i} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px" }}>
+            <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{s.label}</div>
+            <div style={{ fontFamily:C.mono, fontSize:16, fontWeight:700, color:s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Revenue chart */}
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px", marginBottom:14 }}>
+        <MiniBarChart
+          data={series.map(s => ({ month:s.month, val:s.revenue }))}
+          color={C.gold} label="Monthly Revenue" height={90} />
+      </div>
+
+      {/* Profit chart */}
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px", marginBottom:14 }}>
+        <MiniBarChart
+          data={series.map(s => ({ month:s.month, val:s.profit }))}
+          color={C.green} label="Monthly Profit" height={90} />
+      </div>
+
+      {/* Margin line */}
+      {withRev.length > 0 && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px", marginBottom:14 }}>
+          <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8, fontWeight:600 }}>Profit Margin %</div>
+          <div style={{ overflowX:"auto" }}>
+            <svg width={Math.max(500, series.length * 18)} height={80} style={{ display:"block" }}>
+              {series.map((s, i) => {
+                if (s.revenue == null || s.profit == null || s.revenue === 0) return null;
+                const margin = (s.profit / s.revenue) * 100;
+                const x = i * (Math.max(500, series.length * 18) / series.length);
+                const y = Math.max(4, Math.min(74, 40 - margin * 0.9));
+                return <circle key={i} cx={x} cy={y} r={3} fill={margin >= 15 ? C.green : margin >= 0 ? C.amber : C.red} opacity={0.85} />;
+              })}
+              <line x1={0} y1={40} x2={Math.max(500, series.length * 18)} y2={40} stroke={C.border} strokeWidth={1} strokeDasharray="4 4" />
+              <text x={4} y={38} fontSize={8} fill={C.textDim} fontFamily={C.sans}>0%</text>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* Best / Worst months */}
+      {(best3.length > 0 || worst3.length > 0) && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+          <div style={{ background:C.greenLight, border:`1px solid #A8D8B8`, borderRadius:12, padding:"14px 16px" }}>
+            <div style={{ fontSize:10, color:C.green, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Top Profit Months</div>
+            {best3.map(e => (
+              <div key={e.month} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:12 }}>
+                <span style={{ color:C.textMid }}>{monthLabel(e.month)}</span>
+                <span style={{ fontFamily:C.mono, fontWeight:700, color:C.green }}>{$K(e.profit)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:C.redLight, border:`1px solid #F5C6C3`, borderRadius:12, padding:"14px 16px" }}>
+            <div style={{ fontSize:10, color:C.red, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Weakest Months</div>
+            {worst3.map(e => (
+              <div key={e.month} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:12 }}>
+                <span style={{ color:C.textMid }}>{monthLabel(e.month)}</span>
+                <span style={{ fontFamily:C.mono, fontWeight:700, color:C.red }}>{$K(e.profit)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* YoY table */}
+      {years.length >= 2 && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px", marginBottom:14, overflowX:"auto" }}>
+          <div style={{ fontSize:10, color:C.textDim, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Year-over-Year Revenue</div>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+            <thead>
+              <tr>
+                <th style={{ padding:"6px 10px", textAlign:"left", color:C.textDim, fontWeight:600, borderBottom:`1px solid ${C.border}` }}></th>
+                {years.map(y => <th key={y} style={{ padding:"6px 10px", textAlign:"right", color:C.gold, fontWeight:700, borderBottom:`1px solid ${C.border}` }}>{y}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {yoyMonthLabels.map((label, mi) => {
+                const mm = yoyMonths[mi];
+                return (
+                  <tr key={mm}>
+                    <td style={{ padding:"5px 10px", color:C.textMid }}>{label}</td>
+                    {years.map(y => {
+                      const m = `${y}-${mm}`;
+                      const e = hist.find(x => x.month === m);
+                      return (
+                        <td key={y} style={{ padding:"5px 10px", textAlign:"right", fontFamily:C.mono, color: e?.revenue != null ? C.text : C.textDim }}>
+                          {e?.revenue != null ? $K(e.revenue) : "·"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              <tr style={{ borderTop:`2px solid ${C.border}` }}>
+                <td style={{ padding:"7px 10px", fontWeight:700, color:C.text, fontSize:12 }}>Total</td>
+                {years.map(y => (
+                  <td key={y} style={{ padding:"7px 10px", textAlign:"right", fontFamily:C.mono, fontWeight:700, color:C.gold, fontSize:12 }}>
+                    {$K(byYear[y] || 0)}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Events timeline */}
+      {hist.some(e => e.events || e.notes) && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px" }}>
+          <div style={{ fontSize:10, color:C.textDim, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Key Events Timeline</div>
+          {[...hist].filter(e => e.events || e.notes).reverse().map(e => (
+            <div key={e.month} style={{ display:"flex", gap:12, paddingBottom:12, borderBottom:`1px solid ${C.border}`, marginBottom:12 }}>
+              <div style={{ width:4, background:C.gold, borderRadius:2, flexShrink:0 }} />
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:C.gold, marginBottom:3 }}>{monthLabel(e.month)}</div>
+                {e.events && <div style={{ fontSize:12, color:C.text, marginBottom:2 }}>📌 {e.events}</div>}
+                {e.notes  && <div style={{ fontSize:12, color:C.textMid }}>{e.notes}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateHistory, isAdmin, periodLockedMonth }) {
   const [open, setOpen] = useState(false);
   const [bizTab, setBizTab] = useState("overview");
   const isNonProfit = biz.type === "nonprofit";
   const canEditRow = (month) => isAdmin && month !== periodLockedMonth;
   const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
 
+  // ── P&L rows (last 6 months from SYSTEM_START) ────────────────────────────
   const monthlyRows = monthsBetween(SYSTEM_START, currentYM()).slice(-6).reverse();
   const profitRows = monthlyRows.map(month => {
     const entry = (biz.monthlyProfits || []).find(p => p.month === month) || {};
@@ -3265,6 +3682,7 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, 
   });
   const maxProfitMagnitude = Math.max(1, ...profitRows.map(row => Math.abs(row.profit)));
 
+  // ── Balance sheet helpers ─────────────────────────────────────────────────
   const assetItems = (biz.accounts && biz.accounts.length ? biz.accounts : [
     { label: "Cash & accounts", amount: safe(biz.cashAccounts) },
   ]).map((item, idx) => ({
@@ -3300,6 +3718,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, 
     borderBottom: bizTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
   });
 
+  const HIST_START = "2022-09";
+
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
       <div onClick={() => setOpen(o => { if (o) setBizTab("overview"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -3330,7 +3750,13 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, 
           {!isNonProfit && (
             <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
               <div style={{ display:"flex" }}>
-                {[["overview","Overview"],["profits","P&L / Profits"],["balancesheet","Balance Sheet"]].map(([id, label]) => (
+                {[
+                  ["overview","Overview"],
+                  ["profits","P&L / Profits"],
+                  ["balancesheet","Balance Sheet"],
+                  ["historical","Historical"],
+                  ["trends","Trends"],
+                ].map(([id, label]) => (
                   <button key={id} onClick={e => { e.stopPropagation(); setBizTab(id); }} style={tabStyle(id)}>{label}</button>
                 ))}
               </div>
@@ -3468,6 +3894,18 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, isAdmin, 
                       </div>
                     </div>
                   </div>
+                )}
+
+                {bizTab === "historical" && isAdmin && (
+                  <BizHistoricalTab
+                    biz={biz}
+                    histStart={HIST_START}
+                    onSave={onUpdateHistory}
+                  />
+                )}
+
+                {bizTab === "trends" && (
+                  <BizTrendsTab biz={biz} histStart={HIST_START} />
                 )}
               </>
             )}
@@ -4881,6 +5319,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       ).catch(() => {});
     }
   }
+  function updBizHistory(bizId, entry) {
+    // entry: { month, revenue, expenses, profit, cashBalance, liabilities, notes, events }
+    const arr = data.businesses.map(b => {
+      if (b.id !== bizId) return b;
+      const existing = b.historicalData || [];
+      const has = existing.find(e => e.month === entry.month);
+      const next = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
+      return { ...b, historicalData: next };
+    });
+    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
   function updRentPayment(payloadOrPropertyId, month, received, note) {
     const payload = typeof payloadOrPropertyId === "object"
       ? payloadOrPropertyId
@@ -5541,7 +5990,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
               Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} isAdmin={true} periodLockedMonth={null} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} onUpdateHistory={entry => updBizHistory(b.id, entry)} isAdmin={true} periodLockedMonth={null} />)}
           </div>
         )}
 
