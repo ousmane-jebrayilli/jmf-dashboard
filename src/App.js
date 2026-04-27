@@ -681,7 +681,8 @@ function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId
     // ── Business P&L — previous month (due 5th of current month) ──────────────
     for (const biz of (data.businesses || []).filter(b => b.type !== "nonprofit")) {
       const dueDate = ym + "-05";
-      const completed = !!(biz.monthlyProfits || []).find(p => p.month === prevYM);
+      const completed = !!(biz.monthlyProfits || []).find(p => p.month === prevYM)
+                     || !!(biz.historicalData  || []).find(e => e.month === prevYM);
       out.push({
         id: `biz-pl-${biz.id}-${prevYM}`,
         type: "biz_pl_needed", category: "Businesses",
@@ -3724,11 +3725,11 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
   const HIST_START = "2022-09";
 
   return (
-    <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : isTrackedOnly ? C.amber : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+    <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
       <div onClick={() => setOpen(o => { if (o) setBizTab("overview"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ background: isNonProfit ? C.purpleLight : isTrackedOnly ? C.amberLight : C.blueLight, color: isNonProfit ? C.purpleText : isTrackedOnly ? C.amber : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
-            {isNonProfit ? "NON-PROFIT" : isTrackedOnly ? "TRACKED ONLY" : "CORP"}
+          <div style={{ background: isNonProfit ? C.purpleLight : C.blueLight, color: isNonProfit ? C.purpleText : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
+            {isNonProfit ? "NON-PROFIT" : "CORP"}
           </div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{biz.name}</div>
@@ -3739,8 +3740,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>{isNonProfit ? "Cash balance" : isTrackedOnly ? "Tracked equity" : "Corp. equity"}</div>
-            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: isNonProfit ? C.purple : isTrackedOnly ? C.amber : (netEquity >= 0 ? C.gold : C.red) }}>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>{isNonProfit ? "Cash balance" : "Corp. equity"}</div>
+            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: isNonProfit ? C.purple : (netEquity >= 0 ? C.gold : C.red) }}>
               {$K(isNonProfit ? safe(biz.cashAccounts) : netEquity)}
             </div>
           </div>
@@ -4986,6 +4987,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
   const [cfMonth, setCFMonth] = useState(currentYM());
   const [cfOpen, setCFOpen]   = useState({ biz:true, rent:true, payroll:true, otherInc:true, re:true, vehicle:true, otherObl:true });
+  const [bizInfoOpen, setBizInfoOpen] = useState(false);
   const toggleCF = key => setCFOpen(s => ({ ...s, [key]: !s[key] }));
   const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
   const [accLogForm, setAccLogForm] = useState({ month: currentYM(), cash: 0, accounts: 0, securities: 0, crypto: 0, physicalAssets: 0, note: "" });
@@ -5028,7 +5030,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const missingProfits = dayOfMonth >= 5
       ? data.businesses
           .filter(b => b.type !== "nonprofit")
-          .filter(b => !(b.monthlyProfits || []).find(p => p.month === prevYM))
+          .filter(b => !(b.monthlyProfits || []).find(p => p.month === prevYM)
+                    && !(b.historicalData  || []).find(e => e.month === prevYM))
       : [];
     if (missingRent.length > 0 || missingProfits.length > 0) {
       setReminderData({ missingRent, missingProfits });
@@ -5711,7 +5714,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       onMouseEnter={e => { e.currentTarget.style.borderColor = isNP ? C.purple : isTO ? C.amber : C.blue; e.currentTarget.style.boxShadow = C.shadowMd; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
                       <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:8 }}>
-                        <div style={{ background: isNP ? C.purpleLight : isTO ? C.amberLight : C.blueLight, color: isNP ? C.purpleText : isTO ? C.amber : C.blueText, borderRadius:4, fontSize:9, fontWeight:700, padding:"2px 6px" }}>{isNP ? "NON-PROFIT" : isTO ? "TRACKED" : "CORP"}</div>
+                        <div style={{ background: isNP ? C.purpleLight : C.blueLight, color: isNP ? C.purpleText : C.blueText, borderRadius:4, fontSize:9, fontWeight:700, padding:"2px 6px" }}>{isNP ? "NON-PROFIT" : "CORP"}</div>
                         <div style={{ fontSize:12, fontWeight:600, color:C.text }}>{b.name}</div>
                       </div>
                       {isNP ? (
@@ -6011,8 +6014,16 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               ))}
             </div>
-            <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
-              Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations. NES Bakery Inc. is 50% owned and tracked operationally only — excluded from consolidated net worth per current agreement structure.
+            <div style={{ marginBottom: 16 }}>
+              <button onClick={() => setBizInfoOpen(o => !o)}
+                style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, color: C.textDim, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontSize: 13 }}>ⓘ</span> Exclusion notes {bizInfoOpen ? "▴" : "▾"}
+              </button>
+              {bizInfoOpen && (
+                <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "10px 14px", marginTop: 8, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
+                  Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations. NES Bakery Inc. is 50% owned and tracked operationally only — excluded from consolidated net worth per current agreement structure.
+                </div>
+              )}
             </div>
             {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} onUpdateHistory={entry => updBizHistory(b.id, entry)} isAdmin={true} periodLockedMonth={null} />)}
           </div>
