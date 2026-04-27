@@ -1403,6 +1403,7 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
 // ─── REMINDER MODAL ───────────────────────────────────────────────────────────
 function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, onDismiss }) {
   const ym = currentYM();
+  const prevYM = shiftYM(ym, -1);
   const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(p => [p.id, ""])));
   const [profitVals, setProfitVals] = useState(() => Object.fromEntries(missingProfits.map(b => [b.id, ""])));
   const [saving, setSaving]         = useState(false);
@@ -1465,7 +1466,7 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
             <div style={{ marginBottom: 24 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
                 <div style={{ width:3, height:14, background:C.blue, borderRadius:2 }} />
-                <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.08em", textTransform:"uppercase" }}>Net Profit — {monthLabel(ym)}</div>
+                <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.08em", textTransform:"uppercase" }}>Net Profit — {monthLabel(prevYM)}</div>
               </div>
               {missingProfits.map(b => (
                 <div key={b.id} style={{ marginBottom:12 }}>
@@ -5017,11 +5018,16 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   // ── One-time reminder check on mount ──
   useEffect(() => {
     const ym = currentYM();
+    const prevYM = shiftYM(ym, -1);
+    const dayOfMonth = new Date().getDate();
     const missingRent = data.properties
       .filter(p => propertyOutstandingForMonth(p, data.rentPayments || [], ym) > 0);
-    const missingProfits = data.businesses
-      .filter(b => b.type !== "nonprofit")
-      .filter(b => !(b.monthlyProfits || []).find(p => p.month === ym));
+    // P&L for previous month is only due on/after the 5th (mirrors notification logic)
+    const missingProfits = dayOfMonth >= 5
+      ? data.businesses
+          .filter(b => b.type !== "nonprofit")
+          .filter(b => !(b.monthlyProfits || []).find(p => p.month === prevYM))
+      : [];
     if (missingRent.length > 0 || missingProfits.length > 0) {
       setReminderData({ missingRent, missingProfits });
       setShowReminder(true);
@@ -5494,7 +5500,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           missingRent={reminderData.missingRent}
           missingProfits={reminderData.missingProfits}
           onSaveRent={(propertyId, received, note) => updRentPayment(propertyId, currentYM(), received, note)}
-          onSaveProfit={(bizId, profit) => updBizProfit(bizId, currentYM(), profit)}
+          onSaveProfit={(bizId, profit) => updBizProfit(bizId, shiftYM(currentYM(), -1), profit)}
           onDismiss={() => setShowReminder(false)}
         />
       )}
