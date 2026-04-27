@@ -516,7 +516,7 @@ const DEFAULT = {
   rentPayments: [], // { id, propertyId, unitId, leaseId, month:"YYYY-MM", amount, date, type:"payment", note }
 
   // Notification completion state — persisted, minimal (content is always computed from live data)
-  notificationsMeta: { completedIds: [], lastSeenAt: "" },
+  notificationsMeta: { completed: {}, lastSeenAt: "" },
 
   vehicles: [
     { id:1, name:"Toyota Sienna 2020", year:2020, make:"Toyota", model:"Sienna",
@@ -1757,9 +1757,9 @@ function NotificationRow({ n, onComplete, completed }) {
 function NotificationPanel({ notifications, completedIds, onComplete, onClose, isAdmin }) {
   const [activeTab, setActiveTab] = useState("overdue");
   const isMobile = useIsMobile();
-  const manualDone = completedIds || [];
+  const completedMap = completedIds && !Array.isArray(completedIds) ? completedIds : {};
 
-  const isCompleted = n => n.status === "completed" || manualDone.includes(n.id);
+  const isCompleted = n => n.status === "completed" || !!completedMap[n.id];
 
   const overdue   = notifications.filter(n => !isCompleted(n) && n.status !== "upcoming")
                                  .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
@@ -2065,9 +2065,9 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
           {/* Notification bell */}
           {(() => {
             const memberNotifs = computeNotifications(data, [], [], false, individualId);
-            const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
-            const memberDone = meta.completedIds || [];
-            const pendingCount = memberNotifs.filter(n => n.status !== "upcoming" && n.status !== "completed" && !memberDone.includes(n.id)).length;
+            const meta = data.notificationsMeta || { completed: {}, lastSeenAt: "" };
+            const completedMap = meta.completed || {};
+            const pendingCount = memberNotifs.filter(n => n.status !== "upcoming" && n.status !== "completed" && !completedMap[n.id]).length;
             return (
               <div style={{ position:"relative" }}>
                 <button onClick={() => setNotificationsOpen(o => !o)}
@@ -2082,7 +2082,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
                 {notificationsOpen && (
                   <NotificationPanel
                     notifications={memberNotifs}
-                    completedIds={meta.completedIds || []}
+                    completedIds={meta.completed || {}}
                     onComplete={null}
                     onClose={() => setNotificationsOpen(false)}
                     isAdmin={false}
@@ -5005,8 +5005,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }, [tab]);
 
   function completeNotification(id) {
-    const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
-    const updated = { ...meta, completedIds: [...new Set([...(meta.completedIds || []), id])] };
+    const meta = data.notificationsMeta || { completed: {}, lastSeenAt: "" };
+    const updated = {
+      ...meta,
+      completed: { ...(meta.completed || {}), [id]: { completedAt: new Date().toISOString(), completedBy: user.id } }
+    };
     saveToDB("notificationsMeta", updated);
     setData(d => ({ ...d, notificationsMeta: updated }));
   }
@@ -5521,9 +5524,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           {/* Notification bell */}
           {(() => {
             const notifications = computeNotifications(data, profiles, pendingSubs, true, null);
-            const meta = data.notificationsMeta || { completedIds: [], lastSeenAt: "" };
-            const manualDone = meta.completedIds || [];
-            const pendingCount = notifications.filter(n => n.status !== "upcoming" && n.status !== "completed" && !manualDone.includes(n.id)).length;
+            const meta = data.notificationsMeta || { completed: {}, lastSeenAt: "" };
+            const completedMap = meta.completed || {};
+            const pendingCount = notifications.filter(n => n.status !== "upcoming" && n.status !== "completed" && !completedMap[n.id]).length;
             return (
               <div style={{ position:"relative" }}>
                 <button onClick={() => setNotificationsOpen(o => !o)}
@@ -5538,7 +5541,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 {notificationsOpen && (
                   <NotificationPanel
                     notifications={notifications}
-                    completedIds={meta.completedIds || []}
+                    completedIds={meta.completed || {}}
                     onComplete={completeNotification}
                     onClose={() => setNotificationsOpen(false)}
                     isAdmin={true}
@@ -6359,14 +6362,15 @@ export default function App() {
         saveToDB("properties", correctedProps);
         setData({
           ...DEFAULT,
-          individuals:  mergeById(DEFAULT.individuals, dbData.individuals),
-          properties:   correctedProps,
-          businesses:   mergeById(DEFAULT.businesses,  dbData.businesses),
-          vehicles:     mergeById(DEFAULT.vehicles,    dbData.vehicles    || []),
-          cashflow:     dbData.cashflow     || DEFAULT.cashflow,
-          rentPayments: mergedRentPayments,
-          reportHistory: dbData.reportHistory || [],
-          snapshots:    dbData.snapshots    || [],
+          individuals:       mergeById(DEFAULT.individuals, dbData.individuals),
+          properties:        correctedProps,
+          businesses:        mergeById(DEFAULT.businesses,  dbData.businesses),
+          vehicles:          mergeById(DEFAULT.vehicles,    dbData.vehicles    || []),
+          cashflow:          dbData.cashflow          || DEFAULT.cashflow,
+          rentPayments:      mergedRentPayments,
+          reportHistory:     dbData.reportHistory     || [],
+          snapshots:         dbData.snapshots         || [],
+          notificationsMeta: dbData.notificationsMeta || DEFAULT.notificationsMeta,
         });
       } else {
         // First run — seed the database with defaults
