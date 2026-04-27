@@ -290,7 +290,8 @@ const DEFAULT = {
     { id:1, name:"Kratos Moving Inc.", abbr:"KMI", type:"operating",  cashAccounts:152207, liabilities:133056, taxPayable:120000, creditCards:13056, revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"CEO: James Bond. BMO + RBC + Wise accounts. CRA $120K payable included in liabilities." },
     { id:2, name:"JMF Logistics Inc.", abbr:"JMF", type:"operating",  cashAccounts:2621,   liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"RBC Chequing. Clean balance sheet. No outstanding liabilities." },
     { id:3, name:"PRIMA",              abbr:"PRIMA",type:"operating",  cashAccounts:10007,  liabilities:2349,   taxPayable:0,     creditCards:2349,  revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"Nazila's operating corporation. TD Chequing $10,007. TD Business Travel Visa $2,349." },
-    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit", cashAccounts:20643,  liabilities:0,      taxPayable:0,     creditCards:0,     revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
+    { id:4, name:"ASWC",               abbr:"ASWC", type:"nonprofit",     cashAccounts:20643, liabilities:0,   taxPayable:0, creditCards:0, revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"Non-profit collective fund. TD Chequing $20,643. NOT included in JMF consolidated net worth." },
+    { id:5, name:"NES Bakery Inc.",    abbr:"NES",  type:"tracked_only",  cashAccounts:0,     liabilities:0,   taxPayable:0, creditCards:0, ownership:0.5, revenue:0, expenses:0, monthlyProfits:[], historicalData:[], notes:"50% ownership. Tracked operationally only. Excluded from JMF consolidated net worth per current agreement structure." },
   ],
 
   properties: [
@@ -3668,7 +3669,8 @@ function BizTrendsTab({ biz, histStart }) {
 function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateHistory, isAdmin, periodLockedMonth }) {
   const [open, setOpen] = useState(false);
   const [bizTab, setBizTab] = useState("overview");
-  const isNonProfit = biz.type === "nonprofit";
+  const isNonProfit    = biz.type === "nonprofit";
+  const isTrackedOnly  = biz.type === "tracked_only";
   const canEditRow = (month) => isAdmin && month !== periodLockedMonth;
   const netEquity   = safe(biz.cashAccounts) - safe(biz.liabilities);
 
@@ -3722,23 +3724,23 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
   const HIST_START = "2022-09";
 
   return (
-    <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+    <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : isTrackedOnly ? C.amber : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
       <div onClick={() => setOpen(o => { if (o) setBizTab("overview"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ background: isNonProfit ? C.purpleLight : C.blueLight, color: isNonProfit ? C.purpleText : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
-            {isNonProfit ? "NON-PROFIT" : "CORP"}
+          <div style={{ background: isNonProfit ? C.purpleLight : isTrackedOnly ? C.amberLight : C.blueLight, color: isNonProfit ? C.purpleText : isTrackedOnly ? C.amber : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
+            {isNonProfit ? "NON-PROFIT" : isTrackedOnly ? "TRACKED ONLY" : "CORP"}
           </div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{biz.name}</div>
             <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
-              {isNonProfit ? "Non-profit · Excluded from consolidated NW" : `Ontario corporation · ${biz.abbr}`}
+              {isNonProfit ? "Non-profit · Excluded from consolidated NW" : isTrackedOnly ? `${biz.ownership != null ? Math.round(safe(biz.ownership) * 100) + "% owned · " : ""}Tracked operationally · Excluded from consolidated NW` : `Ontario corporation · ${biz.abbr}`}
             </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>{isNonProfit ? "Cash balance" : "Corp. equity"}</div>
-            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: isNonProfit ? C.purple : (netEquity >= 0 ? C.gold : C.red) }}>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>{isNonProfit ? "Cash balance" : isTrackedOnly ? "Tracked equity" : "Corp. equity"}</div>
+            <div style={{ fontSize: 18, fontFamily: C.mono, fontWeight: 700, color: isNonProfit ? C.purple : isTrackedOnly ? C.amber : (netEquity >= 0 ? C.gold : C.red) }}>
               {$K(isNonProfit ? safe(biz.cashAccounts) : netEquity)}
             </div>
           </div>
@@ -5078,7 +5080,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalREVal     = data.properties.reduce((s, p) => s + getMarketValueCad(p), 0);
   const totalREDbt     = data.properties.reduce((s, p) => s + propCurrentMortgageBalance(p), 0);
   const totalPers     = data.individuals.reduce((s, f) => s + indNet(f), 0);
-  const totalBiz      = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
+  const totalBiz      = data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + (safe(b.cashAccounts) - safe(b.liabilities)), 0);
   const totalVehicles = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v) - safe(v.loanBalance), 0);
   const totalNW       = totalRENetSale + totalPers + totalBiz + totalVehicles;
   const curYM      = currentYM();
@@ -5195,7 +5197,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       return s + (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p);
     }, 0)
       + data.individuals.reduce((s, f) => s + indNet(f), 0)
-      + data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0)
+      + data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0)
       + snapVehicleTotal;
     const snapREEq  = data.properties.reduce((s, p) => s + propJMFEquity(p), 0);
     const snapRELiq = data.properties.reduce((s, p) => {
@@ -5206,7 +5208,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       month: currentYM(), capturedAt: new Date().toISOString(), nw: snapNW, note: note || "",
       reEquity: snapREEq, reLiquid: snapRELiq,
       individuals: data.individuals.reduce((s, f) => s + indNet(f), 0),
-      businesses: data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0),
+      businesses: data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0),
       individualBreakdown: data.individuals.map(f => ({
         id: f.id, name: f.name,
         cash: safe(f.cash), accounts: safe(f.accounts),
@@ -5703,16 +5705,27 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 {data.businesses.map(b => {
                   const eq = safe(b.cashAccounts) - safe(b.liabilities);
                   const isNP = b.type === "nonprofit";
+                  const isTO = b.type === "tracked_only";
                   return (
                     <div key={b.id} onClick={() => setTab("businesses")} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, cursor: "pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = isNP ? C.purple : C.blue; e.currentTarget.style.boxShadow = C.shadowMd; }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = isNP ? C.purple : isTO ? C.amber : C.blue; e.currentTarget.style.boxShadow = C.shadowMd; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
                       <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:8 }}>
-                        <div style={{ background: isNP ? C.purpleLight : C.blueLight, color: isNP ? C.purpleText : C.blueText, borderRadius:4, fontSize:9, fontWeight:700, padding:"2px 6px" }}>{isNP ? "NON-PROFIT" : "CORP"}</div>
+                        <div style={{ background: isNP ? C.purpleLight : isTO ? C.amberLight : C.blueLight, color: isNP ? C.purpleText : isTO ? C.amber : C.blueText, borderRadius:4, fontSize:9, fontWeight:700, padding:"2px 6px" }}>{isNP ? "NON-PROFIT" : isTO ? "TRACKED" : "CORP"}</div>
                         <div style={{ fontSize:12, fontWeight:600, color:C.text }}>{b.name}</div>
                       </div>
                       {isNP ? (
                         <div style={{ fontFamily:C.mono, fontWeight:700, color:C.purple, fontSize:16 }}>{$K(safe(b.cashAccounts))}</div>
+                      ) : isTO ? (
+                        <div>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}><span style={{ color:C.textDim }}>Cash</span><span style={{ fontFamily:C.mono, color:C.green }}>{$K(safe(b.cashAccounts))}</span></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:8 }}><span style={{ color:C.textDim }}>Liabilities</span><span style={{ fontFamily:C.mono, color:C.red }}>{$K(safe(b.liabilities))}</span></div>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+                            <span style={{ color:C.textMid, fontWeight:600 }}>Tracked equity</span>
+                            <span style={{ fontFamily:C.mono, fontWeight:700, color:C.amber }}>{$K(eq)}</span>
+                          </div>
+                          <div style={{ fontSize:9, color:C.textDim, marginTop:4, textAlign:"right" }}>excl. from consolidated NW</div>
+                        </div>
                       ) : (
                         <div>
                           <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}><span style={{ color:C.textDim }}>Cash</span><span style={{ fontFamily:C.mono, color:C.green }}>{$K(safe(b.cashAccounts))}</span></div>
@@ -5999,7 +6012,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               ))}
             </div>
             <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
-              Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations.
+              Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations. NES Bakery Inc. is 50% owned and tracked operationally only — excluded from consolidated net worth per current agreement structure.
             </div>
             {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} onUpdateHistory={entry => updBizHistory(b.id, entry)} isAdmin={true} periodLockedMonth={null} />)}
           </div>
