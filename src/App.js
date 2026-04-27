@@ -1258,6 +1258,143 @@ function LoadingScreen() {
   );
 }
 
+// ─── NET WORTH TRAJECTORY CHART ───────────────────────────────────────────────
+function NWChart({ snapshots }) {
+  const sorted = [...(snapshots || [])]
+    .sort((a, b) => (a.month || "").localeCompare(b.month || ""))
+    .slice(-24);
+
+  if (sorted.length < 2) {
+    return (
+      <Card accent={C.gold} style={{ marginBottom: 16, paddingTop: 20 }}>
+        <Label>Net Worth Trajectory</Label>
+        <div style={{ textAlign: "center", padding: "28px 0", color: C.textDim, fontSize: 12 }}>
+          {sorted.length === 0
+            ? "No snapshots captured yet — go to the Reports tab to capture your first monthly snapshot."
+            : "Capture one more snapshot next month to see your trajectory."}
+        </div>
+      </Card>
+    );
+  }
+
+  const SERIES = [
+    { key: "nw",          label: "Total NW",    color: C.gold,    w: 2.5 },
+    { key: "reLiquid",    label: "Real Estate", color: C.blue,    w: 1.5 },
+    { key: "individuals", label: "Individuals", color: C.green,   w: 1.5 },
+    { key: "businesses",  label: "Business",    color: "#6366F1", w: 1.5 },
+    { key: "vehicles",    label: "Vehicles",    color: C.amber,   w: 1.5 },
+  ];
+
+  const pts = sorted.map(s => ({
+    ...s,
+    vehicles: safe(s.vehicles) > 0
+      ? safe(s.vehicles)
+      : Math.max(0, safe(s.nw) - safe(s.reLiquid) - safe(s.individuals) - safe(s.businesses)),
+  }));
+
+  const allVals = pts.flatMap(p => SERIES.map(s => safe(p[s.key])));
+  const rawMin  = Math.min(...allVals);
+  const rawMax  = Math.max(...allVals);
+  const minVal  = Math.max(0, rawMin - (rawMax - rawMin) * 0.08);
+  const maxVal  = rawMax + (rawMax - rawMin) * 0.08 || rawMax * 1.05 || 1;
+  const range   = maxVal - minVal || 1;
+
+  const W = 600, H = 200, PL = 58, PR = 16, PT = 16, PB = 28;
+  const CW = W - PL - PR, CH = H - PT - PB;
+
+  const xFor = i  => PL + (i / (pts.length - 1)) * CW;
+  const yFor = v  => PT + CH - ((safe(v) - minVal) / range) * CH;
+  const pathFor = key =>
+    pts.map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i).toFixed(1)},${yFor(safe(p[key])).toFixed(1)}`).join(" ");
+
+  const yTicks  = Array.from({ length: 5 }, (_, i) => minVal + (range * i) / 4);
+  const xEvery  = pts.length <= 8 ? 1 : pts.length <= 16 ? 2 : 3;
+
+  const first  = pts[0];
+  const last   = pts[pts.length - 1];
+  const growth = safe(last.nw) - safe(first.nw);
+  const growthPct = safe(first.nw) > 0 ? (growth / safe(first.nw)) * 100 : 0;
+  const months    = pts.length - 1;
+  const monthlyAvg = months > 0 ? growth / months : 0;
+
+  return (
+    <Card accent={C.gold} style={{ marginBottom: 16, paddingTop: 20 }}>
+      {/* Header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+        <div>
+          <Label>Net Worth Trajectory</Label>
+          <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+            {monthLabel(first.month)} → {monthLabel(last.month)} · {months} month{months !== 1 ? "s" : ""}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 20, fontFamily: C.mono, fontWeight: 800, color: growth >= 0 ? C.green : C.red, letterSpacing: -0.5 }}>
+            {growth >= 0 ? "+" : ""}{$K(growth)}
+          </div>
+          <div style={{ fontSize: 11, color: C.textDim, marginTop: 1 }}>
+            {growth >= 0 ? "+" : ""}{growthPct.toFixed(1)}% · avg {growth >= 0 ? "+" : ""}{$K(monthlyAvg)}/mo
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 10, flexWrap: "wrap" }}>
+        {SERIES.map(s => (
+          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 18, height: s.key === "nw" ? 3 : 2, background: s.color, borderRadius: 2, opacity: s.key === "nw" ? 1 : 0.75 }} />
+            <span style={{ fontSize: 10, color: C.textDim }}>{s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* SVG chart */}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
+        {/* Grid + Y labels */}
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={PL} y1={yFor(v).toFixed(1)} x2={W - PR} y2={yFor(v).toFixed(1)}
+              stroke={C.border} strokeWidth="0.6" strokeDasharray={i === 0 ? "none" : "3,4"} />
+            <text x={PL - 5} y={yFor(v) + 3.5} textAnchor="end"
+              fontSize="9" fill={C.textDim} fontFamily="monospace">{$K(v)}</text>
+          </g>
+        ))}
+
+        {/* X labels */}
+        {pts.map((p, i) => i % xEvery === 0 && (
+          <text key={i} x={xFor(i).toFixed(1)} y={H - 4} textAnchor="middle"
+            fontSize="9" fill={C.textDim}>{monthLabel(p.month).split(" ")[0]} {p.month?.slice(2, 4)}</text>
+        ))}
+
+        {/* Category lines (behind NW) */}
+        {SERIES.filter(s => s.key !== "nw").map(s => (
+          <path key={s.key} d={pathFor(s.key)} fill="none"
+            stroke={s.color} strokeWidth={s.w} strokeLinejoin="round" strokeLinecap="round" opacity="0.65" />
+        ))}
+
+        {/* NW area fill */}
+        <path
+          d={`${pathFor("nw")} L${xFor(pts.length - 1).toFixed(1)},${PT + CH} L${PL},${PT + CH} Z`}
+          fill={C.gold} opacity="0.07" />
+
+        {/* NW line */}
+        <path d={pathFor("nw")} fill="none"
+          stroke={C.gold} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Latest value callout */}
+        <text
+          x={xFor(pts.length - 1) - 7} y={yFor(safe(last.nw)) - 8}
+          textAnchor="end" fontSize="10" fontWeight="700" fill={C.gold} fontFamily="monospace">
+          {$K(last.nw)}
+        </text>
+
+        {/* End dot */}
+        <circle cx={xFor(pts.length - 1).toFixed(1)} cy={yFor(safe(last.nw)).toFixed(1)}
+          r="4" fill={C.gold} stroke={C.card} strokeWidth="1.5" />
+      </svg>
+    </Card>
+  );
+}
+
 // ─── CASH FLOW GRAPH ──────────────────────────────────────────────────────────
 function CashFlowGraph({ data }) {
   const months  = monthsBetween(SYSTEM_START, currentYM());
@@ -5212,6 +5349,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       reEquity: snapREEq, reLiquid: snapRELiq,
       individuals: data.individuals.reduce((s, f) => s + indNet(f), 0),
       businesses: data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + safe(b.cashAccounts) - safe(b.liabilities), 0),
+      vehicles: snapVehicleTotal,
       individualBreakdown: data.individuals.map(f => ({
         id: f.id, name: f.name,
         cash: safe(f.cash), accounts: safe(f.accounts),
@@ -5674,6 +5812,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               ))}
             </div>
+
+            {/* NW Trajectory Chart */}
+            <NWChart snapshots={data.snapshots} />
 
             {/* Maintenance alerts */}
             <MaintenanceAlertsWidget />
