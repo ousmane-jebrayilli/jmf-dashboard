@@ -1395,6 +1395,91 @@ function NWChart({ snapshots }) {
   );
 }
 
+// ─── ASSET ALLOCATION + LIQUIDITY CARD ───────────────────────────────────────
+function AllocationCard({ totalRELiquid, totalPers, totalBiz, totalVehicles, individuals }) {
+  const slices = [
+    { label: "Real Estate",  val: Math.max(0, totalRELiquid), color: C.blue,    sub: "Liquid equity after selling costs" },
+    { label: "Individuals",  val: Math.max(0, totalPers),     color: C.green,   sub: "Personal net assets" },
+    { label: "Business",     val: Math.max(0, totalBiz),      color: "#6366F1", sub: "Operating corp equity" },
+    { label: "Vehicles",     val: Math.max(0, totalVehicles), color: C.amber,   sub: "Net vehicle equity" },
+  ].filter(s => s.val > 0);
+
+  const totalNW = slices.reduce((s, sl) => s + sl.val, 0);
+  if (totalNW <= 0) return null;
+
+  // Liquidity buckets
+  const liqCash = individuals.reduce((s, f) => s + safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto), 0);
+  const liqSemi = Math.max(0, totalBiz);
+  const liqHard = Math.max(0, totalRELiquid) + Math.max(0, totalVehicles) + individuals.reduce((s, f) => s + safe(f.physicalAssets), 0);
+  const liqTotal = Math.max(liqCash + liqSemi + liqHard, 1);
+
+  // SVG donut arc builder
+  const R = 54, IR = 36, CX = 64, CY = 64;
+  const toXY = (a, r) => [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+  const GAP = 0.025;
+  let cursor = -Math.PI / 2;
+  const paths = slices.map(sl => {
+    const sweep = (sl.val / totalNW) * 2 * Math.PI - GAP;
+    const s0 = cursor + GAP / 2, s1 = s0 + sweep;
+    const [x1, y1] = toXY(s0, R), [x2, y2] = toXY(s1, R);
+    const [xi1, yi1] = toXY(s1, IR), [xi2, yi2] = toXY(s0, IR);
+    const lg = sweep > Math.PI ? 1 : 0;
+    const d = `M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${lg} 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${xi1.toFixed(2)},${yi1.toFixed(2)} A${IR},${IR} 0 ${lg} 0 ${xi2.toFixed(2)},${yi2.toFixed(2)} Z`;
+    cursor += (sl.val / totalNW) * 2 * Math.PI;
+    return { ...sl, d, pct: (sl.val / totalNW * 100).toFixed(1) };
+  });
+
+  return (
+    <Card accent={C.blue} style={{ marginBottom: 16, paddingTop: 20 }}>
+      <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+        {/* Donut */}
+        <svg viewBox="0 0 128 128" width={120} height={120} style={{ flexShrink: 0 }}>
+          {paths.map((p, i) => <path key={i} d={p.d} fill={p.color} />)}
+          <text x={CX} y={CY - 7} textAnchor="middle" fontSize="8" fill={C.textDim} fontFamily={C.sans} letterSpacing="0.05em">TOTAL NW</text>
+          <text x={CX} y={CY + 8} textAnchor="middle" fontSize="13" fontWeight="700" fill={C.text} fontFamily="monospace">{$K(totalNW)}</text>
+        </svg>
+        {/* Legend */}
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <Label>Asset Allocation</Label>
+          {paths.map((p, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: p.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: C.text }}>{p.label}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: p.color }}>{p.pct}%</span>
+                <span style={{ fontSize: 11, color: C.textDim, fontFamily: C.mono }}>{$K(p.val)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Liquidity bar */}
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <Label>Liquidity Profile</Label>
+          <div style={{ fontSize: 10, color: C.textDim, display: "flex", gap: 10 }}>
+            <span><span style={{ color: C.green, fontWeight: 700 }}>{(liqCash / liqTotal * 100).toFixed(0)}%</span> Liquid</span>
+            <span><span style={{ color: C.amber, fontWeight: 700 }}>{(liqSemi / liqTotal * 100).toFixed(0)}%</span> Semi</span>
+            <span><span style={{ color: C.blue,  fontWeight: 700 }}>{(liqHard / liqTotal * 100).toFixed(0)}%</span> Illiquid</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", height: 8 }}>
+          {[[liqCash, C.green], [liqSemi, C.amber], [liqHard, C.blue]].map(([v, c], i) => (
+            <div key={i} style={{ width: `${v / liqTotal * 100}%`, background: c, minWidth: v > 0 ? 2 : 0 }} />
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontSize: 10, color: C.textDim, flexWrap: "wrap", gap: 4 }}>
+          <span>{$K(liqCash)} liquid — cash, accounts, securities, crypto</span>
+          <span>{$K(liqHard)} illiquid — real estate, vehicles</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ─── CASH FLOW GRAPH ──────────────────────────────────────────────────────────
 function CashFlowGraph({ data }) {
   const months  = monthsBetween(SYSTEM_START, currentYM());
@@ -5816,6 +5901,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             {/* NW Trajectory Chart */}
             <NWChart snapshots={data.snapshots} />
 
+            {/* Asset Allocation + Liquidity */}
+            <AllocationCard
+              totalRELiquid={totalRELiquid}
+              totalPers={totalPers}
+              totalBiz={totalBiz}
+              totalVehicles={totalVehicles}
+              individuals={data.individuals}
+            />
+
             {/* Maintenance alerts */}
             <MaintenanceAlertsWidget />
 
@@ -5984,9 +6078,51 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
-              Click any property to expand. The real estate view now focuses on overview, mortgage, operating expenses, leases, and a lease-aware ledger.
-            </div>
+            {/* RE Return Metrics table */}
+            {(() => {
+              const rentable = data.properties.filter(p => propEffectiveRent(p) > 0 && getMarketValueCad(p) > 0);
+              if (!rentable.length) return null;
+              const yc = v => v >= 6 ? C.green : v >= 3 ? C.amber : C.red;
+              return (
+                <Card style={{ marginBottom: 16 }}>
+                  <Label>Return Metrics</Label>
+                  <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 340 }}>
+                      <thead>
+                        <tr>
+                          {["Property", "Gross Yield", "Cap Rate", "Monthly NCF"].map(h => (
+                            <th key={h} style={{ textAlign: h === "Property" ? "left" : "right", padding: "6px 10px", fontSize: 9, color: C.textDim, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rentable.map(p => {
+                          const mkt  = getMarketValueCad(p);
+                          const rent = propEffectiveRent(p);
+                          const opEx = safe(p.monthlyTax) + safe(p.monthly_insurance) +
+                                       safe(p.maintenance_reserve_monthly) + safe(p.management_fee_monthly) +
+                                       safe(p.utilities_monthly);
+                          const grossYield = (rent * 12 / mkt) * 100;
+                          const capRate    = ((rent - opEx) * 12 / mkt) * 100;
+                          const ncf        = rent - propMonthlyOut(p);
+                          return (
+                            <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                              <td style={{ padding: "9px 10px", color: C.text, fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                              <td style={{ padding: "9px 10px", textAlign: "right", fontFamily: C.mono, fontWeight: 700, color: yc(grossYield) }}>{grossYield.toFixed(2)}%</td>
+                              <td style={{ padding: "9px 10px", textAlign: "right", fontFamily: C.mono, fontWeight: 700, color: yc(capRate) }}>{capRate.toFixed(2)}%</td>
+                              <td style={{ padding: "9px 10px", textAlign: "right", fontFamily: C.mono, fontWeight: 700, color: ncf >= 0 ? C.green : C.red }}>{ncf >= 0 ? "+" : ""}{$F(ncf)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginTop: 8, lineHeight: 1.6 }}>
+                    Gross yield: annual rent ÷ market value. Cap rate: NOI (rent − operating expenses, excl. debt) ÷ market value. Monthly NCF: rent − all outflows incl. mortgage. ≥6% green · 3–6% amber · &lt;3% red.
+                  </div>
+                </Card>
+              );
+            })()}
             {groupedProperties.map(([country, props]) => {
               const meta = getCountryMeta(country);
               return (
