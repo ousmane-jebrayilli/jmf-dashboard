@@ -4981,7 +4981,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [profiles, setProfiles]     = useState([]);
   const [showReminder, setShowReminder] = useState(false);
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
-  const [cfMonth, setCFMonth]       = useState(currentYM());
+  const [cfMonth, setCFMonth] = useState(currentYM());
+  const [cfOpen, setCFOpen]   = useState({ biz:true, rent:true, payroll:true, otherInc:true, re:true, vehicle:true, otherObl:true });
+  const toggleCF = key => setCFOpen(s => ({ ...s, [key]: !s[key] }));
   const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
   const [accLogForm, setAccLogForm] = useState({ month: currentYM(), cash: 0, accounts: 0, securities: 0, crypto: 0, physicalAssets: 0, note: "" });
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
@@ -6063,150 +6065,212 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-                <Card>
-                  <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↑ Income — {monthLabel(cfMonth)}</div>
+              {(() => {
+                // ── per-group subtotals (derived, no new calculation) ──────────
+                const bizRows     = data.businesses.filter(b => b.type !== "nonprofit");
+                const vehicleRows = (data.vehicles || []).filter(v => safe(v.monthlyPayment) + safe(v.insuranceMonthly) > 0);
 
-                  {/* Business net profits */}
-                  {data.businesses.filter(b => b.type !== "nonprofit").map(b => {
-                    const entry  = (b.monthlyProfits || []).find(p => p.month === cfMonth);
-                    const profit = safe(entry?.profit);
-                    return (
-                      <div key={b.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <span style={{ fontSize: 13, color: C.text }}>{b.name}</span>
-                          <span style={{ fontFamily: C.mono, fontSize: 14, color: entry ? (profit >= 0 ? C.gold : C.red) : C.textDim }}>
-                            {entry ? $F(profit) : "—"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Net profit · log in Businesses tab</div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Rental income — live from active leases */}
-                  {data.properties.map(p => {
-                    const rent = propEffectiveRent(p);
-                    if (rent === 0) return null;
-                    return (
-                      <div key={p.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <span style={{ fontSize: 13, color: C.text }}>{p.name}</span>
-                          <span style={{ fontFamily: C.mono, fontSize: 14, color: C.gold }}>{$F(rent)}</span>
-                        </div>
-                        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>Expected rent · active leases</div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Monthly Income — per individual */}
-                  <div style={{ padding: "9px 0 4px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom: 8 }}>Monthly Income</div>
-                    {data.individuals.map(ind => {
-                      const entry  = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
-                      const income = safe(entry?.income);
-                      return (
-                        <div key={ind.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0" }}>
-                          <span style={{ fontSize:12, color:C.text }}>{ind.name}</span>
-                          <EditNum value={income} onChange={v => updIndIncome(ind.id, cfMonth, v)} />
-                        </div>
-                      );
-                    })}
-                    <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, paddingTop:6, borderTop:`1px solid ${C.border}` }}>
-                      <span style={{ fontSize:11, color:C.textMid }}>Total monthly income</span>
-                      <span style={{ fontFamily:C.mono, fontSize:12, color: cfPayroll > 0 ? C.gold : C.textDim }}>{cfPayroll > 0 ? $F(cfPayroll) : "—"}</span>
+                // Section header component (inline)
+                const SectionHeader = ({ label, subtotal, colorVal, openKey, positiveColor }) => (
+                  <button onClick={() => toggleCF(openKey)} style={{ width:"100%", background:"none", border:"none", padding:"11px 0 10px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}` }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:C.text, letterSpacing:"0.09em", textTransform:"uppercase", fontFamily:C.sans }}>{label}</span>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <span style={{ fontFamily:C.mono, fontSize:13, fontWeight:700, color: subtotal > 0 ? (positiveColor || C.gold) : C.textDim }}>
+                        {subtotal > 0 ? (colorVal === "red" ? $F(subtotal) : $F(subtotal)) : "—"}
+                      </span>
+                      <span style={{ fontSize:11, color:C.textDim, lineHeight:1 }}>{cfOpen[openKey] ? "▾" : "▸"}</span>
                     </div>
+                  </button>
+                );
+
+                // Plain data row (no interactivity)
+                const DataRow = ({ label, value, sub, valueColor }) => (
+                  <div style={{ padding:"8px 0 7px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:13, color:C.text }}>{label}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:13, fontWeight:600, color: valueColor || C.text }}>{value}</span>
+                    </div>
+                    {sub && <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>{sub}</div>}
                   </div>
+                );
 
-                  {/* Other static income */}
-                  {data.cashflow.income.map((item, i) => (
-                    <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
-                        <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                        <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} locked={false} />
-                        <button onClick={() => delCF("income", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
-                      </div>
-                    </div>
-                  ))}
+                return (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:16 }}>
 
-                  <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
-                    <span style={{ color: C.textMid }}>Total in</span>
-                    <span style={{ fontFamily: C.mono, fontSize: 15, color: C.green }}>{$F(cfTotalIn)}</span>
-                  </div>
-                </Card>
+                    {/* ── INCOME CARD ── */}
+                    <Card>
+                      <div style={{ fontSize:11, color:C.green, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>↑ Income — {monthLabel(cfMonth)}</div>
 
-                <Card>
-                  <div style={{ fontSize: 11, color: C.red, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>↓ Monthly Obligations</div>
-
-                  {/* Live property obligations — derived from Real Estate fixed monthly operating expenses */}
-                  {data.properties.map(p => {
-                    const total = propMonthlyOut(p);
-                    const mtg   = getMortgageOperatingPayment(p);
-                    const tax   = safe(p.monthlyTax);
-                    const ins   = safe(p.monthly_insurance);
-                    const maint = safe(p.maintenance_reserve_monthly);
-                    const parts = [
-                      mtg   > 0 && `Mortgage ${$K(mtg)}`,
-                      tax   > 0 && `Tax ${$K(tax)}`,
-                      ins   > 0 && `Insurance ${$K(ins)}`,
-                      maint > 0 && `Maintenance ${$K(maint)}`,
-                    ].filter(Boolean).join(" · ");
-                    return (
-                      <div key={p.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <span style={{ fontSize: 13, color: C.text }}>{p.name}</span>
-                          <span style={{ fontFamily: C.mono, fontSize: 14, color: total > 0 ? C.red : C.textDim }}>{total > 0 ? $F(total) : "—"}</span>
+                      {/* 1. Businesses */}
+                      <SectionHeader label="Businesses" subtotal={cfBizIn} openKey="biz" positiveColor={C.gold} />
+                      {cfOpen.biz && (
+                        <div style={{ paddingLeft:0 }}>
+                          {bizRows.map(b => {
+                            const entry  = (b.monthlyProfits || []).find(p => p.month === cfMonth);
+                            const profit = safe(entry?.profit);
+                            return (
+                              <DataRow key={b.id} label={b.name}
+                                value={entry ? $F(profit) : "—"}
+                                valueColor={entry ? (profit >= 0 ? C.gold : C.red) : C.textDim}
+                                sub="Net profit · log in Businesses tab" />
+                            );
+                          })}
                         </div>
-                        {parts && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{parts}</div>}
-                      </div>
-                    );
-                  })}
+                      )}
 
-                  {/* Non-property fixed obligations (manual) */}
-                  {data.cashflow.obligations.length > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      {data.cashflow.obligations.map((item, i) => (
-                        <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap: 8 }}>
-                            <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{item.label}</span>
-                            <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} locked={false} />
-                            <button onClick={() => delCF("obligations", i)} title="Remove" style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
-                          </div>
-                          {item.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{item.note}</div>}
+                      {/* 2. Rental Income */}
+                      <SectionHeader label="Rental Income" subtotal={cfRentIn} openKey="rent" positiveColor={C.gold} />
+                      {cfOpen.rent && (
+                        <div>
+                          {data.properties.map(p => {
+                            const rent = propEffectiveRent(p);
+                            return (
+                              <DataRow key={p.id} label={p.name}
+                                value={rent > 0 ? $F(rent) : "—"}
+                                valueColor={rent > 0 ? C.gold : C.textDim}
+                                sub="Expected rent · active leases" />
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      )}
 
-                  {/* Vehicle payments derived from Vehicles tab */}
-                  {cfVehicleOut > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", padding:"8px 0 4px", fontWeight:700 }}>Vehicles</div>
-                      {(data.vehicles || []).filter(v => safe(v.monthlyPayment) + safe(v.insuranceMonthly) > 0).map(v => {
-                        const total = safe(v.monthlyPayment) + safe(v.insuranceMonthly);
-                        const parts = [
-                          safe(v.monthlyPayment) > 0 && `Loan ${$K(v.monthlyPayment)}`,
-                          safe(v.insuranceMonthly) > 0 && `Insurance ${$K(v.insuranceMonthly)}`,
-                        ].filter(Boolean).join(" · ");
-                        return (
-                          <div key={v.id} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                              <span style={{ fontSize: 13, color: C.text }}>{v.name}</span>
-                              <span style={{ fontFamily: C.mono, fontSize: 14, color: C.red }}>{$F(total)}</span>
+                      {/* 3. Monthly Income / Individuals */}
+                      <SectionHeader label="Monthly Income" subtotal={cfPayroll} openKey="payroll" positiveColor={C.green} />
+                      {cfOpen.payroll && (
+                        <div>
+                          {data.individuals.map(ind => {
+                            const entry  = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
+                            const income = safe(entry?.income);
+                            return (
+                              <div key={ind.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 0", borderBottom:`1px solid ${C.border}` }}>
+                                <span style={{ fontSize:13, color:C.text }}>{ind.name}</span>
+                                <EditNum value={income} onChange={v => updIndIncome(ind.id, cfMonth, v)} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 4. Other Income */}
+                      <SectionHeader label="Other Income" subtotal={cfOther} openKey="otherInc" positiveColor={C.green} />
+                      {cfOpen.otherInc && (
+                        <div>
+                          {data.cashflow.income.length === 0 && (
+                            <div style={{ fontSize:12, color:C.textDim, padding:"8px 0 4px", fontStyle:"italic" }}>No other income rows.</div>
+                          )}
+                          {data.cashflow.income.map((item, i) => (
+                            <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"7px 0", borderBottom:`1px solid ${C.border}` }}>
+                              <span style={{ fontSize:13, color:C.text, flex:1 }}>{item.label}</span>
+                              <EditNum value={safe(item.amount)} onChange={v => updCF("income", i, v)} locked={false} />
+                              <button onClick={() => delCF("income", i)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
                             </div>
-                            {parts && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{parts}</div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          ))}
+                          <button onClick={() => {
+                            const label = window.prompt("Income label (e.g. Dividend, Side income):");
+                            if (!label) return;
+                            const cf = { ...data.cashflow, income: [...data.cashflow.income, { label, amount: 0 }] };
+                            saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+                          }} style={{ marginTop:8, fontSize:11, background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textDim, padding:"5px 12px", cursor:"pointer", width:"100%" }}>
+                            + Add income row
+                          </button>
+                        </div>
+                      )}
 
-                  <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0", fontWeight: 700 }}>
-                    <span style={{ color: C.textMid }}>Total out</span>
-                    <span style={{ fontFamily: C.mono, fontSize: 15, color: C.red }}>{$F(cfTotalOut)}</span>
+                      <div style={{ display:"flex", justifyContent:"space-between", padding:"13px 0 0", borderTop:`2px solid ${C.border}`, marginTop:4, fontWeight:700 }}>
+                        <span style={{ fontSize:13, color:C.textMid }}>Total in</span>
+                        <span style={{ fontFamily:C.mono, fontSize:15, color:C.green }}>{$F(cfTotalIn)}</span>
+                      </div>
+                    </Card>
+
+                    {/* ── OBLIGATIONS CARD ── */}
+                    <Card>
+                      <div style={{ fontSize:11, color:C.red, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>↓ Monthly Obligations</div>
+
+                      {/* 1. Real Estate */}
+                      <SectionHeader label="Real Estate" subtotal={cfPropOut} openKey="re" positiveColor={C.red} />
+                      {cfOpen.re && (
+                        <div>
+                          {data.properties.map(p => {
+                            const total = propMonthlyOut(p);
+                            const mtg   = getMortgageOperatingPayment(p);
+                            const tax   = safe(p.monthlyTax);
+                            const ins   = safe(p.monthly_insurance);
+                            const maint = safe(p.maintenance_reserve_monthly);
+                            const parts = [
+                              mtg   > 0 && `Mortgage ${$K(mtg)}`,
+                              tax   > 0 && `Tax ${$K(tax)}`,
+                              ins   > 0 && `Insurance ${$K(ins)}`,
+                              maint > 0 && `Maintenance ${$K(maint)}`,
+                            ].filter(Boolean).join(" · ");
+                            return (
+                              <DataRow key={p.id} label={p.name}
+                                value={total > 0 ? $F(total) : "—"}
+                                valueColor={total > 0 ? C.red : C.textDim}
+                                sub={parts || undefined} />
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 2. Vehicles */}
+                      {cfVehicleOut > 0 && (
+                        <>
+                          <SectionHeader label="Vehicles" subtotal={cfVehicleOut} openKey="vehicle" positiveColor={C.red} />
+                          {cfOpen.vehicle && (
+                            <div>
+                              {vehicleRows.map(v => {
+                                const total = safe(v.monthlyPayment) + safe(v.insuranceMonthly);
+                                const parts = [
+                                  safe(v.monthlyPayment) > 0    && `Loan ${$K(v.monthlyPayment)}`,
+                                  safe(v.insuranceMonthly) > 0  && `Insurance ${$K(v.insuranceMonthly)}`,
+                                ].filter(Boolean).join(" · ");
+                                return (
+                                  <DataRow key={v.id} label={v.name}
+                                    value={$F(total)} valueColor={C.red} sub={parts || undefined} />
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* 3. Other Obligations */}
+                      <SectionHeader label="Other Obligations" subtotal={cfOtherOut} openKey="otherObl" positiveColor={C.red} />
+                      {cfOpen.otherObl && (
+                        <div>
+                          {data.cashflow.obligations.length === 0 && (
+                            <div style={{ fontSize:12, color:C.textDim, padding:"8px 0 4px", fontStyle:"italic" }}>No other obligations.</div>
+                          )}
+                          {data.cashflow.obligations.map((item, i) => (
+                            <div key={i} style={{ padding:"7px 0", borderBottom:`1px solid ${C.border}` }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                                <span style={{ fontSize:13, color:C.text, flex:1 }}>{item.label}</span>
+                                <EditNum value={safe(item.amount)} onChange={v => updCF("obligations", i, v)} locked={false} />
+                                <button onClick={() => delCF("obligations", i)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
+                              </div>
+                              {item.note && <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>{item.note}</div>}
+                            </div>
+                          ))}
+                          <button onClick={() => {
+                            const label = window.prompt("Obligation label (e.g. Phone bill, Subscription):");
+                            if (!label) return;
+                            const cf = { ...data.cashflow, obligations: [...data.cashflow.obligations, { label, amount: 0 }] };
+                            saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+                          }} style={{ marginTop:8, fontSize:11, background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textDim, padding:"5px 12px", cursor:"pointer", width:"100%" }}>
+                            + Add obligation row
+                          </button>
+                        </div>
+                      )}
+
+                      <div style={{ display:"flex", justifyContent:"space-between", padding:"13px 0 0", borderTop:`2px solid ${C.border}`, marginTop:4, fontWeight:700 }}>
+                        <span style={{ fontSize:13, color:C.textMid }}>Total out</span>
+                        <span style={{ fontFamily:C.mono, fontSize:15, color:C.red }}>{$F(cfTotalOut)}</span>
+                      </div>
+                    </Card>
+
                   </div>
-                </Card>
-              </div>
+                );
+              })()}
             </div>
           );
         })()}
