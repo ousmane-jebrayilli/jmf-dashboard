@@ -3944,7 +3944,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
     borderBottom: bizTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
   });
 
-  const HIST_START = "2022-09";
+  const BIZ_HIST_STARTS = { 1: "2022-05" };
+  const HIST_START = BIZ_HIST_STARTS[biz.id] || "2022-09";
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
