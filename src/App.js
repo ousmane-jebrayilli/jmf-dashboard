@@ -1436,7 +1436,7 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
           </div>
           <div style={{ fontSize:22, fontWeight:800, color:"#FFFFFF", letterSpacing:-0.5 }}>Please Update</div>
           <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginTop:4 }}>
-            {monthLabel(ym)} — {missingRent.length + missingProfits.length} item{missingRent.length + missingProfits.length > 1 ? "s" : ""} pending
+            {missingRent.length + missingProfits.length} item{missingRent.length + missingProfits.length > 1 ? "s" : ""} require attention
           </div>
         </div>
 
@@ -6379,6 +6379,18 @@ export default function App() {
           };
         });
         saveToDB("properties", correctedProps);
+        // Migrate notificationsMeta: old format used completedIds[] array;
+        // new format uses completed{} object keyed by notification ID.
+        const rawMeta = dbData.notificationsMeta || DEFAULT.notificationsMeta;
+        const migratedMeta = (() => {
+          if (rawMeta.completed) return rawMeta; // already new format
+          const completed = {};
+          (rawMeta.completedIds || []).forEach(id => { completed[id] = { completedAt: "" }; });
+          const migrated = { ...rawMeta, completed };
+          delete migrated.completedIds;
+          saveToDB("notificationsMeta", migrated);
+          return migrated;
+        })();
         setData({
           ...DEFAULT,
           individuals:       mergeById(DEFAULT.individuals, dbData.individuals),
@@ -6389,7 +6401,7 @@ export default function App() {
           rentPayments:      mergedRentPayments,
           reportHistory:     dbData.reportHistory     || [],
           snapshots:         dbData.snapshots         || [],
-          notificationsMeta: dbData.notificationsMeta || DEFAULT.notificationsMeta,
+          notificationsMeta: migratedMeta,
         });
       } else {
         // First run — seed the database with defaults
