@@ -5461,7 +5461,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         const mkt = getMarketValueCad(p); const fee = mkt * 0.035; const sell = fee + fee * 0.13 + 5000;
         return { id: p.id, name: p.name, market: mkt, debt: propCurrentMortgageBalance(p), equity: propJMFEquity(p), liquid: (mkt - propCurrentMortgageBalance(p) - sell) * propOwnership(p) };
       }),
-      vehicles: snapVehicleTotal,
       vehicleBreakdown: (data.vehicles || []).map(v => ({
         id: v.id, name: v.name, year: v.year, make: v.make, model: v.model,
         marketValue: getVehicleMarketValue(v), loanBalance: safe(v.loanBalance),
