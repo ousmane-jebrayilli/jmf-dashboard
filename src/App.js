@@ -239,6 +239,33 @@ function monthsInLeaseWindow(startDate, endDate) {
 function makeId(prefix = "id") {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
+const INDIVIDUAL_EXPENSE_CATEGORIES = [
+  { key: "operating", label: "Operating" },
+  { key: "familyTransfers", label: "Family Transfers" },
+  { key: "discretionary", label: "Discretionary" },
+];
+function makeIndividualExpense(entry = {}) {
+  return {
+    month: entry.month || currentYM(),
+    operating: safe(entry.operating),
+    familyTransfers: safe(entry.familyTransfers),
+    discretionary: safe(entry.discretionary),
+    notes: entry.notes || "",
+  };
+}
+function getIndividualIncome(ind, month) {
+  return safe((ind?.monthlyIncome || []).find(p => p.month === month)?.income);
+}
+function getIndividualExpense(ind, month) {
+  const entry = (ind?.individualExpenses || []).find(p => p.month === month);
+  return makeIndividualExpense({ month, ...entry });
+}
+function personalExpenseTotal(entry) {
+  return safe(entry?.operating) + safe(entry?.familyTransfers) + safe(entry?.discretionary);
+}
+function personalNetCashFlow(income, entry) {
+  return safe(income) - personalExpenseTotal(entry);
+}
 function makeLease(lease = {}) {
   const start = lease.lease_start_date || "";
   const end = lease.lease_end_date || "";
@@ -278,12 +305,12 @@ const DEFAULT = {
   reportHistory: [],
 
   individuals: [
-    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[], accountsLog:[] },
-    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
-    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
-    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
-    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
-    { id:6, name:"Mustafa Majidov",    initials:"MU", cash:0,   accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], accountsLog:[] },
+    { id:1, name:"Ahmed (AJ)",         initials:"AJ", cash:0,   accounts:1023,  debt:0, securities:46610, crypto:1466, physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
+    { id:2, name:"Nazila Isgandarova", initials:"NI", cash:0,   accounts:15647, debt:0, securities:39939, crypto:0,    physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
+    { id:3, name:"Yasin Majidov",      initials:"YM", cash:500, accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
+    { id:4, name:"Maryam Majidova",    initials:"MM", cash:0,   accounts:1305,  debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
+    { id:5, name:"Akbar Majidov",      initials:"AM", cash:0,   accounts:-1089, debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
+    { id:6, name:"Mustafa Majidov",    initials:"MU", cash:0,   accounts:0,     debt:0, securities:0,     crypto:0,    physicalAssets:0, monthlyIncome:[], individualExpenses:[], accountsLog:[] },
   ],
 
   businesses: [
@@ -566,6 +593,19 @@ async function writeIndividualLog(indId, entry, userId) {
     note:            entry.note || null,
     updated_at:      new Date().toISOString(),
     updated_by:      userId || null,
+  }, { onConflict: "month_key,individual_id" });
+}
+async function writeIndividualPersonalPL(indId, entry, userId) {
+  await ensurePeriodExists(entry.month);
+  await supabase.from("monthly_individual_logs").upsert({
+    month_key:              entry.month,
+    individual_id:          indId,
+    personal_operating:     safe(entry.operating),
+    family_transfers:       safe(entry.familyTransfers),
+    personal_discretionary: safe(entry.discretionary),
+    personal_pl_notes:      entry.notes || null,
+    updated_at:             new Date().toISOString(),
+    updated_by:             userId || null,
   }, { onConflict: "month_key,individual_id" });
 }
 
@@ -1557,6 +1597,130 @@ function CashFlowGraph({ data }) {
   );
 }
 
+function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = false }) {
+  const [month, setMonth] = useState(currentYM());
+  const expense = getIndividualExpense(individual, month);
+  const income = getIndividualIncome(individual, month);
+  const totalExpenses = personalExpenseTotal(expense);
+  const netFlow = personalNetCashFlow(income, expense);
+  const isLocked = lockedMonth === month;
+  const allMonths = [...new Set([
+    ...monthsBetween(SYSTEM_START, currentYM()),
+    ...(individual?.monthlyIncome || []).map(e => e.month).filter(Boolean),
+    ...(individual?.individualExpenses || []).map(e => e.month).filter(Boolean),
+  ])].sort();
+  const history = allMonths
+    .map(m => {
+      const rowExpense = getIndividualExpense(individual, m);
+      const rowIncome = getIndividualIncome(individual, m);
+      return {
+        month: m,
+        income: rowIncome,
+        expenses: personalExpenseTotal(rowExpense),
+        net: personalNetCashFlow(rowIncome, rowExpense),
+        entry: rowExpense,
+      };
+    })
+    .filter(row => row.income || row.expenses || row.entry.notes)
+    .sort((a, b) => b.month.localeCompare(a.month));
+  const chartRows = allMonths.slice(-6).map(m => {
+    const rowExpense = getIndividualExpense(individual, m);
+    return { month: m, net: personalNetCashFlow(getIndividualIncome(individual, m), rowExpense) };
+  });
+  const chartMax = Math.max(1, ...chartRows.map(r => Math.abs(r.net)));
+
+  const updateExpense = (patch) => {
+    if (!onSaveExpense || isLocked) return;
+    onSaveExpense(individual.id, month, { ...expense, ...patch, month });
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom: compact ? 12 : 18 }}>
+        <div>
+          <div style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:C.text }}>Personal P&amp;L</div>
+          <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>Income minus personal operating, family transfers, and discretionary spend.</div>
+        </div>
+        <select value={month} onChange={e => setMonth(e.target.value)}
+          style={{ padding:"7px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
+          {[...allMonths].reverse().map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns: compact ? "1fr" : "repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
+        {[
+          { label:"Income", value: income, color:C.green },
+          { label:"Expenses", value: totalExpenses, color:C.red },
+          { label:"Net Cash Flow", value: netFlow, color: netFlow >= 0 ? C.green : C.red },
+        ].map(item => (
+          <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+            <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{item.label}</div>
+            <div style={{ fontFamily:C.mono, fontSize: compact ? 14 : 18, fontWeight:800, color:item.color }}>{item.value >= 0 && item.label === "Net Cash Flow" ? "+" : ""}{$F(item.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
+        <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Expenses</div>
+        {INDIVIDUAL_EXPENSE_CATEGORIES.map((cat, i) => (
+          <Row key={cat.key} label={cat.label} last={i === INDIVIDUAL_EXPENSE_CATEGORIES.length - 1}>
+            <EditNum value={safe(expense[cat.key])} onChange={v => updateExpense({ [cat.key]: safe(v) })} locked={isLocked} />
+          </Row>
+        ))}
+        <div style={{ paddingTop:10, marginTop:4, borderTop:`1px solid ${C.border}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:13, color:C.textMid }}>Notes</span>
+            <EditText value={expense.notes} onChange={v => updateExpense({ notes: v })} locked={isLocked} placeholder="Optional note" width={compact ? 120 : 220} />
+          </div>
+          {isLocked && <div style={{ fontSize:10, color:C.red, marginTop:8 }}>{monthLabel(month)} is locked.</div>}
+        </div>
+      </div>
+
+      {!compact && (
+        <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Net Cash Flow Trend</div>
+          <div style={{ overflowX:"auto" }}>
+            <svg width={Math.max(320, chartRows.length * 58)} height={120} style={{ display:"block" }}>
+              <line x1={0} y1={58} x2={Math.max(320, chartRows.length * 58)} y2={58} stroke={C.borderDark} strokeWidth={1} strokeDasharray="3 4" />
+              {chartRows.map((row, i) => {
+                const h = Math.max(3, Math.abs(row.net) / chartMax * 44);
+                const y = row.net >= 0 ? 58 - h : 58;
+                return (
+                  <g key={row.month}>
+                    <rect x={i * 58 + 12} y={y} width={34} height={h} rx={4} fill={row.net >= 0 ? C.green : C.red} opacity={0.85} />
+                    <text x={i * 58 + 29} y={112} textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>{monthLabel(row.month).split(" ")[0]}</text>
+                    {row.net !== 0 && <text x={i * 58 + 29} y={row.net >= 0 ? y - 4 : y + h + 11} textAnchor="middle" fontSize={9} fill={row.net >= 0 ? C.green : C.red} fontFamily={C.mono}>{(row.net > 0 ? "+" : "") + $K(row.net)}</text>}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>History</div>
+          <span style={{ fontSize:10, color:C.textDim }}>{history.length} entr{history.length === 1 ? "y" : "ies"}</span>
+        </div>
+        {history.length === 0 ? (
+          <div style={{ fontSize:11, color:C.textDim, fontStyle:"italic" }}>No personal P&amp;L entries yet.</div>
+        ) : history.slice(0, compact ? 3 : 12).map((row, i) => (
+          <div key={row.month} style={{ padding:"8px 0", borderBottom: i < Math.min(history.length, compact ? 3 : 12) - 1 ? `1px solid ${C.border}` : "none" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:10, alignItems:"center" }}>
+              <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
+              <span style={{ fontFamily:C.mono, fontSize:11, color:C.green }}>{$F(row.income)}</span>
+              <span style={{ fontFamily:C.mono, fontSize:11, color:C.red }}>{$F(row.expenses)}</span>
+              <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:row.net >= 0 ? C.green : C.red }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
+            </div>
+            {row.entry.notes && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{row.entry.notes}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── CASH MODAL ───────────────────────────────────────────────────────────────
 function CashModal({ current, onSave, onClose }) {
   const [val, setVal] = useState(safe(current));
@@ -2155,7 +2319,7 @@ function LoginScreen() {
 
 // ─── MEMBER VIEW ──────────────────────────────────────────────────────────────
 // user.id = auth UUID  |  user.profile.individual_id = individuals[].id
-function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onLogout }) {
+function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveAccountsLog, onLogout }) {
   const [saved, setSaved]               = useState(false);
   const [cashModal, setCashModal]       = useState(false);
   const [showSubModal, setShowSubModal] = useState(false);
@@ -2326,7 +2490,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
       {/* Member tab bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display:"flex", padding:"0 16px" }}>
-          {[["snapshot","My Snapshot"],["history","My History"]].map(([id, label]) => (
+          {[["snapshot","My Snapshot"],["personalpl","Personal P&L"],["history","My History"]].map(([id, label]) => (
             <button key={id} onClick={() => setMemberTab(id)}
               style={{ padding:"11px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background:"transparent", fontFamily:C.sans,
                 color: memberTab === id ? C.gold : C.textDim,
@@ -2389,6 +2553,15 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveAccountsLog, onL
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* Personal P&L tab */}
+      {memberTab === "personalpl" && (
+        <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 640, margin: "0 auto" }}>
+          <Card>
+            <PersonalPLPanel individual={f} onSaveExpense={onSaveExpense} />
+          </Card>
         </div>
       )}
 
@@ -5400,6 +5573,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       )
     ).catch(() => {});
   }
+  function updIndExpense(indId, month, entry) {
+    const clean = makeIndividualExpense({ ...entry, month });
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.individualExpenses || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? clean : p)
+        : [...existing, clean];
+      return { ...x, individualExpenses: updated };
+    });
+    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    writeIndividualPersonalPL(indId, clean, user.id).catch(() => {});
+  }
   function updIndAccountsLog(indId, entry) {
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
@@ -6187,6 +6374,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
                   </div>
 
+                  <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    <PersonalPLPanel
+                      individual={f}
+                      onSaveExpense={updIndExpense}
+                      lockedMonth={periodStatus.is_locked ? curYM : null}
+                      compact={true}
+                    />
+                  </div>
+
                   {/* Individual History Log */}
                   <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -6759,6 +6955,20 @@ export default function App() {
     });
     saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+  }} onSaveExpense={(indId, month, entry) => {
+    const clean = makeIndividualExpense({ ...entry, month });
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.individualExpenses || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? clean : p)
+        : [...existing, clean];
+      return { ...x, individualExpenses: updated };
+    });
+    saveToDB("individuals", arr);
+    setData(d => ({ ...d, individuals: arr }));
+    writeIndividualPersonalPL(indId, clean, currentUser.id).catch(() => {});
   }} onSaveAccountsLog={(indId, entry) => {
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
