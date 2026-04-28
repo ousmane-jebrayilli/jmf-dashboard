@@ -240,31 +240,50 @@ function makeId(prefix = "id") {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 const INDIVIDUAL_EXPENSE_CATEGORIES = [
-  { key: "operating", label: "Operating" },
-  { key: "familyTransfers", label: "Family Transfers" },
-  { key: "discretionary", label: "Discretionary" },
+  { key: "jmf", label: "JMF" },
+  { key: "personal", label: "Personal" },
+  { key: "profession", label: "Profession" },
+  { key: "education", label: "Education" },
 ];
-function makeIndividualExpense(entry = {}) {
+function makeIndividualIncome(entry = {}) {
+  const hasNewFields = entry.kratosIncome != null || entry.otherIncome != null;
+  const legacyIncome = safe(entry.income);
+  const kratosIncome = hasNewFields ? safe(entry.kratosIncome) : legacyIncome;
+  const otherIncome = safe(entry.otherIncome);
   return {
     month: entry.month || currentYM(),
-    operating: safe(entry.operating),
-    familyTransfers: safe(entry.familyTransfers),
-    discretionary: safe(entry.discretionary),
+    kratosIncome,
+    otherIncome,
+    notes: entry.notes || entry.incomeNotes || "",
+    income: kratosIncome + otherIncome,
+  };
+}
+function makeIndividualExpense(entry = {}) {
+  const hasNewFields = entry.jmf != null || entry.personal != null || entry.profession != null || entry.education != null;
+  const legacyPersonal = safe(entry.operating) + safe(entry.discretionary);
+  return {
+    month: entry.month || currentYM(),
+    jmf: hasNewFields ? safe(entry.jmf) : safe(entry.familyTransfers),
+    personal: hasNewFields ? safe(entry.personal) : legacyPersonal,
+    profession: safe(entry.profession),
+    education: safe(entry.education),
     notes: entry.notes || "",
   };
 }
-function getIndividualIncome(ind, month) {
-  return safe((ind?.monthlyIncome || []).find(p => p.month === month)?.income);
+function getIndividualIncomeEntry(ind, month) {
+  const entry = (ind?.monthlyIncome || []).find(p => p.month === month);
+  return makeIndividualIncome({ month, ...entry });
 }
 function getIndividualExpense(ind, month) {
   const entry = (ind?.individualExpenses || []).find(p => p.month === month);
   return makeIndividualExpense({ month, ...entry });
 }
 function personalExpenseTotal(entry) {
-  return safe(entry?.operating) + safe(entry?.familyTransfers) + safe(entry?.discretionary);
+  return safe(entry?.jmf) + safe(entry?.personal) + safe(entry?.profession) + safe(entry?.education);
 }
 function personalNetCashFlow(income, entry) {
-  return safe(income) - personalExpenseTotal(entry);
+  const incomeValue = typeof income === "object" ? income.income : income;
+  return safe(incomeValue) - personalExpenseTotal(entry);
 }
 function makeLease(lease = {}) {
   const start = lease.lease_start_date || "";
@@ -600,12 +619,29 @@ async function writeIndividualPersonalPL(indId, entry, userId) {
   await supabase.from("monthly_individual_logs").upsert({
     month_key:              entry.month,
     individual_id:          indId,
-    personal_operating:     safe(entry.operating),
-    family_transfers:       safe(entry.familyTransfers),
-    personal_discretionary: safe(entry.discretionary),
+    jmf_expense:            safe(entry.jmf),
+    personal_expense:       safe(entry.personal),
+    profession_expense:     safe(entry.profession),
+    education_expense:      safe(entry.education),
+    personal_operating:     safe(entry.personal),
+    family_transfers:       safe(entry.jmf),
+    personal_discretionary: 0,
     personal_pl_notes:      entry.notes || null,
     updated_at:             new Date().toISOString(),
     updated_by:             userId || null,
+  }, { onConflict: "month_key,individual_id" });
+}
+async function writeIndividualIncomeLog(indId, entry, userId) {
+  await ensurePeriodExists(entry.month);
+  await supabase.from("monthly_individual_logs").upsert({
+    month_key:      entry.month,
+    individual_id:  indId,
+    kratos_income: safe(entry.kratosIncome),
+    other_income:  safe(entry.otherIncome),
+    monthly_income: safe(entry.income),
+    income_notes:  entry.notes || null,
+    updated_at:    new Date().toISOString(),
+    updated_by:    userId || null,
   }, { onConflict: "month_key,individual_id" });
 }
 
@@ -1597,12 +1633,13 @@ function CashFlowGraph({ data }) {
   );
 }
 
-function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = false, mode = "all" }) {
+function PersonalPLPanel({ individual, onSaveIncome, onSaveExpense, lockedMonth, compact = false, mode = "all" }) {
   const [month, setMonth] = useState(currentYM());
+  const incomeEntry = getIndividualIncomeEntry(individual, month);
   const expense = getIndividualExpense(individual, month);
-  const income = getIndividualIncome(individual, month);
+  const income = incomeEntry.income;
   const totalExpenses = personalExpenseTotal(expense);
-  const netFlow = personalNetCashFlow(income, expense);
+  const netFlow = personalNetCashFlow(incomeEntry, expense);
   const isLocked = lockedMonth === month;
   const allMonths = [...new Set([
     ...monthsBetween(SYSTEM_START, currentYM()),
@@ -1612,23 +1649,30 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
   const history = allMonths
     .map(m => {
       const rowExpense = getIndividualExpense(individual, m);
-      const rowIncome = getIndividualIncome(individual, m);
+      const rowIncome = getIndividualIncomeEntry(individual, m);
       return {
         month: m,
-        income: rowIncome,
+        kratosIncome: rowIncome.kratosIncome,
+        otherIncome: rowIncome.otherIncome,
+        income: rowIncome.income,
         expenses: personalExpenseTotal(rowExpense),
         net: personalNetCashFlow(rowIncome, rowExpense),
+        incomeEntry: rowIncome,
         entry: rowExpense,
       };
     })
-    .filter(row => row.income || row.expenses || row.entry.notes)
+    .filter(row => row.income || row.expenses || row.entry.notes || row.incomeEntry.notes)
     .sort((a, b) => b.month.localeCompare(a.month));
   const chartRows = allMonths.slice(-6).map(m => {
     const rowExpense = getIndividualExpense(individual, m);
-    return { month: m, net: personalNetCashFlow(getIndividualIncome(individual, m), rowExpense) };
+    return { month: m, net: personalNetCashFlow(getIndividualIncomeEntry(individual, m), rowExpense) };
   });
   const chartMax = Math.max(1, ...chartRows.map(r => Math.abs(r.net)));
 
+  const updateIncome = (patch) => {
+    if (!onSaveIncome || isLocked) return;
+    onSaveIncome(individual.id, month, { ...incomeEntry, ...patch, month });
+  };
   const updateExpense = (patch) => {
     if (!onSaveExpense || isLocked) return;
     onSaveExpense(individual.id, month, { ...expense, ...patch, month });
@@ -1642,7 +1686,7 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
         <div>
           <div style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:C.text }}>Personal P&amp;L</div>
           <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>
-            {mode === "history" ? "Monthly income, expenses, and net cash flow over time." : "Income minus personal operating, family transfers, and discretionary spend."}
+            {mode === "history" ? "Monthly income, expenses, and net cash flow over time." : "Kratos and other income minus JMF, personal, profession, and education spend."}
           </div>
         </div>
         {showCurrent && (
@@ -1666,6 +1710,24 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
                 <div style={{ fontFamily:C.mono, fontSize: compact ? 14 : 18, fontWeight:800, color:item.color }}>{item.value >= 0 && item.label === "Net Cash Flow" ? "+" : ""}{$F(item.value)}</div>
               </div>
             ))}
+          </div>
+
+          <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Income</div>
+            {[
+              { key:"kratosIncome", label:"Kratos Income" },
+              { key:"otherIncome", label:"Other Income" },
+            ].map((cat, i) => (
+              <Row key={cat.key} label={cat.label} last={i === 1}>
+                <EditNum value={safe(incomeEntry[cat.key])} onChange={v => updateIncome({ [cat.key]: safe(v) })} locked={isLocked} />
+              </Row>
+            ))}
+            <div style={{ paddingTop:10, marginTop:4, borderTop:`1px solid ${C.border}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:13, color:C.textMid }}>Notes</span>
+                <EditText value={incomeEntry.notes} onChange={v => updateIncome({ notes: v })} locked={isLocked} placeholder="Optional note" width={compact ? 120 : 220} />
+              </div>
+            </div>
           </div>
 
           <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
@@ -1716,17 +1778,38 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
           </div>
           {history.length === 0 ? (
             <div style={{ fontSize:11, color:C.textDim, fontStyle:"italic" }}>No personal P&amp;L entries yet.</div>
-          ) : history.slice(0, compact ? 3 : 12).map((row, i) => (
-            <div key={row.month} style={{ padding:"8px 0", borderBottom: i < Math.min(history.length, compact ? 3 : 12) - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:10, alignItems:"center" }}>
-                <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
-                <span style={{ fontFamily:C.mono, fontSize:11, color:C.green }}>{$F(row.income)}</span>
-                <span style={{ fontFamily:C.mono, fontSize:11, color:C.red }}>{$F(row.expenses)}</span>
-                <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:row.net >= 0 ? C.green : C.red }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
+          ) : (
+            <div style={{ overflowX:"auto" }}>
+              <div style={{ minWidth: compact ? 760 : 980 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"96px repeat(9, minmax(80px, 1fr))", gap:8, padding:"8px 0", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                  {["Month","Kratos","Other","Income","JMF","Personal","Profession","Education","Expenses","Net"].map((h, i) => (
+                    <span key={h} style={{ textAlign:i === 0 ? "left" : "right" }}>{h}</span>
+                  ))}
+                </div>
+                {history.slice(0, compact ? 3 : 12).map((row, i) => (
+                  <div key={row.month} style={{ padding:"8px 0", borderBottom: i < Math.min(history.length, compact ? 3 : 12) - 1 ? `1px solid ${C.border}` : "none" }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"96px repeat(9, minmax(80px, 1fr))", gap:8, alignItems:"center" }}>
+                      <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.green, textAlign:"right" }}>{$F(row.kratosIncome)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.green, textAlign:"right" }}>{$F(row.otherIncome)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, fontWeight:700, color:C.green, textAlign:"right" }}>{$F(row.income)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.red, textAlign:"right" }}>{$F(row.entry.jmf)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.red, textAlign:"right" }}>{$F(row.entry.personal)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.red, textAlign:"right" }}>{$F(row.entry.profession)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, color:C.red, textAlign:"right" }}>{$F(row.entry.education)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:11, fontWeight:700, color:C.red, textAlign:"right" }}>{$F(row.expenses)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:row.net >= 0 ? C.green : C.red, textAlign:"right" }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
+                    </div>
+                    {(row.entry.notes || row.incomeEntry.notes) && (
+                      <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>
+                        {[row.incomeEntry.notes && `Income: ${row.incomeEntry.notes}`, row.entry.notes && `Expenses: ${row.entry.notes}`].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-              {row.entry.notes && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{row.entry.notes}</div>}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -2572,7 +2655,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
       {memberTab === "personalpl" && (
         <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 640, margin: "0 auto" }}>
           <Card>
-            <PersonalPLPanel individual={f} onSaveExpense={onSaveExpense} />
+            <PersonalPLPanel individual={f} onSaveIncome={onSaveIncome} onSaveExpense={onSaveExpense} />
           </Card>
         </div>
       )}
@@ -2584,7 +2667,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
           const curYM = currentYM();
           const logEntries = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""));
           const currentLog = logEntries.find(e => e.month === curYM) || null;
-          const incomeEntry = (f.monthlyIncome || []).find(p => p.month === curYM);
+          const incomeEntry = getIndividualIncomeEntry(f, curYM);
           const reportedFields = [
             ["Accounts", safe(currentLog?.accounts ?? f.accounts)],
             ["Cash", safe(currentLog?.cash ?? f.cash)],
@@ -4076,7 +4159,9 @@ function BizTrendsTab({ biz, histStart }) {
 
 function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateHistory, isAdmin, periodLockedMonth }) {
   const [open, setOpen] = useState(false);
-  const [bizTab, setBizTab] = useState("overview");
+  const [bizPrimaryTab, setBizPrimaryTab] = useState("balance");
+  const [bizSubTabs, setBizSubTabs] = useState({ balance:"current", pl:"current" });
+  const [plMonth, setPlMonth] = useState(currentYM());
   const isNonProfit    = biz.type === "nonprofit";
   const isTrackedOnly  = biz.type === "tracked_only";
   const canEditRow = (month) => isAdmin && month !== periodLockedMonth;
@@ -4091,6 +4176,14 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
     const profit = entry.profit != null ? safe(entry.profit) : (revenue - expenses);
     return { month, entry, revenue, expenses, profit };
   });
+  const selectedProfitEntry = (biz.monthlyProfits || []).find(p => p.month === plMonth) || {};
+  const selectedRevenue = selectedProfitEntry.revenue != null ? safe(selectedProfitEntry.revenue) : 0;
+  const selectedExpenses = selectedProfitEntry.expenses != null ? safe(selectedProfitEntry.expenses) : 0;
+  const selectedProfit = selectedProfitEntry.profit != null ? safe(selectedProfitEntry.profit) : (selectedRevenue - selectedExpenses);
+  const managementComp = safe(selectedProfitEntry.managementComp ?? selectedProfitEntry.managementCompensation ?? selectedProfitEntry.management_comp);
+  const adjustedProfit = selectedProfitEntry.adjustedProfit != null || selectedProfitEntry.adjusted_profit != null
+    ? safe(selectedProfitEntry.adjustedProfit ?? selectedProfitEntry.adjusted_profit)
+    : null;
   const maxProfitMagnitude = Math.max(1, ...profitRows.map(row => Math.abs(row.profit)));
 
   // ── Balance sheet helpers ─────────────────────────────────────────────────
@@ -4122,11 +4215,22 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
   const equityPct = Math.max(0, (Math.max(balanceSheetEquity, 0) / capitalBase) * 100);
   const liabilitiesPct = Math.max(0, (totalLiabilities / capitalBase) * 100);
 
+  const activeSubTab = bizSubTabs[bizPrimaryTab] || "current";
+  const setPrimaryTab = (id) => {
+    setBizPrimaryTab(id);
+    if (id !== "trends") setBizSubTabs(prev => ({ ...prev, [id]: prev[id] || "current" }));
+  };
+  const setSubTab = (id) => setBizSubTabs(prev => ({ ...prev, [bizPrimaryTab]: id }));
   const tabStyle = (id) => ({
     padding: "11px 18px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
     background: "transparent", fontFamily: C.sans, whiteSpace: "nowrap",
-    color: bizTab === id ? C.gold : C.textDim,
-    borderBottom: bizTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
+    color: bizPrimaryTab === id ? C.gold : C.textDim,
+    borderBottom: bizPrimaryTab === id ? `2px solid ${C.gold}` : "2px solid transparent",
+  });
+  const subTabStyle = (id) => ({
+    padding:"6px 12px", fontSize:11, fontWeight:700, border:`1px solid ${activeSubTab === id ? C.gold : C.border}`,
+    borderRadius:6, background:activeSubTab === id ? C.goldLight : C.bg, color:activeSubTab === id ? C.goldText : C.textDim,
+    cursor:"pointer", whiteSpace:"nowrap", fontFamily:C.sans,
   });
 
   const BIZ_HIST_STARTS = { 1: "2022-05" };
@@ -4134,7 +4238,7 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
 
   return (
     <div style={{ background: C.card, border: `1px solid ${open ? (isNonProfit ? "#9B59B6" : C.gold) : C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
-      <div onClick={() => setOpen(o => { if (o) setBizTab("overview"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div onClick={() => setOpen(o => { if (o) setPrimaryTab("balance"); return !o; })} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ background: isNonProfit ? C.purpleLight : C.blueLight, color: isNonProfit ? C.purpleText : C.blueText, borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "4px 8px", letterSpacing: "0.06em", flexShrink: 0 }}>
             {isNonProfit ? "NON-PROFIT" : "CORP"}
@@ -4163,13 +4267,11 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
             <div style={{ background:C.bg, borderBottom:`1px solid ${C.border}`, overflowX:"auto" }}>
               <div style={{ display:"flex" }}>
                 {[
-                  ["overview","Overview"],
-                  ["profits","P&L / Profits"],
-                  ["balancesheet","Balance Sheet"],
-                  ["historical","Historical"],
+                  ["balance","Balance"],
+                  ["pl","P&L"],
                   ["trends","Trends"],
                 ].map(([id, label]) => (
-                  <button key={id} onClick={e => { e.stopPropagation(); setBizTab(id); }} style={tabStyle(id)}>{label}</button>
+                  <button key={id} onClick={e => { e.stopPropagation(); setPrimaryTab(id); }} style={tabStyle(id)}>{label}</button>
                 ))}
               </div>
             </div>
@@ -4187,15 +4289,22 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
               </div>
             ) : (
               <>
-                {bizTab === "overview" && (
+                {bizPrimaryTab !== "trends" && (
+                  <div style={{ display:"flex", gap:6, marginBottom:16, overflowX:"auto" }}>
+                    {[["current","Current"],["history","History"]].map(([id, label]) => (
+                      <button key={id} onClick={() => setSubTab(id)} style={subTabStyle(id)}>{label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {bizPrimaryTab === "balance" && activeSubTab === "current" && (
                   <div>
                     {biz.notes && <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", marginBottom: 16, lineHeight: 1.6 }}>{biz.notes}</div>}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
                       <div>
-                        <Label>Overview</Label>
+                        <Label>Cash / Accounts</Label>
                         <Row label="Cash & accounts"><EditNum value={safe(biz.cashAccounts)} onChange={v => onUpdate("cashAccounts", v)} locked={!isAdmin} /></Row>
-                        <Row label="Revenue"><EditNum value={safe(biz.revenue)} onChange={v => onUpdate("revenue", v)} locked={!isAdmin} /></Row>
-                        <Row label="Expenses" last><EditNum value={safe(biz.expenses)} onChange={v => onUpdate("expenses", v)} locked={!isAdmin} /></Row>
+                        <Row label="Total assets" last><span style={{ color: C.text, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(totalAssets)}</span></Row>
                       </div>
                       <div>
                         <Label>Liabilities</Label>
@@ -4205,56 +4314,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
                         <Row label="Net equity" last labelStyle={{ fontWeight: 700, background: C.gold, color: "#FFF", borderRadius: 4, padding: "2px 8px" }}><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
                       </div>
                     </div>
-                  </div>
-                )}
 
-                {bizTab === "profits" && (
-                  <div>
-                    <Label>P&L / Profits</Label>
-                    <div style={{ marginTop: 12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
-                      <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                        <span>Month</span>
-                        <span style={{ textAlign:"right" }}>Revenue</span>
-                        <span style={{ textAlign:"right" }}>Expenses</span>
-                        <span style={{ textAlign:"right" }}>Profit</span>
-                      </div>
-                      {profitRows.map((row, idx) => {
-                        const profitWidth = `${Math.max(6, (Math.abs(row.profit) / maxProfitMagnitude) * 100)}%`;
-                        const profitColor = row.profit >= 0 ? C.gold : C.red;
-                        return (
-                          <div key={row.month} style={{ padding:"12px 14px", borderBottom: idx < profitRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
-                              <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
-                              <div style={{ textAlign:"right" }}>
-                                {canEditRow(row.month)
-                                  ? <EditNum value={row.revenue} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "revenue", v)} />
-                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>}
-                              </div>
-                              <div style={{ textAlign:"right" }}>
-                                {canEditRow(row.month)
-                                  ? <EditNum value={row.expenses} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "expenses", v)} />
-                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>}
-                              </div>
-                              <div style={{ textAlign:"right" }}>
-                                {canEditRow(row.month)
-                                  ? <EditNum value={row.profit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(row.month, "profit", v) : onUpdateProfit && onUpdateProfit(row.month, v))} />
-                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{(row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null) ? $F(row.profit) : "—"}</span>}
-                              </div>
-                            </div>
-                            <div style={{ marginTop:8, height:6, background:C.border, borderRadius:999, overflow:"hidden" }}>
-                              <div style={{ width: profitWidth, height:"100%", background: profitColor, opacity:0.78, borderRadius:999, marginLeft: row.profit >= 0 ? 0 : "auto" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {bizTab === "balancesheet" && (
-                  <div>
-                    <Label>Balance Sheet</Label>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:20, marginTop:12 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:20, marginTop:18 }}>
                       <div>
                         <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Assets / Accounts</div>
                         <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
@@ -4267,7 +4328,7 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Liabilities</div>
+                        <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Liability Breakdown</div>
                         <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
                           {(liabilityItems.length ? liabilityItems : [{ id:"liab-empty", label:"No liabilities recorded", amount:0 }]).map((item, idx, arr) => (
                             <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom: idx < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
@@ -4308,15 +4369,138 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
                   </div>
                 )}
 
-                {bizTab === "historical" && isAdmin && (
-                  <BizHistoricalTab
-                    biz={biz}
-                    histStart={HIST_START}
-                    onSave={onUpdateHistory}
-                  />
+                {bizPrimaryTab === "balance" && activeSubTab === "history" && (
+                  <div>
+                    <Label>Balance History</Label>
+                    {(() => {
+                      const balanceRows = [...(biz.historicalData || [])]
+                        .filter(e => e.cashBalance != null || e.liabilities != null)
+                        .sort((a, b) => b.month.localeCompare(a.month));
+                      return balanceRows.length === 0 ? (
+                        <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic", marginTop:10 }}>No monthly balance snapshots recorded yet.</div>
+                      ) : (
+                        <div style={{ marginTop:12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                            <span>Month</span>
+                            <span style={{ textAlign:"right" }}>Cash / Accounts</span>
+                            <span style={{ textAlign:"right" }}>Liabilities</span>
+                            <span style={{ textAlign:"right" }}>Net Equity</span>
+                          </div>
+                          {balanceRows.map((row, idx) => {
+                            const cash = safe(row.cashBalance);
+                            const liabilities = safe(row.liabilities);
+                            const equity = cash - liabilities;
+                            return (
+                              <div key={row.month} style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", borderBottom: idx < balanceRows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                                <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
+                                <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.cashBalance != null ? $F(cash) : "—"}</span>
+                                <span style={{ fontFamily:C.mono, fontSize:12, color:liabilities > 0 ? C.red : C.textDim, textAlign:"right" }}>{row.liabilities != null ? $F(liabilities) : "—"}</span>
+                                <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:equity >= 0 ? C.gold : C.red, textAlign:"right" }}>{row.cashBalance != null || row.liabilities != null ? $F(equity) : "—"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                    {isAdmin && (
+                      <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}` }}>
+                        <BizHistoricalTab
+                          biz={biz}
+                          histStart={HIST_START}
+                          onSave={onUpdateHistory}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
 
-                {bizTab === "trends" && (
+                {bizPrimaryTab === "pl" && activeSubTab === "current" && (
+                  <div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+                      <Label>P&amp;L Current</Label>
+                      <select value={plMonth} onChange={e => setPlMonth(e.target.value)}
+                        style={{ padding:"7px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
+                        {[...monthsBetween(SYSTEM_START, currentYM())].reverse().map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
+                      {[
+                        { label:"Revenue", value:selectedRevenue, color:C.green },
+                        { label:"Expenses", value:selectedExpenses, color:C.red },
+                        { label:"Profit", value:selectedProfit, color:selectedProfit >= 0 ? C.gold : C.red },
+                        managementComp ? { label:"Management Comp", value:managementComp, color:C.textMid } : null,
+                        adjustedProfit != null ? { label:"Adjusted Profit", value:adjustedProfit, color:adjustedProfit >= 0 ? C.gold : C.red } : null,
+                      ].filter(Boolean).map(item => (
+                        <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                          <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{item.label}</div>
+                          <div style={{ fontFamily:C.mono, fontSize:18, fontWeight:800, color:item.color }}>{$F(item.value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12 }}>
+                      <Row label="Revenue">
+                        {canEditRow(plMonth)
+                          ? <EditNum value={selectedRevenue} onChange={v => onUpdateProfitField && onUpdateProfitField(plMonth, "revenue", v)} />
+                          : <span style={{ fontFamily:C.mono, fontSize:13, color:selectedProfitEntry.revenue != null ? C.text : C.textDim }}>{selectedProfitEntry.revenue != null ? $F(selectedRevenue) : "—"}</span>}
+                      </Row>
+                      <Row label="Expenses">
+                        {canEditRow(plMonth)
+                          ? <EditNum value={selectedExpenses} onChange={v => onUpdateProfitField && onUpdateProfitField(plMonth, "expenses", v)} />
+                          : <span style={{ fontFamily:C.mono, fontSize:13, color:selectedProfitEntry.expenses != null ? C.text : C.textDim }}>{selectedProfitEntry.expenses != null ? $F(selectedExpenses) : "—"}</span>}
+                      </Row>
+                      <Row label="Profit" last>
+                        {canEditRow(plMonth)
+                          ? <EditNum value={selectedProfit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(plMonth, "profit", v) : onUpdateProfit && onUpdateProfit(plMonth, v))} />
+                          : <span style={{ fontFamily:C.mono, fontSize:13, color:selectedProfit >= 0 ? C.gold : C.red }}>{(selectedProfitEntry.profit != null || selectedProfitEntry.revenue != null || selectedProfitEntry.expenses != null) ? $F(selectedProfit) : "—"}</span>}
+                      </Row>
+                    </div>
+                  </div>
+                )}
+
+                {bizPrimaryTab === "pl" && activeSubTab === "history" && (
+                  <div>
+                    <Label>P&amp;L History</Label>
+                    <div style={{ marginTop: 12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                        <span>Month</span>
+                        <span style={{ textAlign:"right" }}>Revenue</span>
+                        <span style={{ textAlign:"right" }}>Expenses</span>
+                        <span style={{ textAlign:"right" }}>Profit</span>
+                      </div>
+                      {profitRows.map((row, idx) => {
+                        const profitWidth = `${Math.max(6, (Math.abs(row.profit) / maxProfitMagnitude) * 100)}%`;
+                        const profitColor = row.profit >= 0 ? C.gold : C.red;
+                        return (
+                          <div key={row.month} style={{ padding:"12px 14px", borderBottom: idx < profitRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
+                              <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
+                              <div style={{ textAlign:"right" }}>
+                                {canEditRow(row.month)
+                                  ? <EditNum value={row.revenue} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "revenue", v)} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>}
+                              </div>
+                              <div style={{ textAlign:"right" }}>
+                                {canEditRow(row.month)
+                                  ? <EditNum value={row.expenses} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "expenses", v)} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>}
+                              </div>
+                              <div style={{ textAlign:"right" }}>
+                                {canEditRow(row.month)
+                                  ? <EditNum value={row.profit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(row.month, "profit", v) : onUpdateProfit && onUpdateProfit(row.month, v))} />
+                                  : <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{(row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null) ? $F(row.profit) : "—"}</span>}
+                              </div>
+                            </div>
+                            <div style={{ marginTop:8, height:6, background:C.border, borderRadius:999, overflow:"hidden" }}>
+                              <div style={{ width: profitWidth, height:"100%", background: profitColor, opacity:0.78, borderRadius:999, marginLeft: row.profit >= 0 ? 0 : "auto" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {bizPrimaryTab === "trends" && (
                   <BizTrendsTab biz={biz} histStart={HIST_START} />
                 )}
               </>
@@ -5573,23 +5757,19 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
   }
-  function updIndIncome(indId, month, income) {
+  function updIndIncome(indId, month, incomeEntry) {
+    const clean = makeIndividualIncome(typeof incomeEntry === "object" ? { ...incomeEntry, month } : { month, kratosIncome: safe(incomeEntry) });
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
       const existing = x.monthlyIncome || [];
       const has = existing.find(p => p.month === month);
       const updated = has
-        ? existing.map(p => p.month === month ? { ...p, income: safe(income) } : p)
-        : [...existing, { month, income: safe(income) }];
+        ? existing.map(p => p.month === month ? clean : p)
+        : [...existing, clean];
       return { ...x, monthlyIncome: updated };
     });
     saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
-    ensurePeriodExists(month).then(() =>
-      supabase.from("monthly_individual_logs").upsert(
-        { month_key: month, individual_id: indId, monthly_income: safe(income), updated_at: new Date().toISOString() },
-        { onConflict: "month_key,individual_id" }
-      )
-    ).catch(() => {});
+    writeIndividualIncomeLog(indId, clean, user.id).catch(() => {});
   }
   function updIndExpense(indId, month, entry) {
     const clean = makeIndividualExpense({ ...entry, month });
@@ -6536,8 +6716,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   {primaryTab === "pl" && (
                     <PersonalPLPanel
                       individual={f}
+                      onSaveIncome={updIndIncome}
                       onSaveExpense={updIndExpense}
-                      lockedMonth={periodStatus.is_locked ? curYM : null}
                       compact={true}
                       mode={subTab}
                     />
@@ -7020,18 +7200,20 @@ export default function App() {
   if (isAdmin) {
     return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout} />;
   }
-  return <MemberView user={currentUser} data={data} onUpdate={updInd} onSaveIncome={(indId, month, income) => {
+  return <MemberView user={currentUser} data={data} onUpdate={updInd} onSaveIncome={(indId, month, incomeEntry) => {
+    const clean = makeIndividualIncome(typeof incomeEntry === "object" ? { ...incomeEntry, month } : { month, kratosIncome: safe(incomeEntry) });
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
       const existing = x.monthlyIncome || [];
       const has = existing.find(p => p.month === month);
       const updated = has
-        ? existing.map(p => p.month === month ? { ...p, income } : p)
-        : [...existing, { month, income }];
+        ? existing.map(p => p.month === month ? clean : p)
+        : [...existing, clean];
       return { ...x, monthlyIncome: updated };
     });
     saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    writeIndividualIncomeLog(indId, clean, currentUser.id).catch(() => {});
   }} onSaveExpense={(indId, month, entry) => {
     const clean = makeIndividualExpense({ ...entry, month });
     const arr = data.individuals.map(x => {
