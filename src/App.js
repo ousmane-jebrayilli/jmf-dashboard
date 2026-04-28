@@ -1597,7 +1597,7 @@ function CashFlowGraph({ data }) {
   );
 }
 
-function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = false }) {
+function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = false, mode = "all" }) {
   const [month, setMonth] = useState(currentYM());
   const expense = getIndividualExpense(individual, month);
   const income = getIndividualIncome(individual, month);
@@ -1633,50 +1633,60 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
     if (!onSaveExpense || isLocked) return;
     onSaveExpense(individual.id, month, { ...expense, ...patch, month });
   };
+  const showCurrent = mode !== "history";
+  const showHistory = mode !== "current";
 
   return (
     <div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom: compact ? 12 : 18 }}>
         <div>
           <div style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:C.text }}>Personal P&amp;L</div>
-          <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>Income minus personal operating, family transfers, and discretionary spend.</div>
-        </div>
-        <select value={month} onChange={e => setMonth(e.target.value)}
-          style={{ padding:"7px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
-          {[...allMonths].reverse().map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
-        </select>
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns: compact ? "1fr" : "repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
-        {[
-          { label:"Income", value: income, color:C.green },
-          { label:"Expenses", value: totalExpenses, color:C.red },
-          { label:"Net Cash Flow", value: netFlow, color: netFlow >= 0 ? C.green : C.red },
-        ].map(item => (
-          <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
-            <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{item.label}</div>
-            <div style={{ fontFamily:C.mono, fontSize: compact ? 14 : 18, fontWeight:800, color:item.color }}>{item.value >= 0 && item.label === "Net Cash Flow" ? "+" : ""}{$F(item.value)}</div>
+          <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>
+            {mode === "history" ? "Monthly income, expenses, and net cash flow over time." : "Income minus personal operating, family transfers, and discretionary spend."}
           </div>
-        ))}
-      </div>
-
-      <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
-        <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Expenses</div>
-        {INDIVIDUAL_EXPENSE_CATEGORIES.map((cat, i) => (
-          <Row key={cat.key} label={cat.label} last={i === INDIVIDUAL_EXPENSE_CATEGORIES.length - 1}>
-            <EditNum value={safe(expense[cat.key])} onChange={v => updateExpense({ [cat.key]: safe(v) })} locked={isLocked} />
-          </Row>
-        ))}
-        <div style={{ paddingTop:10, marginTop:4, borderTop:`1px solid ${C.border}` }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:13, color:C.textMid }}>Notes</span>
-            <EditText value={expense.notes} onChange={v => updateExpense({ notes: v })} locked={isLocked} placeholder="Optional note" width={compact ? 120 : 220} />
-          </div>
-          {isLocked && <div style={{ fontSize:10, color:C.red, marginTop:8 }}>{monthLabel(month)} is locked.</div>}
         </div>
+        {showCurrent && (
+          <select value={month} onChange={e => setMonth(e.target.value)}
+            style={{ padding:"7px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
+            {[...allMonths].reverse().map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+          </select>
+        )}
       </div>
 
-      {!compact && (
+      {showCurrent && (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns: compact ? "1fr" : "repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
+            {[
+              { label:"Income", value: income, color:C.green },
+              { label:"Expenses", value: totalExpenses, color:C.red },
+              { label:"Net Cash Flow", value: netFlow, color: netFlow >= 0 ? C.green : C.red },
+            ].map(item => (
+              <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{item.label}</div>
+                <div style={{ fontFamily:C.mono, fontSize: compact ? 14 : 18, fontWeight:800, color:item.color }}>{item.value >= 0 && item.label === "Net Cash Flow" ? "+" : ""}{$F(item.value)}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Expenses</div>
+            {INDIVIDUAL_EXPENSE_CATEGORIES.map((cat, i) => (
+              <Row key={cat.key} label={cat.label} last={i === INDIVIDUAL_EXPENSE_CATEGORIES.length - 1}>
+                <EditNum value={safe(expense[cat.key])} onChange={v => updateExpense({ [cat.key]: safe(v) })} locked={isLocked} />
+              </Row>
+            ))}
+            <div style={{ paddingTop:10, marginTop:4, borderTop:`1px solid ${C.border}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:13, color:C.textMid }}>Notes</span>
+                <EditText value={expense.notes} onChange={v => updateExpense({ notes: v })} locked={isLocked} placeholder="Optional note" width={compact ? 120 : 220} />
+              </div>
+              {isLocked && <div style={{ fontSize:10, color:C.red, marginTop:8 }}>{monthLabel(month)} is locked.</div>}
+            </div>
+          </div>
+        </>
+      )}
+
+      {showHistory && (
         <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:14 }}>
           <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Net Cash Flow Trend</div>
           <div style={{ overflowX:"auto" }}>
@@ -1698,25 +1708,27 @@ function PersonalPLPanel({ individual, onSaveExpense, lockedMonth, compact = fal
         </div>
       )}
 
-      <div>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-          <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>History</div>
-          <span style={{ fontSize:10, color:C.textDim }}>{history.length} entr{history.length === 1 ? "y" : "ies"}</span>
-        </div>
-        {history.length === 0 ? (
-          <div style={{ fontSize:11, color:C.textDim, fontStyle:"italic" }}>No personal P&amp;L entries yet.</div>
-        ) : history.slice(0, compact ? 3 : 12).map((row, i) => (
-          <div key={row.month} style={{ padding:"8px 0", borderBottom: i < Math.min(history.length, compact ? 3 : 12) - 1 ? `1px solid ${C.border}` : "none" }}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:10, alignItems:"center" }}>
-              <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
-              <span style={{ fontFamily:C.mono, fontSize:11, color:C.green }}>{$F(row.income)}</span>
-              <span style={{ fontFamily:C.mono, fontSize:11, color:C.red }}>{$F(row.expenses)}</span>
-              <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:row.net >= 0 ? C.green : C.red }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
-            </div>
-            {row.entry.notes && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{row.entry.notes}</div>}
+      {showHistory && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>History</div>
+            <span style={{ fontSize:10, color:C.textDim }}>{history.length} entr{history.length === 1 ? "y" : "ies"}</span>
           </div>
-        ))}
-      </div>
+          {history.length === 0 ? (
+            <div style={{ fontSize:11, color:C.textDim, fontStyle:"italic" }}>No personal P&amp;L entries yet.</div>
+          ) : history.slice(0, compact ? 3 : 12).map((row, i) => (
+            <div key={row.month} style={{ padding:"8px 0", borderBottom: i < Math.min(history.length, compact ? 3 : 12) - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:10, alignItems:"center" }}>
+                <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
+                <span style={{ fontFamily:C.mono, fontSize:11, color:C.green }}>{$F(row.income)}</span>
+                <span style={{ fontFamily:C.mono, fontSize:11, color:C.red }}>{$F(row.expenses)}</span>
+                <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:row.net >= 0 ? C.green : C.red }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
+              </div>
+              {row.entry.notes && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{row.entry.notes}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -5387,6 +5399,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const toggleCF = key => setCFOpen(s => ({ ...s, [key]: !s[key] }));
   const [accLogOpen, setAccLogOpen] = useState(null); // individual id whose log form is open
   const [accLogForm, setAccLogForm] = useState({ month: currentYM(), cash: 0, accounts: 0, securities: 0, crypto: 0, physicalAssets: 0, note: "" });
+  const [individualPrimaryTabs, setIndividualPrimaryTabs] = useState({});
+  const [individualSubTabs, setIndividualSubTabs] = useState({});
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
@@ -5496,6 +5510,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const heroSubtitle = latestReportGeneratedAt
     ? `Last Report Generated: ${new Date(latestReportGeneratedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
     : "No report generated yet";
+  const getIndividualPrimaryTab = id => individualPrimaryTabs[id] || "balance";
+  const getIndividualSubTab = (id, section) => individualSubTabs[`${id}:${section}`] || "current";
+  const setIndividualPrimaryTab = (id, section) => setIndividualPrimaryTabs(prev => ({ ...prev, [id]: section }));
+  const setIndividualSubTab = (id, section, subTab) => setIndividualSubTabs(prev => ({ ...prev, [`${id}:${section}`]: subTab }));
 
   // ── Update helpers ──
   function updPropPatch(id, patch) {
@@ -6346,6 +6364,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             {data.individuals.map(f => {
               const net   = indNet(f);
               const isPos = net >= 0;
+              const primaryTab = getIndividualPrimaryTab(f.id);
+              const subTab = getIndividualSubTab(f.id, primaryTab);
+              const tabButton = (active, color = C.gold) => ({
+                padding:"8px 12px", fontSize:11, fontWeight:700, border:"none", cursor:"pointer",
+                background:"transparent", fontFamily:C.sans, whiteSpace:"nowrap",
+                color: active ? color : C.textDim,
+                borderBottom: active ? `2px solid ${color}` : "2px solid transparent",
+              });
               return (
                 <Card key={f.id}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -6357,114 +6383,165 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       <div style={{ fontSize: 20, fontFamily: C.mono, fontWeight: 800, color: isPos ? C.gold : C.red }}>{$F(net)}</div>
                     </div>
                   </div>
-                  {[
-                    { l: "Accounts",        fi: "accounts"       },
-                    { l: "Cash / Vault",    fi: "cash"           },
-                    { l: "Securities",      fi: "securities"     },
-                    { l: "Crypto",          fi: "crypto"         },
-                    { l: "Physical Assets", fi: "physicalAssets" },
-                  ].map((row, i, arr) => (
-                    <div key={row.fi} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", fontSize: 12 }}>
-                      <span style={{ color: C.textMid }}>{row.l}</span>
-                      <EditNum value={safe(f[row.fi])} onChange={v => updInd(f.id, row.fi, v)} />
+                  <div style={{ borderTop:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}`, margin:"0 -2px 10px", overflowX:"auto" }}>
+                    <div style={{ display:"flex", minWidth:"max-content" }}>
+                      {[["balance","Balance"],["pl","P&L"]].map(([id, label]) => (
+                        <button key={id} onClick={() => setIndividualPrimaryTab(f.id, id)} style={tabButton(primaryTab === id, id === "balance" ? C.gold : C.green)}>
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
-                    <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
                   </div>
 
-                  <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                  <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto" }}>
+                    {[["current","Current"],["history","History"]].map(([id, label]) => (
+                      <button key={id} onClick={() => setIndividualSubTab(f.id, primaryTab, id)}
+                        style={{ padding:"5px 10px", fontSize:10, fontWeight:700, border:`1px solid ${subTab === id ? (primaryTab === "balance" ? C.gold : C.green) : C.border}`, borderRadius:6, background:subTab === id ? (primaryTab === "balance" ? C.goldLight : C.greenLight) : C.bg, color:subTab === id ? (primaryTab === "balance" ? C.goldText : C.greenText) : C.textDim, cursor:"pointer", whiteSpace:"nowrap" }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {primaryTab === "balance" && subTab === "current" && (
+                    <>
+                      {[
+                        { l: "Accounts",        fi: "accounts"       },
+                        { l: "Cash / Vault",    fi: "cash"           },
+                        { l: "Securities",      fi: "securities"     },
+                        { l: "Crypto",          fi: "crypto"         },
+                        { l: "Physical Assets", fi: "physicalAssets" },
+                      ].map((row, i, arr) => (
+                        <div key={row.fi} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", fontSize: 12 }}>
+                          <span style={{ color: C.textMid }}>{row.l}</span>
+                          <EditNum value={safe(f[row.fi])} onChange={v => updInd(f.id, row.fi, v)} />
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
+                        <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {primaryTab === "balance" && subTab === "history" && (
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Monthly History</span>
+                        <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), cash: safe(f.cash), accounts: safe(f.accounts), securities: safe(f.securities), crypto: safe(f.crypto), physicalAssets: safe(f.physicalAssets), note: "" }); }}
+                          style={{ fontSize: 10, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontWeight: 600 }}>
+                          {accLogOpen === f.id ? "Cancel" : "+ Log Month"}
+                        </button>
+                      </div>
+                      {(() => {
+                        const entries = [...(f.accountsLog || [])].sort((a, b) => (a.month || "").localeCompare(b.month || ""));
+                        const maxAbs = Math.max(1, ...entries.map(e => Math.abs(e.net != null ? e.net : safe(e.value))));
+                        return entries.length > 1 ? (
+                          <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:10, marginBottom:10, overflowX:"auto" }}>
+                            <svg width={Math.max(240, entries.length * 54)} height={100} style={{ display:"block" }}>
+                              {entries.map((e, i) => {
+                                const entryNet = e.net != null ? e.net : safe(e.value);
+                                const x = i * 54 + 20;
+                                const y = 52 - ((entryNet / maxAbs) * 34);
+                                const next = entries[i + 1];
+                                const nextNet = next ? (next.net != null ? next.net : safe(next.value)) : null;
+                                const nx = (i + 1) * 54 + 20;
+                                const ny = next ? 52 - ((nextNet / maxAbs) * 34) : null;
+                                return (
+                                  <g key={e.month || i}>
+                                    {next && <line x1={x} y1={y} x2={nx} y2={ny} stroke={C.gold} strokeWidth={2} />}
+                                    <circle cx={x} cy={y} r={3} fill={entryNet >= 0 ? C.gold : C.red} />
+                                    <text x={x} y={92} textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>{monthLabel(e.month).split(" ")[0]}</text>
+                                  </g>
+                                );
+                              })}
+                            </svg>
+                          </div>
+                        ) : null;
+                      })()}
+                      {accLogOpen === f.id && (() => {
+                        const formNet = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
+                        return (
+                          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Month</div>
+                              <input type="month" value={accLogForm.month} onChange={e => setAccLogForm(p => ({ ...p, month: e.target.value }))}
+                                style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none" }} />
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                              {[
+                                { l: "Cash",            k: "cash"          },
+                                { l: "Accounts",        k: "accounts"      },
+                                { l: "Securities",      k: "securities"    },
+                                { l: "Crypto",          k: "crypto"        },
+                                { l: "Physical Assets", k: "physicalAssets"},
+                              ].map(({ l, k }) => (
+                                <div key={k}>
+                                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>{l}</div>
+                                  <input type="number" value={accLogForm[k]} onChange={e => setAccLogForm(p => ({ ...p, [k]: e.target.value }))}
+                                    style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.mono, outline: "none", boxSizing: "border-box" }} />
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", marginBottom: 8, borderTop: `1px solid ${C.border}` }}>
+                              <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>Net Worth</span>
+                              <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 14, color: formNet >= 0 ? C.gold : C.red }}>{$F(formNet)}</span>
+                            </div>
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Note (optional)</div>
+                              <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
+                                style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
+                            </div>
+                            {periodStatus.is_locked && accLogForm.month === curYM && (
+                              <div style={{ fontSize:11, color:C.red, marginBottom:8 }}>🔒 {monthLabel(curYM)} is locked. Choose a different month or use Override to unlock.</div>
+                            )}
+                            <button
+                              disabled={periodStatus.is_locked && accLogForm.month === curYM}
+                              onClick={() => {
+                                const net = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
+                                updIndAccountsLog(f.id, { month: accLogForm.month, cash: safe(accLogForm.cash), accounts: safe(accLogForm.accounts), securities: safe(accLogForm.securities), crypto: safe(accLogForm.crypto), physicalAssets: safe(accLogForm.physicalAssets), net, note: accLogForm.note });
+                                setAccLogOpen(null);
+                              }}
+                              style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: periodStatus.is_locked && accLogForm.month === curYM ? "not-allowed" : "pointer", fontWeight: 700, opacity: periodStatus.is_locked && accLogForm.month === curYM ? 0.4 : 1 }}>
+                              Save
+                            </button>
+                          </div>
+                        );
+                      })()}
+                      {(f.accountsLog || []).length === 0
+                        ? <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic" }}>No entries yet.</div>
+                        : [...(f.accountsLog || [])].reverse().map((e, i) => {
+                          const entryNet = e.net != null ? e.net : safe(e.value);
+                          return (
+                            <div key={i} style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
+                                <span style={{ fontFamily: C.mono, fontSize: 13, color: entryNet >= 0 ? C.gold : C.red, fontWeight: 700 }}>{$F(entryNet)}</span>
+                              </div>
+                              {e.net != null && (
+                                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 3 }}>
+                                  {[["Cash", e.cash], ["Acct", e.accounts], ["Sec", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([l, v]) => v != null && v !== 0 ? (
+                                    <span key={l} style={{ fontSize: 10, color: C.textDim }}>{l}: {$K(v)}</span>
+                                  ) : null)}
+                                </div>
+                              )}
+                              {e.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{e.note}</div>}
+                              {e.updatedAt && <div style={{ fontSize: 10, color: C.amber, marginTop: 1 }}>Edited {new Date(e.updatedAt).toLocaleDateString()}</div>}
+                            </div>
+                          );
+                        })
+                      }
+                    </div>
+                  )}
+
+                  {primaryTab === "pl" && (
                     <PersonalPLPanel
                       individual={f}
                       onSaveExpense={updIndExpense}
                       lockedMonth={periodStatus.is_locked ? curYM : null}
                       compact={true}
+                      mode={subTab}
                     />
-                  </div>
-
-                  {/* Individual History Log */}
-                  <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Monthly History</span>
-                      <button onClick={() => { setAccLogOpen(accLogOpen === f.id ? null : f.id); setAccLogForm({ month: currentYM(), cash: safe(f.cash), accounts: safe(f.accounts), securities: safe(f.securities), crypto: safe(f.crypto), physicalAssets: safe(f.physicalAssets), note: "" }); }}
-                        style={{ fontSize: 10, background: C.goldLight, color: C.goldText, border: `1px solid rgba(184,150,46,0.3)`, borderRadius: 5, padding: "3px 9px", cursor: "pointer", fontWeight: 600 }}>
-                        {accLogOpen === f.id ? "Cancel" : "+ Log Month"}
-                      </button>
-                    </div>
-                    {accLogOpen === f.id && (() => {
-                      const formNet = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
-                      return (
-                        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-                          <div style={{ marginBottom: 8 }}>
-                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Month</div>
-                            <input type="month" value={accLogForm.month} onChange={e => setAccLogForm(p => ({ ...p, month: e.target.value }))}
-                              style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none" }} />
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                            {[
-                              { l: "Cash",            k: "cash"          },
-                              { l: "Accounts",        k: "accounts"      },
-                              { l: "Securities",      k: "securities"    },
-                              { l: "Crypto",          k: "crypto"        },
-                              { l: "Physical Assets", k: "physicalAssets"},
-                            ].map(({ l, k }) => (
-                              <div key={k}>
-                                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>{l}</div>
-                                <input type="number" value={accLogForm[k]} onChange={e => setAccLogForm(p => ({ ...p, [k]: e.target.value }))}
-                                  style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.mono, outline: "none", boxSizing: "border-box" }} />
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", marginBottom: 8, borderTop: `1px solid ${C.border}` }}>
-                            <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>Net Worth</span>
-                            <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 14, color: formNet >= 0 ? C.gold : C.red }}>{$F(formNet)}</span>
-                          </div>
-                          <div style={{ marginBottom: 8 }}>
-                            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>Note (optional)</div>
-                            <input type="text" placeholder="Context for this snapshot" value={accLogForm.note} onChange={e => setAccLogForm(p => ({ ...p, note: e.target.value }))}
-                              style={{ width: "100%", padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, fontSize: 12, fontFamily: C.sans, outline: "none", boxSizing: "border-box" }} />
-                          </div>
-                          {periodStatus.is_locked && accLogForm.month === curYM && (
-                            <div style={{ fontSize:11, color:C.red, marginBottom:8 }}>🔒 {monthLabel(curYM)} is locked. Choose a different month or use Override to unlock.</div>
-                          )}
-                          <button
-                            disabled={periodStatus.is_locked && accLogForm.month === curYM}
-                            onClick={() => {
-                              const net = safe(accLogForm.cash) + safe(accLogForm.accounts) + safe(accLogForm.securities) + safe(accLogForm.crypto) + safe(accLogForm.physicalAssets);
-                              updIndAccountsLog(f.id, { month: accLogForm.month, cash: safe(accLogForm.cash), accounts: safe(accLogForm.accounts), securities: safe(accLogForm.securities), crypto: safe(accLogForm.crypto), physicalAssets: safe(accLogForm.physicalAssets), net, note: accLogForm.note });
-                              setAccLogOpen(null);
-                            }}
-                            style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 6, padding: "7px 16px", cursor: periodStatus.is_locked && accLogForm.month === curYM ? "not-allowed" : "pointer", fontWeight: 700, opacity: periodStatus.is_locked && accLogForm.month === curYM ? 0.4 : 1 }}>
-                            Save
-                          </button>
-                        </div>
-                      );
-                    })()}
-                    {(f.accountsLog || []).length === 0
-                      ? <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic" }}>No entries yet.</div>
-                      : [...(f.accountsLog || [])].reverse().map((e, i) => {
-                        const entryNet = e.net != null ? e.net : safe(e.value);
-                        return (
-                          <div key={i} style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
-                              <span style={{ fontFamily: C.mono, fontSize: 13, color: entryNet >= 0 ? C.gold : C.red, fontWeight: 700 }}>{$F(entryNet)}</span>
-                            </div>
-                            {e.net != null && (
-                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 3 }}>
-                                {[["Cash", e.cash], ["Acct", e.accounts], ["Sec", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([l, v]) => v != null && v !== 0 ? (
-                                  <span key={l} style={{ fontSize: 10, color: C.textDim }}>{l}: {$K(v)}</span>
-                                ) : null)}
-                              </div>
-                            )}
-                            {e.note && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{e.note}</div>}
-                            {e.updatedAt && <div style={{ fontSize: 10, color: C.amber, marginTop: 1 }}>Edited {new Date(e.updatedAt).toLocaleDateString()}</div>}
-                          </div>
-                        );
-                      })
-                    }
-                  </div>
+                  )}
                 </Card>
               );
             })}
