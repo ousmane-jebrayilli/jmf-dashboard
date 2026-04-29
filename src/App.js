@@ -1036,14 +1036,16 @@ function calculateMortgageSnapshot(prop, targetYM = currentYM()) {
 
   for (let i = 0; i < elapsedMonths; i += 1) {
     const interest = monthlyRate > 0 ? balance * monthlyRate : 0;
-    const rawPrincipal = paymentStructure === "interest_only" ? 0 : (piPayment - interest);
+    const noAmort = paymentStructure === "interest_only" || paymentStructure === "loc";
+    const rawPrincipal = noAmort ? 0 : (piPayment - interest);
     const principal = Math.max(0, Math.min(balance, rawPrincipal));
     balance = Math.max(0, balance - principal);
     remainingAmortization = Math.max(0, remainingAmortization - 1);
   }
 
   const currentInterest = monthlyRate > 0 ? balance * monthlyRate : 0;
-  const currentPrincipal = paymentStructure === "interest_only" ? 0 : Math.max(0, Math.min(balance, piPayment - currentInterest));
+  const noAmort = paymentStructure === "interest_only" || paymentStructure === "loc";
+  const currentPrincipal = noAmort ? 0 : Math.max(0, Math.min(balance, piPayment - currentInterest));
   const nextBalance = Math.max(0, balance - currentPrincipal);
 
   return {
@@ -1702,7 +1704,7 @@ function PersonalPLPanel({ individual, onSaveIncome, onSaveExpense, lockedMonth,
   const netFlow = personalNetCashFlow(incomeEntry, expense);
   const isLocked = lockedMonth === month;
   const allMonths = [...new Set([
-    ...monthsBetween(SYSTEM_START, currentYM()),
+    ...monthsBetween("2022-05", currentYM()),
     ...(individual?.monthlyIncome || []).map(e => e.month).filter(Boolean),
     ...(individual?.individualExpenses || []).map(e => e.month).filter(Boolean),
   ])].sort();
@@ -3226,9 +3228,23 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                   <div>
                     <Row label="LTV"><span style={{ color: ltv > 80 ? C.red : ltv > 65 ? C.amber : C.green, fontFamily:C.mono, fontWeight:700 }}>{ltv.toFixed(1)}%</span></Row>
                     {hasForeignCurrency && <Row label="FX Basis"><span style={{ fontSize:13, color:C.text }}>{`1 ${marketCurrency} = C$${fxRate.toFixed(2)}`}</span></Row>}
-                    {prop.co_owner && <Row label="Co-owner"><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
-                    <Row label="Notes" last><span style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, textAlign:"right" }}>{prop.notes || "—"}</span></Row>
+                    {prop.co_owner && <Row label="Co-owner" last><span style={{ fontSize:13, color:C.text }}>{prop.co_owner}</span></Row>}
                   </div>
+                </div>
+                {/* Notes — full-width row below the grid so long text wraps cleanly */}
+                <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", fontWeight:600, marginBottom:6 }}>Notes</div>
+                  {isAdmin ? (
+                    <textarea
+                      value={prop.notes || ""}
+                      onChange={e => onUpdate("notes", e.target.value)}
+                      rows={3}
+                      placeholder="Add property notes…"
+                      style={{ width:"100%", boxSizing:"border-box", padding:"8px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.bg, color:C.text, fontSize:13, fontFamily:C.sans, resize:"vertical", outline:"none", lineHeight:1.5 }}
+                    />
+                  ) : (
+                    <div style={{ fontSize:13, color: prop.notes ? C.textMid : C.textDim, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{prop.notes || "—"}</div>
+                  )}
                 </div>
               </div>
 
@@ -3244,9 +3260,10 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                           style={{ padding:"6px 10px", border:`1px solid ${C.border}`, borderRadius:8, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans }}>
                           <option value="amortizing">Amortizing</option>
                           <option value="interest_only">Interest only</option>
+                          <option value="loc">LOC / Line of Credit</option>
                         </select>
                       ) : (
-                        <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure}</span>
+                        <span style={{ fontSize:13, color:C.text }}>{mortgage.paymentStructure === "loc" ? "LOC / Line of Credit" : mortgage.paymentStructure}</span>
                       )}
                     </Row>
                   </div>
@@ -3343,8 +3360,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                 ))}
               </div>
 
-              {/* Section B — Payment breakdown donut */}
-              {piPayment > 0 && (
+              {/* Section B — Payment breakdown donut (not shown for LOC — interest varies with draw) */}
+              {piPayment > 0 && prop.payment_structure !== "loc" && (
                 <div style={{ display:"flex", alignItems:"center", gap:28, marginBottom:24, flexWrap:"wrap" }}>
                   {/* SVG donut */}
                   <div style={{ flexShrink:0 }}>
@@ -3386,8 +3403,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                 </div>
               )}
 
-              {/* Section C — Balance curve */}
-              {curvePoints.length > 1 && (
+              {/* Section C — Balance curve (not shown for LOC — balance is revolving) */}
+              {curvePoints.length > 1 && prop.payment_structure !== "loc" && (
                 <div style={{ marginBottom:24 }}>
                   <Label>Balance — Next 10 Years</Label>
                   <div style={{ overflowX:"auto", marginTop:10 }}>
