@@ -578,18 +578,71 @@ const DEFAULT = {
 };
 
 // ─── DASHBOARD DB HELPERS ─────────────────────────────────────────────────────
+// Return values:
+//   null            → table has zero rows → safe first-run seed
+//   { _error:true } → network/auth failure → DO NOT touch DB, show error
+//   { ...rows }     → normal → use data
 async function loadFromDB() {
   try {
     const { data, error } = await supabase.from("dashboard_data").select("*");
-    if (error || !data || data.length === 0) return null;
+    if (error) { console.error("[loadFromDB] Supabase error:", error); return { _error: true }; }
+    if (!data || data.length === 0) return null; // true first run
     const result = {};
     data.forEach(row => { result[row.key] = row.value; });
-    return result.individuals?.length > 0 ? result : null;
-  } catch { return null; }
+    return result; // return everything — no filtering
+  } catch (e) {
+    console.error("[loadFromDB] Exception:", e);
+    return { _error: true };
+  }
+}
+
+// ─── WRITE GUARD (Fix H) ──────────────────────────────────────────────────────
+// Tracks the most-recent successfully loaded row sizes so saveToDB can refuse
+// to overwrite a key with dramatically smaller data.
+const _dbRowSizes = {};
+function _countDataPoints(value) {
+  if (!value) return 0;
+  if (Array.isArray(value)) {
+    return value.reduce((s, item) => {
+      if (item && typeof item === "object") {
+        return s + Object.values(item).reduce((ss, v) => ss + (Array.isArray(v) ? v.length : 1), 0);
+      }
+      return s + 1;
+    }, 0);
+  }
+  if (typeof value === "object") return Object.keys(value).length;
+  return 1;
 }
 async function saveToDB(key, value) {
-  try { await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() }); }
-  catch (e) { console.error("DB save failed", e); }
+  // Guard: never write an empty array when we previously had data
+  if (Array.isArray(value) && value.length === 0 && (_dbRowSizes[key] || 0) > 0) {
+    console.warn(`[saveToDB] BLOCKED write of empty array for key="${key}" (had ${_dbRowSizes[key]} data points). Possible silent wipe prevented.`);
+    return;
+  }
+  // Guard: refuse writes that are dramatically smaller (>80% reduction in data points)
+  const incoming = _countDataPoints(value);
+  const existing = _dbRowSizes[key] || 0;
+  if (existing > 10 && incoming < existing * 0.2) {
+    console.warn(`[saveToDB] BLOCKED suspicious shrink for key="${key}": ${existing} → ${incoming} data points (>80% reduction). Possible silent wipe prevented.`);
+    return;
+  }
+  try {
+    await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
+    _dbRowSizes[key] = incoming; // track after successful write
+  } catch (e) {
+    console.error("[saveToDB] DB save failed", e);
+  }
+}
+// Seed ONLY if the key is genuinely absent. Never overwrite an existing key.
+async function seedToDB(key, value) {
+  try {
+    const { data } = await supabase.from("dashboard_data").select("key").eq("key", key).maybeSingle();
+    if (data) { console.log(`[seedToDB] Key "${key}" already exists — skipping seed.`); return; }
+    await supabase.from("dashboard_data").insert({ key, value, updated_at: new Date().toISOString() });
+    _dbRowSizes[key] = _countDataPoints(value);
+  } catch (e) {
+    console.error(`[seedToDB] Failed for key="${key}"`, e);
+  }
 }
 
 // ─── PHASE 4: RELATIONAL WRITE HELPERS ───────────────────────────────────────
@@ -646,10 +699,16 @@ async function writeIndividualIncomeLog(indId, entry, userId) {
 }
 
 function mergeById(defaults, dbArr) {
-  return defaults.map(def => {
-    const db = (dbArr || []).find(x => x.id === def.id) || {};
+  const arr = dbArr || [];
+  // Merge defaults with matching DB records (DB overrides DEFAULT for known fields)
+  const merged = defaults.map(def => {
+    const db = arr.find(x => x.id === def.id) || {};
     return { ...def, ...db };
   });
+  // Preserve any DB records whose id isn't in DEFAULT (e.g. user-added vehicles)
+  const defaultIds = new Set(defaults.map(d => d.id));
+  const extras = arr.filter(x => !defaultIds.has(x.id));
+  return [...merged, ...extras];
 }
 
 // ─── NOTIFICATION ENGINE ──────────────────────────────────────────────────────
@@ -936,6 +995,7 @@ function normalizeProperty(prop) {
 }
 function normalizeRentPayment(payment) {
   return {
+    ...payment, // preserve all existing fields first (unknown fields survive)
     id: payment.id || makeId("rent"),
     propertyId: payment.propertyId,
     unitId: payment.unitId || "",
@@ -6171,6 +6231,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           })()}
           <span style={{ fontSize: 9, fontWeight: 700, color: C.gold, background: "rgba(184,150,46,0.15)", border:`1px solid rgba(184,150,46,0.25)`, borderRadius: 4, padding: "2px 6px", letterSpacing:"0.06em", flexShrink:0 }}>ADMIN</span>
           {!isMobile && <span style={{ fontSize: 12, color: C.navText, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.profile?.display_name || user.email}</span>}
+          {!isMobile && <>
+            <button onClick={() => {
+              const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+              const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+              a.download = `jmf-backup-${currentYM()}.json`; a.click();
+            }} style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:10, padding:"5px 12px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>Export JSON</button>
+            <button onClick={async () => {
+              const key = `backup_${currentYM()}_${Date.now()}`;
+              await saveToDB(key, data);
+              alert(`Backup saved as "${key}" in dashboard_data.`);
+            }} style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:10, padding:"5px 12px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>DB Backup</button>
+          </>}
           <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: isMobile ? "4px 8px" : "5px 12px", cursor: "pointer", flexShrink:0, whiteSpace:"nowrap" }}>Sign out</button>
         </div>
       </div>
@@ -7078,9 +7150,54 @@ export default function App() {
       setSession(s);
       setProfile(prof);
 
-      if (dbData) {
-        const mergedProperties = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
-        const mergedRentPayments = (dbData.rentPayments || DEFAULT.rentPayments).map(normalizeRentPayment);
+      if (dbData === null) {
+        // ── TRUE FIRST RUN: table is empty ────────────────────────────────────
+        // Use seedToDB which checks existence before writing — never overwrites.
+        await Promise.all([
+          seedToDB("individuals",  DEFAULT.individuals),
+          seedToDB("properties",   DEFAULT.properties),
+          seedToDB("businesses",   DEFAULT.businesses),
+          seedToDB("cashflow",     DEFAULT.cashflow),
+          seedToDB("rentPayments", DEFAULT.rentPayments),
+          seedToDB("snapshots",    []),
+          seedToDB("reportHistory",[]),
+          seedToDB("vehicles",     DEFAULT.vehicles || []),
+          seedToDB("notificationsMeta", DEFAULT.notificationsMeta),
+        ]);
+        setData({
+          ...DEFAULT,
+          properties:   DEFAULT.properties.map(normalizeProperty),
+          rentPayments: DEFAULT.rentPayments.map(normalizeRentPayment),
+        });
+
+      } else if (dbData._error) {
+        // ── LOAD FAILED: network/auth error ───────────────────────────────────
+        // Do NOT touch the database. Show error state so user can retry.
+        console.error("[bootstrap] loadFromDB returned error — will not seed or overwrite.");
+        setData("error");
+
+      } else {
+        // ── NORMAL PATH: DB has data ──────────────────────────────────────────
+        // Seed any keys that are entirely absent (never wipe keys that exist).
+        const seedIfMissing = (key, def) => { if (dbData[key] === undefined) seedToDB(key, def); };
+        seedIfMissing("individuals",       DEFAULT.individuals);
+        seedIfMissing("properties",        DEFAULT.properties);
+        seedIfMissing("businesses",        DEFAULT.businesses);
+        seedIfMissing("cashflow",          DEFAULT.cashflow);
+        seedIfMissing("rentPayments",      DEFAULT.rentPayments);
+        seedIfMissing("snapshots",         []);
+        seedIfMissing("reportHistory",     []);
+        seedIfMissing("vehicles",          DEFAULT.vehicles || []);
+        seedIfMissing("notificationsMeta", DEFAULT.notificationsMeta);
+
+        // Initialise write-guard counters from loaded data
+        Object.entries(dbData).forEach(([k, v]) => { _dbRowSizes[k] = _countDataPoints(v); });
+
+        const mergedProperties   = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
+        const mergedRentPayments = (dbData.rentPayments || []).map(normalizeRentPayment);
+
+        // Apply in-memory-only property corrections (Fix C: no longer written back to DB).
+        // These keep the UI correct for known stale values without silently overwriting Supabase.
         const correctedBalances = {
           1: 728134.68,   // 27 Roytec Rd.
           3: 1824886.46,  // 121 Milky Way
@@ -7097,12 +7214,11 @@ export default function App() {
           const taxfix     = { 3: 905.29,                  4: 1235.14                 }[p.id];
           const pmtfix     = { 3: 12628.05,                4: 10342.14                }[p.id];
           // Valuation log is the source of truth for market value.
-          // Latest entry by date wins; fall back to p.market from mergeById if no log exists.
           const sortedVals = (p.valuations || []).slice().sort((a, b) => b.date.localeCompare(a.date));
           const latestVal = sortedVals[0];
-          const activeMarketValue = latestVal ? getNativeMarketValue(latestVal) : getNativeMarketValue(p);
+          const activeMarketValue    = latestVal ? getNativeMarketValue(latestVal) : getNativeMarketValue(p);
           const activeMarketCurrency = latestVal?.market_currency || latestVal?.currency || p.market_currency || "CAD";
-          const activeFxRate = latestVal ? getFxRateToCad({ ...p, ...latestVal, market_currency: activeMarketCurrency }) : getFxRateToCad(p);
+          const activeFxRate         = latestVal ? getFxRateToCad({ ...p, ...latestVal, market_currency: activeMarketCurrency }) : getFxRateToCad(p);
           return {
             ...p,
             ...(balFix     !== undefined && { mortgage:            balFix     }),
@@ -7113,18 +7229,18 @@ export default function App() {
             ...(pifix      !== undefined && { monthly_pi:          pifix      }),
             ...(taxfix     !== undefined && { monthly_payment_tax: taxfix     }),
             ...(pmtfix     !== undefined && { monthlyPayment:      pmtfix     }),
-            market_value: activeMarketValue,
+            market_value:    activeMarketValue,
             market_currency: activeMarketCurrency,
-            fx_rate_to_cad: activeFxRate,
+            fx_rate_to_cad:  activeFxRate,
             market: getMarketValueCad({ market_value: activeMarketValue, market_currency: activeMarketCurrency, fx_rate_to_cad: activeFxRate }),
           };
         });
-        saveToDB("properties", correctedProps);
-        // Migrate notificationsMeta: old format used completedIds[] array;
-        // new format uses completed{} object keyed by notification ID.
+        // NOT writing correctedProps to DB — in-memory only (Fix C).
+
+        // One-time notificationsMeta format migration (completedIds[] → completed{})
         const rawMeta = dbData.notificationsMeta || DEFAULT.notificationsMeta;
         const migratedMeta = (() => {
-          if (rawMeta.completed) return rawMeta; // already new format
+          if (rawMeta.completed) return rawMeta;
           const completed = {};
           (rawMeta.completedIds || []).forEach(id => { completed[id] = { completedAt: "" }; });
           const migrated = { ...rawMeta, completed };
@@ -7132,29 +7248,18 @@ export default function App() {
           saveToDB("notificationsMeta", migrated);
           return migrated;
         })();
+
         setData({
           ...DEFAULT,
           individuals:       mergeById(DEFAULT.individuals, dbData.individuals),
           properties:        correctedProps,
           businesses:        mergeById(DEFAULT.businesses,  dbData.businesses),
-          vehicles:          mergeById(DEFAULT.vehicles,    dbData.vehicles    || []),
+          vehicles:          mergeById(DEFAULT.vehicles || [], dbData.vehicles || []),
           cashflow:          dbData.cashflow          || DEFAULT.cashflow,
           rentPayments:      mergedRentPayments,
           reportHistory:     dbData.reportHistory     || [],
           snapshots:         dbData.snapshots         || [],
           notificationsMeta: migratedMeta,
-        });
-      } else {
-        // First run — seed the database with defaults
-        saveToDB("individuals",  DEFAULT.individuals);
-        saveToDB("properties",   DEFAULT.properties);
-        saveToDB("businesses",   DEFAULT.businesses);
-        saveToDB("cashflow",     DEFAULT.cashflow);
-        saveToDB("rentPayments", DEFAULT.rentPayments);
-        setData({
-          ...DEFAULT,
-          properties: DEFAULT.properties.map(normalizeProperty),
-          rentPayments: DEFAULT.rentPayments.map(normalizeRentPayment),
         });
       }
     }
@@ -7189,6 +7294,17 @@ export default function App() {
 
   // Not logged in
   if (!session) return <LoginScreen />;
+
+  // Data load failed (network error) — never seed or wipe, just show retry
+  if (data === "error") return (
+    <div style={{ minHeight:"100vh", background:"#0D0D0D", display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:16, padding:24 }}>
+      <div style={{ fontSize:32 }}>⚠️</div>
+      <div style={{ fontSize:16, fontWeight:700, color:"#E5E5E5" }}>Could not load dashboard data</div>
+      <div style={{ fontSize:13, color:"#888", textAlign:"center", maxWidth:340 }}>A network or authentication error occurred. Your data is safe in the database. Reload to try again.</div>
+      <button onClick={() => window.location.reload()} style={{ marginTop:8, padding:"10px 28px", background:"#D4A017", color:"#1A1508", border:"none", borderRadius:8, fontWeight:700, fontSize:14, cursor:"pointer" }}>Reload</button>
+      <button onClick={() => supabase.auth.signOut()} style={{ padding:"8px 20px", background:"none", color:"#888", border:"1px solid #333", borderRadius:8, fontSize:13, cursor:"pointer" }}>Sign out</button>
+    </div>
+  );
 
   // Logged in but profile or data not yet loaded
   if (!profile || !data) return <LoadingScreen />;
