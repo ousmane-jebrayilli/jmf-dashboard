@@ -7226,6 +7226,94 @@ export default function App() {
         // Initialise write-guard counters from loaded data
         Object.entries(dbData).forEach(([k, v]) => { _dbRowSizes[k] = _countDataPoints(v); });
 
+        // ── Migration V2: seed Kratos Moving Inc. historical P&L + Ahmed income ──
+        let bizData = dbData.businesses;
+        let indData = dbData.individuals;
+        if (!dbData.migrationV2_kratos_hist) {
+          const KRATOS_PROFIT_HIST = [
+            { month:"2022-05", revenue:4182.15,   expenses:4051.32,   profit:130.83    },
+            { month:"2022-06", revenue:2301.50,   expenses:2626.92,   profit:-325.42   },
+            { month:"2022-07", revenue:2243.05,   expenses:1807.86,   profit:435.19    },
+            { month:"2022-08", revenue:9742.13,   expenses:8101.84,   profit:1640.29   },
+            { month:"2022-09", revenue:13372.97,  expenses:8277.14,   profit:5095.83   },
+            { month:"2022-10", revenue:13344.67,  expenses:9141.60,   profit:4203.07   },
+            { month:"2022-11", revenue:16711.47,  expenses:10750.42,  profit:5961.05   },
+            { month:"2022-12", revenue:4463.91,   expenses:3564.99,   profit:898.92    },
+            { month:"2023-01", revenue:8475.15,   expenses:8475.15,   profit:0         },
+            { month:"2023-02", revenue:5551.10,   expenses:5551.09,   profit:0         },
+            { month:"2023-03", revenue:15036.12,  expenses:13763.76,  profit:1272.36   },
+            { month:"2023-04", revenue:18389.32,  expenses:15511.29,  profit:2878.03   },
+            { month:"2023-05", revenue:40421.77,  expenses:29492.82,  profit:10928.95  },
+            { month:"2023-06", revenue:42162.31,  expenses:29801.45,  profit:12360.86  },
+            { month:"2023-07", revenue:39596.70,  expenses:29499.45,  profit:10097.25  },
+            { month:"2023-08", revenue:72783.74,  expenses:53337.52,  profit:19446.22  },
+            { month:"2023-09", revenue:49832.17,  expenses:34930.79,  profit:14901.38  },
+            { month:"2023-10", revenue:28951.08,  expenses:12738.86,  profit:16212.22  },
+            { month:"2023-11", revenue:23336.05,  expenses:18202.96,  profit:5133.09   },
+            { month:"2023-12", revenue:43497.33,  expenses:25863.11,  profit:17634.22  },
+            { month:"2024-01", revenue:37652.12,  expenses:32692.84,  profit:4959.28   },
+            { month:"2024-02", revenue:47400.61,  expenses:38180.48,  profit:9220.13   },
+            { month:"2024-03", revenue:54193.92,  expenses:40779.00,  profit:13414.92  },
+            { month:"2024-04", revenue:62521.25,  expenses:53570.90,  profit:8950.35   },
+            { month:"2024-05", revenue:87740.03,  expenses:64881.53,  profit:22858.50  },
+            { month:"2024-06", revenue:99408.26,  expenses:71151.60,  profit:28256.66  },
+            { month:"2024-07", revenue:154733.57, expenses:115968.37, profit:38765.20  },
+            { month:"2024-08", revenue:151244.17, expenses:112650.64, profit:38593.53  },
+            { month:"2024-09", revenue:125753.91, expenses:110463.43, profit:15290.48  },
+          ];
+          const AHMED_INCOME_HIST = [
+            { month:"2022-05", kratosIncome:284.18,  otherIncome:0, notes:"", income:284.18  },
+            { month:"2022-06", kratosIncome:156.39,  otherIncome:0, notes:"", income:156.39  },
+            { month:"2022-07", kratosIncome:152.42,  otherIncome:0, notes:"", income:152.42  },
+            { month:"2022-08", kratosIncome:661.87,  otherIncome:0, notes:"", income:661.87  },
+            { month:"2022-09", kratosIncome:908.23,  otherIncome:0, notes:"", income:908.23  },
+            { month:"2022-10", kratosIncome:906.29,  otherIncome:0, notes:"", income:906.29  },
+            { month:"2022-11", kratosIncome:1134.72, otherIncome:0, notes:"", income:1134.72 },
+            { month:"2022-12", kratosIncome:303.29,  otherIncome:0, notes:"", income:303.29  },
+            { month:"2023-01", kratosIncome:2483.10, otherIncome:0, notes:"", income:2483.10 },
+            { month:"2023-02", kratosIncome:1481.24, otherIncome:0, notes:"", income:1481.24 },
+            { month:"2023-03", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-04", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-05", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-06", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-07", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-08", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-09", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-10", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-11", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2023-12", kratosIncome:2500.00, otherIncome:0, notes:"", income:2500.00 },
+            { month:"2024-01", kratosIncome:4000.00, otherIncome:0, notes:"", income:4000.00 },
+            { month:"2024-02", kratosIncome:4000.00, otherIncome:0, notes:"", income:4000.00 },
+            { month:"2024-03", kratosIncome:4268.32, otherIncome:0, notes:"", income:4268.32 },
+            { month:"2024-04", kratosIncome:4000.00, otherIncome:0, notes:"", income:4000.00 },
+            { month:"2024-05", kratosIncome:5873.17, otherIncome:0, notes:"", income:5873.17 },
+            { month:"2024-06", kratosIncome:5003.61, otherIncome:0, notes:"", income:5003.61 },
+            { month:"2024-07", kratosIncome:7085.02, otherIncome:0, notes:"", income:7085.02 },
+            { month:"2024-08", kratosIncome:6663.93, otherIncome:0, notes:"", income:6663.93 },
+            { month:"2024-09", kratosIncome:4476.72, otherIncome:0, notes:"", income:4476.72 },
+          ];
+          bizData = (bizData || DEFAULT.businesses).map(b => {
+            if (b.id !== 1) return b;
+            const existing = b.monthlyProfits || [];
+            const existingMonths = new Set(existing.map(p => p.month));
+            const toAdd = KRATOS_PROFIT_HIST.filter(r => !existingMonths.has(r.month));
+            if (toAdd.length === 0) return b;
+            return { ...b, monthlyProfits: [...existing, ...toAdd].sort((a, bx) => a.month.localeCompare(bx.month)) };
+          });
+          indData = (indData || DEFAULT.individuals).map(ind => {
+            if (ind.id !== 1) return ind;
+            const existing = ind.monthlyIncome || [];
+            const existingMonths = new Set(existing.map(e => e.month));
+            const toAdd = AHMED_INCOME_HIST.filter(r => !existingMonths.has(r.month));
+            if (toAdd.length === 0) return ind;
+            return { ...ind, monthlyIncome: [...existing, ...toAdd].sort((a, bx) => a.month.localeCompare(bx.month)) };
+          });
+          saveToDB("businesses",              bizData);
+          saveToDB("individuals",             indData);
+          saveToDB("migrationV2_kratos_hist", true);
+        }
+        // ── End Migration V2 ──────────────────────────────────────────────────────
+
         const mergedProperties   = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
         const mergedRentPayments = (dbData.rentPayments || []).map(normalizeRentPayment);
 
@@ -7284,9 +7372,9 @@ export default function App() {
 
         setData({
           ...DEFAULT,
-          individuals:       mergeById(DEFAULT.individuals, dbData.individuals),
+          individuals:       mergeById(DEFAULT.individuals, indData),
           properties:        correctedProps,
-          businesses:        mergeById(DEFAULT.businesses,  dbData.businesses),
+          businesses:        mergeById(DEFAULT.businesses,  bizData),
           vehicles:          mergeById(DEFAULT.vehicles || [], dbData.vehicles || []),
           cashflow:          dbData.cashflow          || DEFAULT.cashflow,
           rentPayments:      mergedRentPayments,
