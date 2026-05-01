@@ -2203,6 +2203,8 @@ function SubmissionModal({ currentData, periodLabel, onSubmit, onClose }) {
 // individuals: current dashboard individuals array for showing "previous" values
 function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject }) {
   const [notes, setNotes] = useState({});
+  // manual override: sub.id → individual_id chosen by admin when profile lookup fails
+  const [assignments, setAssignments] = useState({});
   if (!pendingSubs.length) return null;
 
   return (
@@ -2210,21 +2212,53 @@ function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject
       <Label color={C.amber}>Pending Submissions — {pendingSubs.length} awaiting review</Label>
       {pendingSubs.map((sub, si) => {
         const profile = profiles.find(p => p.id === sub.user_id);
-        const current = individuals.find(x => x.id === profile?.individual_id);
+        // Resolve individual: profile match → embedded _individualId → manual assignment
+        const resolvedIndividualId =
+          profile?.individual_id ??
+          sub.data?._individualId ??
+          assignments[sub.id] ??
+          null;
+        const current = individuals.find(x => x.id === resolvedIndividualId);
+        const displayName =
+          profile?.display_name ||
+          current?.name ||
+          null;
+        const identityKnown = !!resolvedIndividualId;
         const d = sub.data || {};
         const periodLabel = sub.period
           ? new Date(sub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" })
           : "Unknown period";
 
+        // Build the augmented sub that carries the resolved individual for handleApprove
+        const augmentedSub = identityKnown
+          ? { ...sub, data: { ...d, _individualId: resolvedIndividualId } }
+          : sub;
+
         return (
           <div key={sub.id} style={{ borderTop: si > 0 ? `1px solid ${C.border}` : "none", paddingTop: si > 0 ? 16 : 0, marginTop: si > 0 ? 16 : 0 }}>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                {profile?.display_name || "Unknown member"}
+              <div style={{ fontSize: 14, fontWeight: 600, color: displayName ? C.text : C.amber }}>
+                {displayName || "Unknown member"}
               </div>
               <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
                 {periodLabel} · submitted {new Date(sub.submitted_at).toLocaleDateString()}
               </div>
+              {/* Manual assignment picker when identity cannot be resolved automatically */}
+              {!identityKnown && (
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: C.amber, fontWeight: 600 }}>Assign to:</span>
+                  <select
+                    value={assignments[sub.id] || ""}
+                    onChange={e => setAssignments(a => ({ ...a, [sub.id]: e.target.value ? Number(e.target.value) : undefined }))}
+                    style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.amber}`, background: C.bg, color: C.text, outline: "none" }}
+                  >
+                    <option value="">— select member —</option>
+                    {individuals.map(ind => (
+                      <option key={ind.id} value={ind.id}>{ind.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 12 }}>
@@ -2247,8 +2281,12 @@ function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={() => onApprove(sub)}
-                style={{ padding: "8px 20px", background: C.green, border: "none", borderRadius: 7, color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              <button
+                onClick={() => onApprove(augmentedSub)}
+                disabled={!identityKnown}
+                style={{ padding: "8px 20px", background: identityKnown ? C.green : C.border, border: "none", borderRadius: 7, color: identityKnown ? "#FFF" : C.textDim, fontSize: 12, fontWeight: 700, cursor: identityKnown ? "pointer" : "not-allowed" }}
+                title={!identityKnown ? "Select a member above before approving" : ""}
+              >
                 Approve
               </button>
               <input
@@ -2560,9 +2598,11 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
 
   const handleSubmit = async (fields) => {
     if (!missingPeriod) return;
-    const ok = await createSubmission(user.id, missingPeriod.period_date, fields);
+    // Embed identity so the admin can approve even when profile lookup fails
+    const enrichedFields = { ...fields, _individualId: individualId, _name: f?.name || "" };
+    const ok = await createSubmission(user.id, missingPeriod.period_date, enrichedFields);
     if (ok) {
-      setCurrentSub({ status: "pending", data: fields, period: missingPeriod.period_date });
+      setCurrentSub({ status: "pending", data: enrichedFields, period: missingPeriod.period_date });
       setMissingPeriod(null);
       setShowSubModal(false);
     }
@@ -6131,25 +6171,42 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   // ── Approve: apply submitted data to individuals, mark approved ──
   async function handleApprove(sub) {
     const profile = profiles.find(p => p.id === sub.user_id);
-    const individualId = profile?.individual_id;
-    if (!individualId) { console.warn("Cannot approve — no individual_id in profile for", sub.user_id); return; }
+    // Fall back to individual_id embedded in submission data (by member app or manual assignment)
+    const individualId = profile?.individual_id ?? sub.data?._individualId ?? null;
+    if (!individualId) {
+      alert("Cannot approve: no member linked to this submission. Use the dropdown to assign a member first.");
+      return;
+    }
 
     const d = sub.data || {};
-    const arr = data.individuals.map(x =>
-      x.id === individualId
-        ? { ...x, ...Object.fromEntries(Object.entries(d).map(([k, val]) => [k, safe(val)])) }
-        : x
-    );
+    const monthKey = sub.period ? sub.period.slice(0, 7) : currentYM();
+    const balanceFields = { cash: safe(d.cash), accounts: safe(d.accounts), securities: safe(d.securities), crypto: safe(d.crypto), physicalAssets: safe(d.physicalAssets) };
+    const net = Object.values(balanceFields).reduce((s, v) => s + v, 0);
+    const ts = new Date().toISOString();
+
+    const arr = data.individuals.map(x => {
+      if (x.id !== individualId) return x;
+      // Update top-level balance fields (exclude private _* keys from submission data)
+      const publicFields = Object.fromEntries(
+        Object.entries(d).filter(([k]) => !k.startsWith("_")).map(([k, val]) => [k, safe(val)])
+      );
+      // Merge into accountsLog for Individuals tab history
+      const existingLog = x.accountsLog || [];
+      const logEntry = { ...balanceFields, net, month: monthKey, note: "Approved from member submission", capturedAt: ts, timestamp: ts };
+      const alreadyInLog = existingLog.some(e => e.month === monthKey);
+      const updatedLog = alreadyInLog
+        ? existingLog.map(e => e.month === monthKey ? { ...logEntry, capturedAt: e.capturedAt || ts, updatedAt: ts } : e)
+        : [...existingLog, logEntry];
+      return { ...x, ...publicFields, accountsLog: updatedLog };
+    });
+
     const ok = await approveSubmission(sub.id, user.id);
     if (!ok) return;
     saveToDB("individuals", arr);
     setData(prev => ({ ...prev, individuals: arr }));
     setPendingSubs(s => s.filter(x => x.id !== sub.id));
     showSaved();
-    if (sub.period) {
-      const monthKey = sub.period.slice(0, 7);
-      writeIndividualLog(individualId, { month: monthKey, ...sub.data }, user.id).catch(() => {});
-    }
+    writeIndividualLog(individualId, { month: monthKey, ...balanceFields }, user.id).catch(() => {});
   }
 
   async function handleReject(subId, note) {
