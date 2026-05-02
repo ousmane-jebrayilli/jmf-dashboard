@@ -4293,6 +4293,8 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
   const [open, setOpen] = useState(false);
   const [bizPrimaryTab, setBizPrimaryTab] = useState("balance");
   const [bizSubTabs, setBizSubTabs] = useState({ balance:"current", pl:"current" });
+  const [balLogOpen, setBalLogOpen] = useState(false);
+  const [balLogForm, setBalLogForm] = useState({ month: currentYM(), cashAccounts: 0, taxPayable: 0, creditCards: 0, otherLiabilities: 0, note: "" });
   const curYM          = currentYM();
   const isNonProfit    = biz.type === "nonprofit";
   const isTrackedOnly  = biz.type === "tracked_only";
@@ -4503,35 +4505,137 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
 
                 {bizPrimaryTab === "balance" && activeSubTab === "history" && (
                   <div>
-                    <Label>Balance History</Label>
+                    {/* ── Header row with Log Month toggle ── */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                      <span style={{ fontSize:11, color:C.textDim, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>Balance History</span>
+                      {isAdmin && (
+                        <button
+                          onClick={() => {
+                            setBalLogOpen(o => !o);
+                            setBalLogForm({ month: currentYM(), cashAccounts: safe(biz.cashAccounts), taxPayable: safe(biz.taxPayable), creditCards: safe(biz.creditCards), otherLiabilities: Math.max(0, safe(biz.liabilities) - safe(biz.taxPayable) - safe(biz.creditCards)), note: "" });
+                          }}
+                          style={{ fontSize:10, background:C.goldLight, color:C.goldText, border:`1px solid rgba(184,150,46,0.3)`, borderRadius:5, padding:"3px 9px", cursor:"pointer", fontWeight:600 }}>
+                          {balLogOpen ? "Cancel" : "+ Log Month"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* ── Log Month form ── */}
+                    {balLogOpen && isAdmin && (() => {
+                      const formLiabilities = safe(balLogForm.taxPayable) + safe(balLogForm.creditCards) + safe(balLogForm.otherLiabilities);
+                      const formEquity = safe(balLogForm.cashAccounts) - formLiabilities;
+                      return (
+                        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:14, marginBottom:12 }}>
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>Month</div>
+                            <input type="month" value={balLogForm.month}
+                              onChange={e => setBalLogForm(p => ({ ...p, month: e.target.value }))}
+                              style={{ padding:"6px 8px", border:`1px solid ${C.border}`, borderRadius:6, background:C.bg, color:C.text, fontSize:12, fontFamily:C.sans, outline:"none" }} />
+                          </div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+                            {[
+                              { l:"Cash / Accounts", k:"cashAccounts" },
+                              { l:"CRA Tax Payable",  k:"taxPayable" },
+                              { l:"Credit Cards",     k:"creditCards" },
+                              { l:"Other Liabilities",k:"otherLiabilities" },
+                            ].map(({ l, k }) => (
+                              <div key={k}>
+                                <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>{l}</div>
+                                <input type="number" value={balLogForm[k]}
+                                  onChange={e => setBalLogForm(p => ({ ...p, [k]: e.target.value }))}
+                                  style={{ width:"100%", padding:"6px 8px", border:`1px solid ${C.border}`, borderRadius:6, background:C.bg, color:C.text, fontSize:12, fontFamily:C.mono, outline:"none", boxSizing:"border-box" }} />
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:`1px solid ${C.border}`, marginBottom:10 }}>
+                            <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>Net Equity</span>
+                            <span style={{ fontFamily:C.mono, fontWeight:800, fontSize:14, color:formEquity >= 0 ? C.gold : C.red }}>{$F(formEquity)}</span>
+                          </div>
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>Note (optional)</div>
+                            <input type="text" placeholder="e.g. End-of-month snapshot" value={balLogForm.note}
+                              onChange={e => setBalLogForm(p => ({ ...p, note: e.target.value }))}
+                              style={{ width:"100%", padding:"6px 8px", border:`1px solid ${C.border}`, borderRadius:6, background:C.bg, color:C.text, fontSize:12, fontFamily:C.sans, outline:"none", boxSizing:"border-box" }} />
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (!onUpdateHistory) return;
+                              const liabilities = safe(balLogForm.taxPayable) + safe(balLogForm.creditCards) + safe(balLogForm.otherLiabilities);
+                              onUpdateHistory({
+                                month:        balLogForm.month,
+                                cashBalance:  safe(balLogForm.cashAccounts),
+                                liabilities,
+                                taxPayable:   safe(balLogForm.taxPayable),
+                                creditCards:  safe(balLogForm.creditCards),
+                                note:         balLogForm.note,
+                              });
+                              setBalLogOpen(false);
+                            }}
+                            style={{ fontSize:12, background:C.gold, color:"#1A1508", border:"none", borderRadius:6, padding:"7px 16px", cursor:"pointer", fontWeight:700 }}>
+                            Save Snapshot
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── History table ── */}
                     {(() => {
                       const balanceRows = [...(biz.historicalData || [])]
                         .filter(e => e.cashBalance != null || e.liabilities != null)
                         .sort((a, b) => b.month.localeCompare(a.month));
-                      return balanceRows.length === 0 ? (
-                        <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic", marginTop:10 }}>No monthly balance snapshots recorded yet.</div>
-                      ) : (
-                        <div style={{ marginTop:12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
-                          <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                            <span>Month</span>
-                            <span style={{ textAlign:"right" }}>Cash / Accounts</span>
-                            <span style={{ textAlign:"right" }}>Liabilities</span>
-                            <span style={{ textAlign:"right" }}>Net Equity</span>
+
+                      if (balanceRows.length === 0) return (
+                        <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic", marginTop:4 }}>No monthly balance snapshots recorded yet. Use "Log Month" to add one.</div>
+                      );
+
+                      // Sparkline
+                      const sparkEntries = [...balanceRows].reverse();
+                      const maxAbs = Math.max(1, ...sparkEntries.map(e => Math.abs(safe(e.cashBalance) - safe(e.liabilities))));
+                      return (
+                        <>
+                          {sparkEntries.length > 1 && (
+                            <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:10, marginBottom:10, overflowX:"auto" }}>
+                              <svg width={Math.max(240, sparkEntries.length * 54)} height={100} style={{ display:"block" }}>
+                                {sparkEntries.map((e, i) => {
+                                  const eq = safe(e.cashBalance) - safe(e.liabilities);
+                                  const x  = i * 54 + 20;
+                                  const y  = 52 - ((eq / maxAbs) * 34);
+                                  const next = sparkEntries[i + 1];
+                                  const nx = (i + 1) * 54 + 20;
+                                  const ny = next ? 52 - (((safe(next.cashBalance) - safe(next.liabilities)) / maxAbs) * 34) : null;
+                                  return (
+                                    <g key={e.month || i}>
+                                      {next && <line x1={x} y1={y} x2={nx} y2={ny} stroke={C.gold} strokeWidth={2} />}
+                                      <circle cx={x} cy={y} r={3} fill={eq >= 0 ? C.gold : C.red} />
+                                      <text x={x} y={92} textAnchor="middle" fontSize={9} fill={C.textDim} fontFamily={C.sans}>{monthLabel(e.month).split(" ")[0]}</text>
+                                    </g>
+                                  );
+                                })}
+                              </svg>
+                            </div>
+                          )}
+                          <div style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                              <span>Month</span>
+                              <span style={{ textAlign:"right" }}>Cash / Accounts</span>
+                              <span style={{ textAlign:"right" }}>Liabilities</span>
+                              <span style={{ textAlign:"right" }}>Net Equity</span>
+                            </div>
+                            {balanceRows.map((row, idx) => {
+                              const cash       = safe(row.cashBalance);
+                              const liabilities = safe(row.liabilities);
+                              const equity     = cash - liabilities;
+                              return (
+                                <div key={row.month} style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", borderBottom: idx < balanceRows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
+                                  <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
+                                  <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.cashBalance != null ? $F(cash) : "—"}</span>
+                                  <span style={{ fontFamily:C.mono, fontSize:12, color:liabilities > 0 ? C.red : C.textDim, textAlign:"right" }}>{row.liabilities != null ? $F(liabilities) : "—"}</span>
+                                  <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:equity >= 0 ? C.gold : C.red, textAlign:"right" }}>{row.cashBalance != null || row.liabilities != null ? $F(equity) : "—"}</span>
+                                </div>
+                              );
+                            })}
                           </div>
-                          {balanceRows.map((row, idx) => {
-                            const cash = safe(row.cashBalance);
-                            const liabilities = safe(row.liabilities);
-                            const equity = cash - liabilities;
-                            return (
-                              <div key={row.month} style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", borderBottom: idx < balanceRows.length - 1 ? `1px solid ${C.border}` : "none", alignItems:"center" }}>
-                                <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
-                                <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.cashBalance != null ? $F(cash) : "—"}</span>
-                                <span style={{ fontFamily:C.mono, fontSize:12, color:liabilities > 0 ? C.red : C.textDim, textAlign:"right" }}>{row.liabilities != null ? $F(liabilities) : "—"}</span>
-                                <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:equity >= 0 ? C.gold : C.red, textAlign:"right" }}>{row.cashBalance != null || row.liabilities != null ? $F(equity) : "—"}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        </>
                       );
                     })()}
                   </div>
