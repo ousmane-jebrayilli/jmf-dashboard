@@ -4289,7 +4289,7 @@ function BizTrendsTab({ biz, histStart }) {
   );
 }
 
-function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateHistory, isAdmin, periodLockedMonth }) {
+function BizCard({ biz, onUpdate, onUpdatePatch, onUpdateProfit, onUpdateProfitField, onUpdateHistory, isAdmin, periodLockedMonth }) {
   const [open, setOpen] = useState(false);
   const [bizPrimaryTab, setBizPrimaryTab] = useState("balance");
   const [bizSubTabs, setBizSubTabs] = useState({ balance:"current", pl:"current" });
@@ -4443,8 +4443,18 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
                       <div>
                         <Label>Liabilities</Label>
                         <Row label="Total liabilities" labelStyle={{ fontWeight: 700, color: C.text }}><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.liabilities))}</span></Row>
-                        <Row label="CRA tax payable"><EditNum value={safe(biz.taxPayable)} onChange={v => onUpdate("taxPayable", v)} locked={!isAdmin} /></Row>
-                        <Row label="Credit cards"><span style={{ color: C.red, fontFamily: C.mono, fontSize: 14 }}>{$F(safe(biz.creditCards))}</span></Row>
+                        <Row label="CRA tax payable"><EditNum value={safe(biz.taxPayable)} onChange={v => {
+                          const otherLiab = Math.max(0, safe(biz.liabilities) - safe(biz.taxPayable) - safe(biz.creditCards));
+                          (onUpdatePatch || onUpdate) && (onUpdatePatch
+                            ? onUpdatePatch({ taxPayable: safe(v), liabilities: safe(v) + safe(biz.creditCards) + otherLiab })
+                            : onUpdate("taxPayable", v));
+                        }} locked={!isAdmin} /></Row>
+                        <Row label="Credit cards"><EditNum value={safe(biz.creditCards)} onChange={v => {
+                          const otherLiab = Math.max(0, safe(biz.liabilities) - safe(biz.taxPayable) - safe(biz.creditCards));
+                          (onUpdatePatch || onUpdate) && (onUpdatePatch
+                            ? onUpdatePatch({ creditCards: safe(v), liabilities: safe(biz.taxPayable) + safe(v) + otherLiab })
+                            : onUpdate("creditCards", v));
+                        }} locked={!isAdmin} /></Row>
                         <Row label="Net equity" last labelStyle={{ fontWeight: 700, background: C.gold, color: "#FFF", borderRadius: 4, padding: "2px 8px" }}><span style={{ color: netEquity >= 0 ? C.gold : C.red, fontFamily: C.mono, fontWeight: 700, fontSize: 14 }}>{$F(netEquity)}</span></Row>
                       </div>
                     </div>
@@ -4569,6 +4579,15 @@ function BizCard({ biz, onUpdate, onUpdateProfit, onUpdateProfitField, onUpdateH
                                 creditCards:  safe(balLogForm.creditCards),
                                 note:         balLogForm.note,
                               });
+                              // When snapshot month is current or future, sync live balance too so overview updates
+                              if (onUpdatePatch && balLogForm.month >= currentYM()) {
+                                onUpdatePatch({
+                                  cashAccounts: safe(balLogForm.cashAccounts),
+                                  liabilities,
+                                  taxPayable:   safe(balLogForm.taxPayable),
+                                  creditCards:  safe(balLogForm.creditCards),
+                                });
+                              }
                               setBalLogOpen(false);
                             }}
                             style={{ fontSize:12, background:C.gold, color:"#1A1508", border:"none", borderRadius:6, padding:"7px 16px", cursor:"pointer", fontWeight:700 }}>
@@ -5982,6 +6001,16 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
+  function updBizPatch(id, patch) {
+    // Atomic multi-field update — used when several fields must stay in sync (e.g. creditCards + liabilities)
+    const arr = data.businesses.map(b => {
+      if (b.id !== id) return b;
+      const next = { ...b };
+      for (const [k, v] of Object.entries(patch)) next[k] = typeof v === "number" ? v : safe(v);
+      return next;
+    });
+    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+  }
   function updVehicle(id, patch) {
     const arr = (data.vehicles || []).map(v => v.id === id ? { ...v, ...patch } : v);
     saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
@@ -7021,7 +7050,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 </div>
               )}
             </div>
-            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} onUpdateHistory={entry => updBizHistory(b.id, entry)} isAdmin={true} periodLockedMonth={null} />)}
+            {data.businesses.map(b => <BizCard key={b.id} biz={b} onUpdate={(f, v) => updBiz(b.id, f, v)} onUpdatePatch={patch => updBizPatch(b.id, patch)} onUpdateProfit={(month, profit) => updBizProfit(b.id, month, profit)} onUpdateProfitField={(month, field, value) => updBizProfitField(b.id, month, field, value)} onUpdateHistory={entry => updBizHistory(b.id, entry)} isAdmin={true} periodLockedMonth={null} />)}
           </div>
         )}
 
