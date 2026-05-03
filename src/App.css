@@ -36,3 +36,22 @@
     transform: rotate(360deg);
   }
 }
+
+/* Hide scrollbar on overflow-x scroll containers */
+[style*="scrollbarWidth"] {
+  scrollbar-width: none;
+}
+[style*="scrollbarWidth"]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch-friendly tap targets on mobile */
+@media (max-width: 767px) {
+  button {
+    min-height: 36px;
+  }
+  /* Prevent horizontal overflow at root */
+  body {
+    overflow-x: hidden;
+  }
+}

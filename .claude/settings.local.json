@@ -8,7 +8,12 @@
       "Read(//opt/homebrew/**)",
       "Read(//Users/ahmedjebrayilli/**)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(convert --version)",
+      "Bash(/usr/local/lib/sf/bin/node -e \"require\\('sharp'\\); console.log\\('sharp ok'\\)\")",
+      "Bash(/usr/local/lib/sf/bin/node -e \"const s=require\\('sharp'\\); s\\('/Users/ahmedjebrayilli/Downloads/logo512.png'\\).metadata\\(\\).then\\(m=>console.log\\(JSON.stringify\\(m\\)\\)\\)\")",
+      "Bash(mdfind \"kMDItemFSName == 'High_Resolution_File_2.jpg'\")",
+      "Bash(mdfind \"kMDItemFSName == '*.jpg'\" -onlyin \"/Users/ahmedjebrayilli\")"
     ]
   }
 }
