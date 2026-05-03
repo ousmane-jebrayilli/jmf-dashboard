@@ -5219,6 +5219,21 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   const cfOtherOut    = (data.cashflow?.obligations || []).reduce((sum, o) => sum + safe(o.amount), 0);
   const cfNet         = cfRentIn + cfOtherIncome - cfPropOut - cfOtherOut;
 
+  // Finalized prior-month cash flow (matches Cash Flow tab data structure)
+  const finMonth      = shiftYM(s.month, -1);
+  const finBizIn      = (data.businesses || []).filter(b => b.type !== "nonprofit").reduce((sum, b) => {
+    const e = (b.monthlyProfits || []).find(p => p.month === finMonth);
+    return sum + safe(e?.profit);
+  }, 0);
+  const finPayroll    = (data.individuals || []).reduce((sum, ind) => {
+    const e = (ind.monthlyIncome || []).find(p => p.month === finMonth);
+    return sum + safe(e?.income);
+  }, 0);
+  const finVehicleOut = (data.vehicles || []).reduce((sum, v) => sum + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
+  const finTotalIn    = finBizIn + cfRentIn + finPayroll + cfOtherIncome;
+  const finTotalOut   = cfPropOut + cfOtherOut + finVehicleOut;
+  const finGap        = finTotalIn - finTotalOut;
+
   const allSnaps   = [...(data.snapshots || [])].sort((a, b) => (a.month||"").localeCompare(b.month||""));
   const curIdx     = allSnaps.findIndex(sn => sn.month === s.month);
   const prevSnap   = curIdx > 0 ? allSnaps[curIdx - 1] : null;
@@ -5318,9 +5333,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   const nc    = v => v >= 0 ? POS : NEG;
   const mf    = v => `${v >= 0 ? "+" : ""}${$F(v)}`;
   const mk    = v => `${v >= 0 ? "+" : ""}${$K(v)}`;
-  const sHd   = { fontSize: 8.5, letterSpacing: "0.18em", textTransform: "uppercase", color: FAINT, fontWeight: 700, marginBottom: 8, marginTop: 26, fontFamily: "sans-serif", borderBottom: `1px solid ${LINE}`, paddingBottom: 5 };
+  const sHd   = { fontSize: 8.5, letterSpacing: "0.18em", textTransform: "uppercase", color: FAINT, fontWeight: 700, marginBottom: 8, marginTop: 26, fontFamily: "sans-serif", borderBottom: `1px solid ${LINE}`, paddingBottom: 5, pageBreakAfter: "avoid", breakAfter: "avoid" };
   const tRow  = bg => ({ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${LINE}`, background: bg });
   const mon   = { fontFamily: "monospace", fontWeight: 700 };
+  const sWrap = { pageBreakInside: "avoid", breakInside: "avoid" };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.82)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
@@ -5366,6 +5382,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
         </div>
 
         {/* ══ 2. EXECUTIVE SUMMARY ══════════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Executive Summary</div>
         <div style={{ fontSize: 11.5, color: DIM, lineHeight: 1.85, background: "#FAFAFA", border: `1px solid ${LINE}`, borderRadius: 6, padding: "12px 16px" }}>
           {(() => {
@@ -5379,8 +5396,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             return text;
           })()}
         </div>
+        </div>{/* /sWrap executive summary */}
 
         {/* ══ 3. KEY METRICS ════════════════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Key Metrics</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: LINE, border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           {[
@@ -5398,6 +5417,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             </div>
           ))}
         </div>
+        </div>{/* /sWrap key metrics */}
 
         {/* ══ 4. NET WORTH TRAJECTORY ═══════════════════════════════════════════ */}
         {trajSnaps.length >= 2 && (() => {
@@ -5410,7 +5430,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
           const toY  = v => 6 + plotH - ((v - minV) / span) * plotH;
           const pts  = trajSnaps.map((sn, i) => `${toX(i)},${toY(sn.nw)}`).join(" ");
           return (
-            <>
+            <div style={{ ...sWrap }}>
               <div style={{ ...sHd }}>Net Worth Trajectory</div>
               <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
                 <div style={{ padding: "14px 14px 6px", background: "#FAFAFA" }}>
@@ -5448,11 +5468,12 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
                   })}
                 </div>
               </div>
-            </>
+            </div>
           );
         })()}
 
         {/* ══ 5. ASSET ALLOCATION ═══════════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Asset Allocation</div>
         <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "10px 1fr 90px 60px 72px", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 10px", alignItems: "center" }}>
@@ -5486,8 +5507,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             <div /><div />
           </div>
         </div>
+        </div>{/* /sWrap asset allocation */}
 
         {/* ══ 6. CONSOLIDATED SNAPSHOT ══════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Consolidated Snapshot</div>
         <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           {/* Individuals */}
@@ -5538,8 +5561,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             <span style={{ ...mon, fontSize: 14, color: s.nw >= 0 ? "#7EC896" : "#FF9999" }}>{$F(s.nw)}</span>
           </div>
         </div>
+        </div>{/* /sWrap consolidated snapshot */}
 
         {/* ══ 7. REAL ESTATE PORTFOLIO ══════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Real Estate Portfolio</div>
         <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2.5fr 0.9fr 0.9fr 0.9fr 0.9fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
@@ -5577,8 +5602,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             <div style={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: "#7EC896" }}>{$K((s.reBreakdown||[]).reduce((a,x)=>a+x.liquid,0))}</div>
           </div>
         </div>
+        </div>{/* /sWrap RE portfolio */}
 
         {/* ══ 8. BUSINESS ENTITIES ══════════════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Business Entities</div>
         <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 0.9fr 0.9fr 0.9fr 0.9fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
@@ -5597,14 +5624,14 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             </div>
           ))}
         </div>
+        </div>{/* /sWrap business entities */}
 
-        {/* ══ 9. CASH FLOW SUMMARY ══════════════════════════════════════════════ */}
-        <div style={{ ...sHd }}>Cash Flow Summary</div>
-        {cfIncomplete && (
-          <div style={{ background: "#FFF8E8", border: "1px solid #E6A817", borderRadius: 5, padding: "7px 12px", marginBottom: 8, fontSize: 10, color: "#7A5800", fontFamily: "sans-serif", lineHeight: 1.65 }}>
-            <strong>Note:</strong> Business P&amp;L figures are typically finalized around the 5th of the following month. Cash flow shown reflects the most recently available data and may be incomplete for the current reporting period.
-          </div>
-        )}
+        {/* ══ 9. REAL ESTATE CASH FLOW SUMMARY ════════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
+        <div style={{ ...sHd }}>Real Estate Cash Flow Summary</div>
+        <div style={{ background: "#EDF4FF", border: "1px solid #AACCEE", borderRadius: 5, padding: "7px 12px", marginBottom: 8, fontSize: 10, color: "#1A3F6B", fontFamily: "sans-serif", lineHeight: 1.65 }}>
+          This section reflects JMF-ownership-adjusted rental income and property obligations. Business P&amp;L, personal income, and vehicle obligations are reported in the Finalized Cash Flow section below.
+        </div>
         <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           {[
             { label: "JMF Rental Income",                val: cfRentIn,       note: `${data.properties.filter(p => propEffectiveRent(p) > 0).length} income-generating properties` },
@@ -5621,14 +5648,69 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             </div>
           ))}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", background: "#111", color: "#fff" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "sans-serif" }}>Net Operating Cash Flow</span>
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "sans-serif" }}>Net Real Estate Cash Flow</span>
             <span style={{ ...mon, fontSize: 14, color: cfNet >= 0 ? "#7EC896" : "#FF9999" }}>{cfNet >= 0 ? "+" : ""}{$F(cfNet)}</span>
           </div>
         </div>
+        </div>{/* /sWrap RE cash flow */}
+
+        {/* ══ 9B. MOST RECENTLY FINALIZED CASH FLOW ════════════════════════════ */}
+        <div style={{ ...sWrap }}>
+        <div style={{ ...sHd }}>Most Recently Finalized Cash Flow — {monthLabel(finMonth)}</div>
+        <div style={{ background: "#FFF8E8", border: "1px solid #E6A817", borderRadius: 5, padding: "7px 12px", marginBottom: 8, fontSize: 10, color: "#7A5800", fontFamily: "sans-serif", lineHeight: 1.65 }}>
+          <strong>Timing note:</strong> Business P&amp;L figures are typically posted around the 5th of the following month. This section shows the fully consolidated cash flow for {monthLabel(finMonth)}, the most recently finalized period as of this report.
+        </div>
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          {/* Income sub-header */}
+          <div style={{ padding: "5px 14px", background: "#F0F7F0", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: POS, fontFamily: "sans-serif", fontWeight: 700 }}>Income</div>
+          {[
+            { label: "Business P&L (operating corps)",   val: finBizIn,      note: `${(data.businesses||[]).filter(b => b.type !== "nonprofit").length} operating entities — ${monthLabel(finMonth)}` },
+            { label: "JMF Rental Income",                val: cfRentIn,      note: `${data.properties.filter(p => propEffectiveRent(p) > 0).length} income-generating properties` },
+            { label: "Personal / Individual Income",     val: finPayroll,    note: `${(data.individuals||[]).length} member${(data.individuals||[]).length !== 1 ? "s" : ""} — ${monthLabel(finMonth)}` },
+            ...(cfOtherIncome > 0 ? [{ label: "Other Income", val: cfOtherIncome, note: "" }] : []),
+          ].map((row, i) => (
+            <div key={i} style={{ ...tRow(i % 2 === 0 ? "#fafafa" : "#fff") }}>
+              <div>
+                <div style={{ fontSize: 12, color: DIM }}>{row.label}</div>
+                {row.note && <div style={{ fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>{row.note}</div>}
+              </div>
+              <span style={{ ...mon, color: row.val >= 0 ? POS : NEG }}>{row.val >= 0 ? "+" : ""}{$F(row.val)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", background: "#F5FAF5", borderBottom: `1px solid ${LINE}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: POS, fontFamily: "sans-serif" }}>Total Income</span>
+            <span style={{ ...mon, fontSize: 12, color: POS }}>{finTotalIn >= 0 ? "+" : ""}{$F(finTotalIn)}</span>
+          </div>
+          {/* Obligations sub-header */}
+          <div style={{ padding: "5px 14px", background: "#FBF0F0", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: NEG, fontFamily: "sans-serif", fontWeight: 700 }}>Obligations</div>
+          {[
+            { label: "Property Obligations (JMF share)", val: -cfPropOut,     note: "Mortgage payments, property tax" },
+            { label: "Vehicle Payments & Insurance",     val: -finVehicleOut, note: `${(data.vehicles||[]).length} vehicle${(data.vehicles||[]).length !== 1 ? "s" : ""}` },
+            ...(cfOtherOut > 0 ? [{ label: "Other Obligations", val: -cfOtherOut, note: "" }] : []),
+          ].map((row, i) => (
+            <div key={i} style={{ ...tRow(i % 2 === 0 ? "#fafafa" : "#fff") }}>
+              <div>
+                <div style={{ fontSize: 12, color: DIM }}>{row.label}</div>
+                {row.note && <div style={{ fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>{row.note}</div>}
+              </div>
+              <span style={{ ...mon, color: row.val >= 0 ? POS : NEG }}>{row.val >= 0 ? "+" : ""}{$F(row.val)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", background: "#FAF5F5", borderBottom: `1px solid ${LINE}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: NEG, fontFamily: "sans-serif" }}>Total Obligations</span>
+            <span style={{ ...mon, fontSize: 12, color: NEG }}>{$F(-finTotalOut)}</span>
+          </div>
+          {/* Net total */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", background: "#111", color: "#fff" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "sans-serif" }}>Net Cash Flow — {monthLabel(finMonth)}</span>
+            <span style={{ ...mon, fontSize: 14, color: finGap >= 0 ? "#7EC896" : "#FF9999" }}>{finGap >= 0 ? "+" : ""}{$F(finGap)}</span>
+          </div>
+        </div>
+        </div>{/* /sWrap finalized CF */}
 
         {/* ══ 10. MONTH-OVER-MONTH ══════════════════════════════════════════════ */}
         {prevSnap != null ? (
-          <>
+          <div style={{ ...sWrap }}>
             <div style={{ ...sHd }}>Month-over-Month Comparison</div>
             <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
@@ -5656,17 +5738,18 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
                 );
               })}
             </div>
-          </>
+          </div>
         ) : (
-          <>
+          <div style={{ ...sWrap }}>
             <div style={{ ...sHd }}>Month-over-Month Comparison</div>
             <div style={{ border: `1px solid ${LINE}`, borderRadius: 6, padding: "12px 16px", background: "#FAFAFA", fontSize: 11, color: FAINT, fontStyle: "italic" }}>
               Prior month comparison unavailable for this reporting period.
             </div>
-          </>
+          </div>
         )}
 
         {/* ══ 11. NOTES &amp; RISK COMMENTARY ══════════════════════════════════ */}
+        <div style={{ ...sWrap }}>
         <div style={{ ...sHd }}>Notes &amp; Risk Commentary</div>
         {s.note && (
           <div style={{ border: `1px solid ${LINE}`, borderRadius: 6, padding: "11px 14px", marginBottom: 8, fontSize: 11.5, color: DIM, lineHeight: 1.8, background: "#FAFAFA" }}>
@@ -5685,6 +5768,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
             <div style={{ fontSize: 11.5, color: FAINT, fontStyle: "italic" }}>No risk flags identified for this reporting period.</div>
           )}
         </div>
+        </div>{/* /sWrap notes */}
 
         {/* ══ FOOTER ════════════════════════════════════════════════════════════ */}
         <div style={{ marginTop: 28, paddingTop: 14, borderTop: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between", fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>
