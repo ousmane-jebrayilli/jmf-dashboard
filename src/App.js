@@ -5257,10 +5257,6 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
     if (ltv > 80) riskFlags.push(`${p.name}: elevated LTV of ${ltv.toFixed(0)}%.`);
   });
 
-  // Cash flow completeness — business P&L usually posts around the 5th
-  const snapDay       = s.capturedAt ? new Date(s.capturedAt).getDate() : 1;
-  const cfIncomplete  = snapDay < 5;
-
   function buildPayload() {
     return {
       reportMonth: s.month, generatedAt: new Date().toISOString(),
