@@ -57,36 +57,36 @@ const supabase = createClient(
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const C = {
-  bg:          "#ECF0F6",
-  surface:     "#FFFFFF",
-  card:        "#FFFFFF",
-  border:      "#DFE4ED",
-  borderDark:  "#C4CCDA",
-  nav:         "#0B1829",
-  navBorder:   "rgba(255,255,255,0.06)",
-  navText:     "rgba(255,255,255,0.45)",
-  gold:        "#B8962E",
-  goldLight:   "#F5F0E4",
-  goldText:    "#8A6F1E",
-  red:         "#C0392B",
-  redLight:    "#FDECEA",
-  redText:     "#922B21",
-  green:       "#1E8449",
-  greenLight:  "#EAF7EE",
-  greenText:   "#1A6E3C",
-  amber:       "#B7770D",
-  amberLight:  "#FEF9EC",
-  blue:        "#1A5276",
-  blueLight:   "#EAF2F8",
-  blueText:    "#154360",
-  purple:      "#6C3483",
-  purpleLight: "#F4ECF7",
-  purpleText:  "#512E5F",
-  text:        "#0F1923",
-  textMid:     "#4A5568",
-  textDim:     "#8A96A8",
-  shadow:      "0 1px 3px rgba(11,24,41,0.06), 0 4px 16px rgba(11,24,41,0.04)",
-  shadowMd:    "0 4px 12px rgba(11,24,41,0.10), 0 8px 32px rgba(11,24,41,0.06)",
+  bg:          "#0C1520",
+  surface:     "#111B2C",
+  card:        "#141F2E",
+  border:      "#1D2E42",
+  borderDark:  "#253D56",
+  nav:         "#080D18",
+  navBorder:   "rgba(255,255,255,0.08)",
+  navText:     "rgba(255,255,255,0.50)",
+  gold:        "#C9A84C",
+  goldLight:   "rgba(201,168,76,0.15)",
+  goldText:    "#D4B46A",
+  red:         "#E05555",
+  redLight:    "rgba(224,85,85,0.16)",
+  redText:     "#F09090",
+  green:       "#27AE60",
+  greenLight:  "rgba(39,174,96,0.16)",
+  greenText:   "#52C98A",
+  amber:       "#E6A817",
+  amberLight:  "rgba(230,168,23,0.16)",
+  blue:        "#3B82F6",
+  blueLight:   "rgba(59,130,246,0.14)",
+  blueText:    "#7EC4E6",
+  purple:      "#A855F7",
+  purpleLight: "rgba(168,85,247,0.14)",
+  purpleText:  "#C4A7F7",
+  text:        "#E8EDF5",
+  textMid:     "#8FA8C4",
+  textDim:     "#6B8BA8",
+  shadow:      "0 1px 4px rgba(0,0,0,0.40), 0 4px 16px rgba(0,0,0,0.25)",
+  shadowMd:    "0 4px 16px rgba(0,0,0,0.50), 0 8px 32px rgba(0,0,0,0.35)",
   mono:        "'SF Mono', 'Courier New', monospace",
   sans:        "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
@@ -1392,10 +1392,19 @@ function Row({ label, children, last, labelStyle }) {
   );
 }
 function LoadingScreen() {
+  const msgs = ["Loading dashboard…", "Preparing financial intelligence…", "Securing portfolio data…"];
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setIdx(i => (i + 1) % msgs.length), 1800);
+    return () => clearInterval(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div style={{ minHeight: "100vh", background: C.nav, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color: C.gold, letterSpacing: "0.1em", marginBottom: 10 }}>JMF</div>
-      <div style={{ fontSize: 11, color: C.navText, letterSpacing: "0.06em" }}>Loading…</div>
+    <div style={{ minHeight: "100vh", background: "radial-gradient(ellipse at 50% 0%, #0F1E35 0%, #080D18 65%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans }}>
+      <div style={{ fontSize: 36, fontWeight: 800, color: C.gold, letterSpacing: "0.18em", marginBottom: 14, textShadow: "0 0 40px rgba(201,168,76,0.35)" }}>JMF</div>
+      <div style={{ fontSize: 11, color: C.textMid, letterSpacing: "0.07em", marginBottom: 20, minWidth: 240, textAlign: "center" }}>{msgs[idx]}</div>
+      <div style={{ display: "flex", gap: 5 }}>
+        {[0,1,2].map(i => <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i === idx % 3 ? C.gold : C.border, transition: "background 0.3s" }} />)}
+      </div>
     </div>
   );
 }
@@ -2300,7 +2309,7 @@ function ApprovalQueue({ pendingSubs, profiles, individuals, onApprove, onReject
                 style={{ flex: 1, minWidth: 140, padding: "8px 10px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, outline: "none", fontFamily: C.sans }}
               />
               <button onClick={() => onReject(sub.id, notes[sub.id] || "")}
-                style={{ padding: "8px 16px", background: C.redLight, border: `1px solid #F5C6C3`, borderRadius: 7, color: C.redText, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                style={{ padding: "8px 16px", background: C.redLight, border: `1px solid rgba(224,85,85,0.30)`, borderRadius: 7, color: C.redText, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 Reject
               </button>
             </div>
@@ -2463,10 +2472,21 @@ function NotificationPanel({ notifications, completedIds, onComplete, onClose, i
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen() {
-  const [email, setEmail]     = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError]     = useState("");
-  const [loading, setLoading] = useState(false);
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [msgIdx, setMsgIdx]     = useState(0);
+
+  const hour     = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const loadMsgs = ["Authenticating…", "Loading your dashboard…", "Preparing financial intelligence…", "Securing portfolio data…"];
+
+  useEffect(() => {
+    if (!loading) return;
+    const id = setInterval(() => setMsgIdx(i => (i + 1) % loadMsgs.length), 1400);
+    return () => clearInterval(id);
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async () => {
     setLoading(true); setError("");
@@ -2479,31 +2499,36 @@ function LoginScreen() {
   };
 
   const inp = {
-    width: "100%", padding: "11px 14px", background: C.bg,
-    border: `1px solid ${C.border}`, borderRadius: 8, color: C.text,
+    width: "100%", padding: "12px 16px",
+    background: "rgba(255,255,255,0.04)",
+    border: `1px solid ${C.border}`,
+    borderRadius: 10, color: C.text,
     fontSize: 14, fontFamily: C.sans, outline: "none", boxSizing: "border-box",
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans, padding: 20 }}>
-      <div style={{ marginBottom: 36, textAlign: "center" }}>
-        <div style={{ fontSize: 32, fontWeight: 800, color: C.gold, letterSpacing: "0.08em" }}>JMF</div>
-        <div style={{ fontSize: 12, color: C.textMid, marginTop: 6, letterSpacing: "0.04em" }}>Jebrayilli Majidov Family</div>
-        <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>Family Office · Private & Confidential</div>
+    <div style={{ minHeight: "100vh", background: "radial-gradient(ellipse at 50% 0%, #0F1E35 0%, #080D18 65%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: C.sans, padding: 20 }}>
+
+      <div style={{ marginBottom: 8, fontSize: 12, color: C.textDim, letterSpacing: "0.08em" }}>{greeting}</div>
+
+      <div style={{ marginBottom: 40, textAlign: "center" }}>
+        <div style={{ fontSize: 44, fontWeight: 800, color: C.gold, letterSpacing: "0.18em", textShadow: "0 0 48px rgba(201,168,76,0.4)", lineHeight: 1 }}>JMF</div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.38)", marginTop: 8, letterSpacing: "0.14em", textTransform: "uppercase" }}>Jebrayilli Majidov Family</div>
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.20)", marginTop: 5, letterSpacing: "0.07em" }}>Family Office · Private & Confidential</div>
       </div>
 
-      <div style={{ width: "100%", maxWidth: 360, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 28, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sign in</div>
-        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 22 }}>Private access only.</div>
+      <div style={{ width: "100%", maxWidth: 380, background: "rgba(20,31,46,0.96)", border: `1px solid ${C.border}`, borderTopColor: "rgba(201,168,76,0.28)", borderRadius: 16, padding: "32px 28px", boxShadow: "0 24px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03)" }}>
+        <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 4, letterSpacing: "-0.2px" }}>Sign in</div>
+        <div style={{ fontSize: 12, color: C.textDim, marginBottom: 24 }}>Private access only.</div>
 
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 16 }}>
           <Label>Email</Label>
           <input type="email" placeholder="you@example.com" value={email}
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") login(); }}
             style={inp} />
         </div>
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 22 }}>
           <Label>Password</Label>
           <input type="password" placeholder="••••••••" value={password}
             onChange={e => setPassword(e.target.value)}
@@ -2512,17 +2537,17 @@ function LoginScreen() {
         </div>
 
         {error && (
-          <div style={{ background: C.redLight, border: "1px solid #F5C6C3", borderRadius: 7, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.redText }}>
+          <div style={{ background: C.redLight, border: `1px solid rgba(224,85,85,0.28)`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.redText }}>
             {error}
           </div>
         )}
 
         <button onClick={login} disabled={loading}
-          style={{ width: "100%", padding: "12px", background: C.gold, border: "none", borderRadius: 8, color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: loading ? 0.7 : 1 }}>
-          {loading ? "Signing in…" : "Sign In"}
+          style={{ width: "100%", padding: "13px", background: loading ? "rgba(201,168,76,0.45)" : C.gold, border: "none", borderRadius: 10, color: "#1A1508", fontSize: 14, fontWeight: 700, cursor: loading ? "default" : "pointer", letterSpacing: "0.03em", transition: "opacity 0.2s" }}>
+          {loading ? loadMsgs[msgIdx] : "Sign In"}
         </button>
 
-        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textDim, lineHeight: 1.8 }}>
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textDim, lineHeight: 1.9 }}>
           <div><strong style={{ color: C.textMid }}>Admin</strong> — full dashboard access</div>
           <div><strong style={{ color: C.textMid }}>Members</strong> — view & submit own data</div>
         </div>
@@ -2616,7 +2641,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
     if (currentSub === undefined) return null;
     if (!currentSub && missingPeriod) return (
       <button onClick={() => setShowSubModal(true)}
-        style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+        style={{ fontSize: 11, color: C.amber, background: C.amberLight, border: `1px solid rgba(230,168,23,0.35)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
         {missingPeriod.label || "Monthly update"} required
       </button>
     );
@@ -2624,7 +2649,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
     if (currentSub?.status === "approved") return <span style={{ fontSize: 11, color: C.green, background: C.greenLight, borderRadius: 6, padding: "4px 10px" }}>✓ Approved</span>;
     if (currentSub?.status === "rejected") return (
       <button onClick={() => setShowSubModal(true)}
-        style={{ fontSize: 11, color: C.red, background: C.redLight, border: `1px solid #F5C6C3`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
+        style={{ fontSize: 11, color: C.red, background: C.redLight, border: `1px solid rgba(224,85,85,0.30)`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>
         Rejected — resubmit
       </button>
     );
@@ -2809,7 +2834,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
         {currentSub?.status && (
           <div style={{
             background: currentSub.status === "approved" ? C.greenLight : currentSub.status === "rejected" ? C.redLight : C.blueLight,
-            border: `1px solid ${currentSub.status === "approved" ? "#A8D8B8" : currentSub.status === "rejected" ? "#F5C6C3" : "#A8C4E0"}`,
+            border: `1px solid ${currentSub.status === "approved" ? "rgba(39,174,96,0.30)" : currentSub.status === "rejected" ? "rgba(224,85,85,0.30)" : "rgba(59,130,246,0.30)"}`,
             borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: C.textMid, lineHeight: 1.6,
           }}>
             <strong style={{ color: C.text }}>
@@ -3995,7 +4020,7 @@ function BizHistoricalTab({ biz, histStart, onSave }) {
       <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14, fontWeight:700 }}>
         Historical Data Entry — {biz.name}
       </div>
-      <div style={{ background:C.amberLight, border:`1px solid #F0D080`, borderRadius:8, padding:"10px 14px", marginBottom:18, fontSize:12, color:C.amber }}>
+      <div style={{ background:C.amberLight, border:`1px solid rgba(230,168,23,0.35)`, borderRadius:8, padding:"10px 14px", marginBottom:18, fontSize:12, color:C.amber }}>
         Isolated from live reports. Data here does not affect consolidated snapshots, cash flow, or notifications.
       </div>
 
@@ -4265,7 +4290,7 @@ function BizTrendsTab({ biz, histStart }) {
       {/* Best / Worst months */}
       {(best3.length > 0 || worst3.length > 0) && (
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
-          <div style={{ background:C.greenLight, border:`1px solid #A8D8B8`, borderRadius:12, padding:"14px 16px" }}>
+          <div style={{ background:C.greenLight, border:`1px solid rgba(39,174,96,0.30)`, borderRadius:12, padding:"14px 16px" }}>
             <div style={{ fontSize:10, color:C.green, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Top Profit Months</div>
             {best3.map(e => (
               <div key={e.month} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:12 }}>
@@ -4274,7 +4299,7 @@ function BizTrendsTab({ biz, histStart }) {
               </div>
             ))}
           </div>
-          <div style={{ background:C.redLight, border:`1px solid #F5C6C3`, borderRadius:12, padding:"14px 16px" }}>
+          <div style={{ background:C.redLight, border:`1px solid rgba(224,85,85,0.30)`, borderRadius:12, padding:"14px 16px" }}>
             <div style={{ fontSize:10, color:C.red, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Weakest Months</div>
             {worst3.map(e => (
               <div key={e.month} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:12 }}>
@@ -5804,7 +5829,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
     <div>
       {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
       {/* Capture Snapshot */}
-      <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "#A8D8B8" : "#F0D080"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+      <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "rgba(39,174,96,0.30)" : "rgba(230,168,23,0.35)"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: hasThisMonth ? C.green : C.amber }}>
@@ -6565,7 +6590,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         const isLocked   = periodStatus.is_locked;
         const isOverride = periodStatus.status === "admin_override";
         const barBg      = isLocked ? C.redLight   : isOverride ? C.amberLight  : C.greenLight;
-        const barBorder  = isLocked ? "#F5C6C3"    : isOverride ? "#F0D080"     : "#A8D8B8";
+        const barBorder  = isLocked ? "rgba(224,85,85,0.35)" : isOverride ? "rgba(230,168,23,0.35)" : "rgba(39,174,96,0.35)";
         const labelColor = isLocked ? C.red         : isOverride ? C.amber       : C.green;
         const label      = isLocked ? "🔒 FINALIZED" : isOverride ? "⚠ ADMIN OVERRIDE" : "● OPEN";
         return (
@@ -7133,7 +7158,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 <span style={{ fontSize: 13 }}>ⓘ</span> Exclusion notes {bizInfoOpen ? "▴" : "▾"}
               </button>
               {bizInfoOpen && (
-                <div style={{ background: C.amberLight, border: `1px solid #F0D080`, borderRadius: 10, padding: "10px 14px", marginTop: 8, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
+                <div style={{ background: C.amberLight, border: `1px solid rgba(230,168,23,0.35)`, borderRadius: 10, padding: "10px 14px", marginTop: 8, fontSize: 12, color: C.amber, lineHeight: 1.7 }}>
                   Operating corporations are legally separate from personal finances. ASWC is a non-profit tracked for reference only — excluded from all NW calculations. NES Bakery Inc. is 50% owned and tracked operationally only — excluded from consolidated net worth per current agreement structure.
                 </div>
               )}
@@ -7199,7 +7224,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
               </div>
 
               {/* Summary banner */}
-              <div style={{ borderRadius: 12, padding: "24px 20px", marginBottom: 20, textAlign: "center", background: cfGap >= 0 ? C.greenLight : C.redLight, border: `1px solid ${cfGap >= 0 ? "#A8D8B8" : "#F5C6C3"}` }}>
+              <div style={{ borderRadius: 12, padding: "24px 20px", marginBottom: 20, textAlign: "center", background: cfGap >= 0 ? C.greenLight : C.redLight, border: `1px solid ${cfGap >= 0 ? "rgba(39,174,96,0.30)" : "rgba(224,85,85,0.30)"}` }}>
                 <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 8 }}>Cash Flow — {monthLabel(cfMonth)}</div>
                 <div style={{ fontSize: 48, fontFamily: C.mono, fontWeight: 800, color: cfGap >= 0 ? C.green : C.red }}>{cfGap >= 0 ? "+" : ""}{$F(cfGap)}</div>
                 <div style={{ fontSize: 13, color: C.textMid, marginTop: 10 }}>

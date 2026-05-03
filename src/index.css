@@ -13,8 +13,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
 
   /* The body fills the safe-area padding zone on #root, so we color it to
-     match the nav bar (#0B1829) — the status bar area looks like part of the nav. */
-  background: #0B1829;
+     match the nav bar — the status bar area looks like part of the nav. */
+  background: #080D18;
 
   /* Prevent overscroll bounce / pull-to-refresh on mobile WebView */
   overscroll-behavior: none;
