@@ -1184,13 +1184,17 @@ function propEffectiveRent(prop) {
     return sum + safe(lease.monthly_rent);
   }, 0);
 }
-// Returns total monthly cash outflows for a property
+// Returns total monthly cash outflows for a property (gross — full 100%)
 function propMonthlyOut(prop) {
   return getMortgageOperatingPayment(prop) + safe(prop.monthlyTax) + safe(prop.monthly_insurance) +
     safe(prop.maintenance_reserve_monthly);
 }
 // Returns JMF ownership fraction (0–1). Defaults to 1 (100%) if field absent.
 function propOwnership(prop) { const o = safe(prop.ownership); return (o > 0 && o <= 1) ? o : 1; }
+// JMF's attributable share of effective rent (gross × ownership)
+function propJMFEffectiveRent(prop) { return propEffectiveRent(prop) * propOwnership(prop); }
+// JMF's attributable share of monthly outflows (gross × ownership)
+function propJMFMonthlyOut(prop) { return propMonthlyOut(prop) * propOwnership(prop); }
 // Gross equity regardless of ownership split
 function propCurrentMortgageBalance(prop, targetYM = currentYM()) { return calculateMortgageSnapshot(prop, targetYM).displayedBalance; }
 function propGrossEquity(prop) { return getMarketValueCad(prop) - propCurrentMortgageBalance(prop); }
@@ -1625,13 +1629,13 @@ function CashFlowGraph({ data }) {
     const bizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
       const e = (b.monthlyProfits || []).find(p => p.month === m); return s + safe(e?.profit);
     }, 0);
-    const rentIn = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
+    const rentIn = data.properties.reduce((s, p) => s + propJMFEffectiveRent(p), 0);
     const indIn  = data.individuals.reduce((s, ind) => {
       const e = (ind.monthlyIncome || []).find(p => p.month === m); return s + safe(e?.income);
     }, 0);
     const other  = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
     const tIn    = bizIn + rentIn + indIn + other;
-    const tPropOut  = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+    const tPropOut  = data.properties.reduce((s, p) => s + propJMFMonthlyOut(p), 0);
     const tOtherOut = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
     const tOut      = tPropOut + tOtherOut;
     return { month: m, ncf: tIn - tOut, tIn, tOut };
@@ -5184,8 +5188,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   const isMobile = useIsMobile();
 
   function buildPayload() {
-    const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
-    const cfPropOut  = data.properties.reduce((sum, p) => sum + propMonthlyOut(p), 0);
+    const cfRentIn   = data.properties.reduce((sum, p) => sum + propJMFEffectiveRent(p), 0);
+    const cfPropOut  = data.properties.reduce((sum, p) => sum + propJMFMonthlyOut(p), 0);
     const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
     return {
       reportMonth: s.month,
@@ -5259,8 +5263,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const cfRentIn   = data.properties.reduce((sum, p) => sum + propEffectiveRent(p), 0);
-  const cfPropOut  = data.properties.reduce((sum, p) => sum + propMonthlyOut(p), 0);
+  const cfRentIn   = data.properties.reduce((sum, p) => sum + propJMFEffectiveRent(p), 0);
+  const cfPropOut  = data.properties.reduce((sum, p) => sum + propJMFMonthlyOut(p), 0);
   const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
   const cfNet      = cfRentIn - cfPropOut - cfOtherOut;
   const rowSt = { display: "flex", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid #e5e5e5", fontSize: 13 };
@@ -5994,9 +5998,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const totalVehicles = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v) - safe(v.loanBalance), 0);
   const totalNW       = totalRENetSale + totalPers + totalBiz + totalVehicles;
   const curYM      = currentYM();
-  const totalMtg      = data.properties.reduce((s, p) => s + safe(p.monthlyPayment), 0);
-  const totalREIncome = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
-  const totalREOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+  const totalMtg      = data.properties.reduce((s, p) => s + getMortgageOperatingPayment(p) * propOwnership(p), 0);
+  const totalREIncome = data.properties.reduce((s, p) => s + propJMFEffectiveRent(p), 0);
+  const totalREOut    = data.properties.reduce((s, p) => s + propJMFMonthlyOut(p), 0);
   const totalRENCF    = totalREIncome - totalREOut;
   const aj         = data.individuals.find(f => f.id === 1);
   const cashStale  = safe(aj?.cash) === 0;
@@ -6805,8 +6809,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                 { label: "Gross Equity",      val: $K(totalREEqGross),color: C.amber, sub: "100% of all equity" },
                 { label: "JMF Equity",        val: $K(totalREEq),     color: C.gold,  sub: "Ownership-adjusted" },
                 { label: "Liquid RE Value",   val: $K(totalRELiquid), color: totalRELiquid >= 0 ? C.green : C.red, sub: "After selling costs · JMF share" },
-                { label: "Monthly Payments",  val: $K(totalMtg),      color: C.red,   sub: `${$K(totalMtg * 12)}/yr` },
-                { label: "RE Cash Flow",      val: $K(totalRENCF),    color: totalRENCF >= 0 ? C.green : C.red, sub: "Income − outflows" },
+                { label: "Monthly Payments",  val: $K(totalMtg),      color: C.red,   sub: `${$K(totalMtg * 12)}/yr · JMF share` },
+                { label: "RE Cash Flow",      val: $K(totalRENCF),    color: totalRENCF >= 0 ? C.green : C.red, sub: "Income − outflows · JMF share" },
               ].map((s, i) => (
                 <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
                   <div style={{ fontSize: 9, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
@@ -7169,14 +7173,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
             return s + safe(e?.profit);
           }, 0);
-          const cfRentIn  = data.properties.reduce((s, p) => s + propEffectiveRent(p), 0);
+          const cfRentIn  = data.properties.reduce((s, p) => s + propJMFEffectiveRent(p), 0);
           const cfPayroll = data.individuals.reduce((s, ind) => {
             const e = (ind.monthlyIncome || []).find(p => p.month === cfMonth);
             return s + safe(e?.income);
           }, 0);
           const cfOther    = data.cashflow.income.reduce((s, i) => s + safe(i.amount), 0);
           const cfTotalIn  = cfBizIn + cfRentIn + cfPayroll + cfOther;
-          const cfPropOut    = data.properties.reduce((s, p) => s + propMonthlyOut(p), 0);
+          const cfPropOut    = data.properties.reduce((s, p) => s + propJMFMonthlyOut(p), 0);
           const cfOtherOut   = data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0);
           const cfVehicleOut = (data.vehicles || []).reduce((s, v) => s + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
           const cfTotalOut   = cfPropOut + cfOtherOut + cfVehicleOut;
@@ -7265,12 +7269,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       {cfOpen.rent && (
                         <div>
                           {data.properties.map(p => {
-                            const rent = propEffectiveRent(p);
+                            const own = propOwnership(p);
+                            const isPartial = own < 0.9999;
+                            const grossRent = propEffectiveRent(p);
+                            const rent = propJMFEffectiveRent(p);
+                            const sub = isPartial
+                              ? `JMF ${Math.round(own * 100)}% share · gross ${$F(grossRent)}`
+                              : "Expected rent · active leases";
                             return (
                               <DataRow key={p.id} label={p.name}
                                 value={rent > 0 ? $F(rent) : "—"}
                                 valueColor={rent > 0 ? C.gold : C.textDim}
-                                sub="Expected rent · active leases" />
+                                sub={sub} />
                             );
                           })}
                         </div>
@@ -7333,16 +7343,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                       {cfOpen.re && (
                         <div>
                           {data.properties.map(p => {
-                            const total = propMonthlyOut(p);
-                            const mtg   = getMortgageOperatingPayment(p);
-                            const tax   = safe(p.monthlyTax);
-                            const ins   = safe(p.monthly_insurance);
-                            const maint = safe(p.maintenance_reserve_monthly);
+                            const own = propOwnership(p);
+                            const isPartial = own < 0.9999;
+                            const grossTotal = propMonthlyOut(p);
+                            const total = propJMFMonthlyOut(p);
+                            const mtg   = getMortgageOperatingPayment(p) * own;
+                            const tax   = safe(p.monthlyTax) * own;
+                            const ins   = safe(p.monthly_insurance) * own;
+                            const maint = safe(p.maintenance_reserve_monthly) * own;
                             const parts = [
                               mtg   > 0 && `Mortgage ${$K(mtg)}`,
                               tax   > 0 && `Tax ${$K(tax)}`,
                               ins   > 0 && `Insurance ${$K(ins)}`,
                               maint > 0 && `Maintenance ${$K(maint)}`,
+                              isPartial && `(JMF ${Math.round(own * 100)}% · gross ${$F(grossTotal)})`,
                             ].filter(Boolean).join(" · ");
                             return (
                               <DataRow key={p.id} label={p.name}
