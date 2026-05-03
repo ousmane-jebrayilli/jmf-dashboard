@@ -3096,6 +3096,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const [editingUnit, setEditingUnit] = useState(null);
   const [loggingRent, setLoggingRent] = useState(null);
   const [scheduleRows, setScheduleRows] = useState(12);
+  const [scheduleFilter, setScheduleFilter] = useState("future");
   const isMobile = useIsMobile();
 
   const mortgage = calculateMortgageSnapshot(prop, currentYM());
@@ -3129,25 +3130,32 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const ledgers = propertyLeaseLedgers(prop, rentPayments);
   const nextExpected = propertyOutstandingForMonth(prop, rentPayments, currentYM());
 
-  // Build amortization schedule for Payment Schedule tab
+  // Build amortization schedule for Payment Schedule tab (past + current + future)
   const curYM = currentYM();
-  const scheduleMonths = monthsBetween(curYM, (() => {
-    const [y, m] = curYM.split("-").map(Number);
-    const endM = m - 1 + 120;
-    return `${y + Math.floor(endM / 12)}-${String((endM % 12) + 1).padStart(2, "0")}`;
-  })());
-  const scheduleData = scheduleMonths.map(ym => {
-    const snap = calculateMortgageSnapshot(prop, ym);
-    return { ym, balance: snap.displayedBalance, interest: snap.currentInterest, principal: snap.currentPrincipal, payment: snap.monthlyPI };
-  });
+  const anchorYM = mortgage.anchorMonth || SYSTEM_START;
+  const hasPastMonths = monthDiff(anchorYM, curYM) > 0;
+  const pastScheduleMonths = hasPastMonths ? monthsBetween(anchorYM, shiftYM(curYM, -1)) : [];
+  const futureEndYM = shiftYM(curYM, 120);
+  const futureScheduleMonths = monthsBetween(curYM, futureEndYM);
+  const scheduleData = [
+    ...pastScheduleMonths.map(ym => {
+      const snap = calculateMortgageSnapshot(prop, ym);
+      return { ym, period: "past", balance: snap.displayedBalance, interest: snap.currentInterest, principal: snap.currentPrincipal, payment: snap.monthlyPI };
+    }),
+    ...futureScheduleMonths.map(ym => {
+      const snap = calculateMortgageSnapshot(prop, ym);
+      return { ym, period: ym === curYM ? "current" : "future", balance: snap.displayedBalance, interest: snap.currentInterest, principal: snap.currentPrincipal, payment: snap.monthlyPI };
+    }),
+  ];
+  const futureScheduleData = scheduleData.filter(r => r.period !== "past");
   const piPayment = mortgage.monthlyPI;
   const totalInterest = piPayment > 0 ? mortgage.currentInterest : 0;
   const totalPrincipal = piPayment > 0 ? mortgage.currentPrincipal : 0;
   const interestPct = piPayment > 0 ? Math.round((totalInterest / piPayment) * 100) : 0;
   const rateSavings = balance > 0 ? balance * 0.0025 / 12 : 0;
 
-  // Balance curve: sample every 12 months for the polyline
-  const curvePoints = scheduleData.filter((_, i) => i % 12 === 0);
+  // Balance curve: sample every 12 months for the polyline (future only)
+  const curvePoints = futureScheduleData.filter((_, i) => i % 12 === 0);
   const maxBal = Math.max(1, ...curvePoints.map(d => d.balance));
   const CURVE_W = 560;
   const CURVE_H = 120;
@@ -3492,31 +3500,78 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
 
               {/* Section D — Monthly schedule table */}
               <div>
-                <Label>Monthly Schedule</Label>
-                <div style={{ marginTop:10, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
-                  <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-                  <div style={{ minWidth:420 }}>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, background:C.bg, padding:"10px 14px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                    <span>Month</span><span style={{ textAlign:"right" }}>Payment</span><span style={{ textAlign:"right", color:C.red }}>Interest</span><span style={{ textAlign:"right", color:C.green }}>Principal</span><span style={{ textAlign:"right" }}>Balance</span>
-                  </div>
-                  {scheduleData.slice(0, scheduleRows).map((row, idx) => (
-                    <div key={row.ym} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, padding:"9px 14px", borderBottom: idx < Math.min(scheduleRows, scheduleData.length) - 1 ? `1px solid ${C.border}` : "none", background: row.ym === curYM ? C.bg : "transparent", alignItems:"center" }}>
-                      <span style={{ fontSize:12, color:C.text, fontWeight: row.ym === curYM ? 700 : 400 }}>{monthLabel(row.ym)}</span>
-                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.payment > 0 ? $F(row.payment) : "—"}</span>
-                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.red, textAlign:"right" }}>{row.interest > 0 ? $F(row.interest) : "—"}</span>
-                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.green, textAlign:"right" }}>{row.principal > 0 ? $F(row.principal) : "—"}</span>
-                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{$F(row.balance)}</span>
-                    </div>
-                  ))}
-                  </div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:10 }}>
+                  <Label>Monthly Schedule</Label>
+                  {/* Filter toggle: Past / Current+Future / All */}
+                  <div style={{ display:"flex", gap:4 }}>
+                    {[
+                      { id:"past",   label:"Past" },
+                      { id:"future", label:"Current & Future" },
+                      { id:"all",    label:"All" },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => { setScheduleFilter(f.id); setScheduleRows(12); }}
+                        style={{
+                          fontSize:11, fontWeight:600, padding:"5px 11px",
+                          border: `1px solid ${scheduleFilter === f.id ? C.gold : C.border}`,
+                          borderRadius:20, cursor:"pointer", fontFamily:C.sans,
+                          background: scheduleFilter === f.id ? C.gold : C.bg,
+                          color: scheduleFilter === f.id ? "#000" : C.textDim,
+                        }}
+                      >{f.label}</button>
+                    ))}
                   </div>
                 </div>
-                {scheduleData.length > 12 && (
-                  <button onClick={() => setScheduleRows(r => r === 12 ? 24 : 12)}
-                    style={{ marginTop:10, fontSize:12, color:C.gold, background:"transparent", border:`1px solid ${C.gold}`, borderRadius:8, padding:"7px 16px", cursor:"pointer", fontFamily:C.sans, fontWeight:600 }}>
-                    {scheduleRows === 12 ? "Show 24 months" : "Show 12 months"}
-                  </button>
-                )}
+                {(() => {
+                  const filtered = scheduleFilter === "past"
+                    ? scheduleData.filter(r => r.period === "past")
+                    : scheduleFilter === "future"
+                    ? scheduleData.filter(r => r.period !== "past")
+                    : scheduleData;
+                  const showAll = scheduleFilter === "past";
+                  const visibleRows = showAll ? filtered.length : scheduleRows;
+                  const displayed = filtered.slice(0, visibleRows);
+                  return (
+                    <>
+                      <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden" }}>
+                        <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+                        <div style={{ minWidth:420 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, background:C.bg, padding:"10px 14px", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                          <span>Month</span><span style={{ textAlign:"right" }}>Payment</span><span style={{ textAlign:"right", color:C.red }}>Interest</span><span style={{ textAlign:"right", color:C.green }}>Principal</span><span style={{ textAlign:"right" }}>Balance</span>
+                        </div>
+                        {displayed.length === 0 && (
+                          <div style={{ padding:"16px 14px", fontSize:12, color:C.textDim }}>No data for selected period.</div>
+                        )}
+                        {displayed.map((row, idx) => {
+                          const isCurrent = row.period === "current";
+                          const isPast = row.period === "past";
+                          return (
+                            <div key={row.ym} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:0, padding:"9px 14px", borderBottom: idx < displayed.length - 1 ? `1px solid ${C.border}` : "none", background: isCurrent ? C.bg : "transparent", alignItems:"center", opacity: isPast ? 0.7 : 1 }}>
+                              <span style={{ fontSize:12, color: isCurrent ? C.gold : C.text, fontWeight: isCurrent ? 700 : 400, display:"flex", alignItems:"center", gap:5 }}>
+                                {monthLabel(row.ym)}
+                                {isCurrent && <span style={{ fontSize:9, background:C.gold, color:"#000", borderRadius:8, padding:"1px 5px", fontWeight:700 }}>NOW</span>}
+                                {isPast && <span style={{ fontSize:9, color:C.textDim }}>✓</span>}
+                              </span>
+                              <span style={{ fontFamily:C.mono, fontSize:12, color:C.text, textAlign:"right" }}>{row.payment > 0 ? $F(row.payment) : "—"}</span>
+                              <span style={{ fontFamily:C.mono, fontSize:12, color:C.red, textAlign:"right" }}>{row.interest > 0 ? $F(row.interest) : "—"}</span>
+                              <span style={{ fontFamily:C.mono, fontSize:12, color:C.green, textAlign:"right" }}>{row.principal > 0 ? $F(row.principal) : "—"}</span>
+                              <span style={{ fontFamily:C.mono, fontSize:12, color:isPast ? C.textDim : C.text, textAlign:"right" }}>{$F(row.balance)}</span>
+                            </div>
+                          );
+                        })}
+                        </div>
+                        </div>
+                      </div>
+                      {!showAll && filtered.length > 12 && (
+                        <button onClick={() => setScheduleRows(r => r === 12 ? 24 : 12)}
+                          style={{ marginTop:10, fontSize:12, color:C.gold, background:"transparent", border:`1px solid ${C.gold}`, borderRadius:8, padding:"7px 16px", cursor:"pointer", fontFamily:C.sans, fontWeight:600 }}>
+                          {scheduleRows === 12 ? "Show 24 months" : "Show 12 months"}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -5850,6 +5905,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [overrideReason, setOverrideReason]   = useState("");
   const [periodLoading, setPeriodLoading]     = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [collapsedCountries, setCollapsedCountries] = useState({});
+  const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
 
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
@@ -6805,27 +6862,54 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             })()}
             {groupedProperties.map(([country, props]) => {
               const meta = getCountryMeta(country);
+              const isCollapsed = !!collapsedCountries[country];
               return (
-                <div key={country} style={{ marginBottom: 24 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14, padding:"10px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:12 }}>
-                    <span style={{ fontSize:18, lineHeight:1 }}>{meta.flag}</span>
-                    <div>
-                      <div style={{ fontSize:12, fontWeight:700, color:C.text, letterSpacing:"0.06em", textTransform:"uppercase" }}>{meta.label}</div>
-                      <div style={{ fontSize:10, color:C.textDim }}>{props.length} propert{props.length === 1 ? "y" : "ies"}</div>
+                <div key={country} style={{ marginBottom: 20 }}>
+                  {/* Country accordion header */}
+                  <div
+                    onClick={() => toggleCountry(country)}
+                    style={{
+                      display:"flex", alignItems:"center", justifyContent:"space-between",
+                      gap:12, marginBottom: isCollapsed ? 0 : 14,
+                      padding: isMobile ? "12px 14px" : "13px 18px",
+                      background: C.surface, border:`1px solid ${C.border}`,
+                      borderRadius: isCollapsed ? 14 : "14px 14px 10px 10px",
+                      cursor:"pointer", userSelect:"none",
+                      transition:"border-radius 0.15s",
+                    }}
+                  >
+                    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                      <span style={{ fontSize:22, lineHeight:1 }}>{meta.flag}</span>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:700, color:C.text, letterSpacing:"0.05em", textTransform:"uppercase" }}>{meta.label}</div>
+                        <div style={{ fontSize:11, color:C.textDim, marginTop:1 }}>{props.length} propert{props.length === 1 ? "y" : "ies"}</div>
+                      </div>
                     </div>
+                    {/* Chevron icon */}
+                    <svg
+                      width={18} height={18} viewBox="0 0 18 18" fill="none"
+                      style={{ flexShrink:0, transition:"transform 0.2s", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
+                    >
+                      <path d="M4.5 6.75L9 11.25L13.5 6.75" stroke={C.textDim} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </div>
-                  {props.map(p => (
-                    <PropCard
-                      key={p.id}
-                      prop={p}
-                      rentPayments={data.rentPayments || []}
-                      onUpdate={(f, v) => updProp(p.id, f, v)}
-                      onPatch={patch => updPropPatch(p.id, patch)}
-                      onSaveRentPayment={updRentPayment}
-                      isAdmin={true}
-                      periodLocked={periodStatus.is_locked}
-                    />
-                  ))}
+                  {/* Property list — hidden when collapsed */}
+                  {!isCollapsed && (
+                    <div style={{ borderLeft:`2px solid ${C.border}`, marginLeft:8, paddingLeft:10 }}>
+                      {props.map(p => (
+                        <PropCard
+                          key={p.id}
+                          prop={p}
+                          rentPayments={data.rentPayments || []}
+                          onUpdate={(f, v) => updProp(p.id, f, v)}
+                          onPatch={patch => updPropPatch(p.id, patch)}
+                          onSaveRentPayment={updRentPayment}
+                          isAdmin={true}
+                          periodLocked={periodStatus.is_locked}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
