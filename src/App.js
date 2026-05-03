@@ -5206,28 +5206,57 @@ function AdminExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
 
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
 function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied]       = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const reportRef = useRef(null);
-  const isMobile = useIsMobile();
+  const isMobile  = useIsMobile();
+
+  // ── PDF-only display derivations — read-only, no DB writes ──────────────────
+  const cfRentIn      = data.properties.reduce((sum, p) => sum + propJMFEffectiveRent(p), 0);
+  const cfPropOut     = data.properties.reduce((sum, p) => sum + propJMFMonthlyOut(p), 0);
+  const cfOtherIncome = (data.cashflow?.income || []).reduce((sum, i) => sum + safe(i.amount), 0);
+  const cfOtherOut    = (data.cashflow?.obligations || []).reduce((sum, o) => sum + safe(o.amount), 0);
+  const cfNet         = cfRentIn + cfOtherIncome - cfPropOut - cfOtherOut;
+
+  const allSnaps   = [...(data.snapshots || [])].sort((a, b) => (a.month||"").localeCompare(b.month||""));
+  const curIdx     = allSnaps.findIndex(sn => sn.month === s.month);
+  const prevSnap   = curIdx > 0 ? allSnaps[curIdx - 1] : null;
+  const momNW      = prevSnap != null ? s.nw - prevSnap.nw : null;
+  const momNWPct   = (momNW != null && prevSnap && Math.abs(prevSnap.nw) > 1) ? (momNW / Math.abs(prevSnap.nw)) * 100 : null;
+  const trajSnaps  = allSnaps.slice(Math.max(0, curIdx - 5), curIdx + 1);
+
+  const vehicles   = safe(s.vehicles);
+  const allocBase  = Math.max(1, Math.abs(s.nw));
+  const pctOfNW    = v => `${((safe(v) / allocBase) * 100).toFixed(1)}%`;
+  const shortMo    = ym => { const [yr, mo] = (ym||"").split("-"); const MO = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${MO[(parseInt(mo)||1)-1]} '${(yr||"").slice(2)}`; };
+
+  // Automated risk commentary (display-only)
+  const riskFlags = [];
+  if ((safe(s.reLiquid) / allocBase) > 0.70) riskFlags.push("Portfolio is significantly concentrated in real estate.");
+  if (safe(s.individuals) < 0)               riskFlags.push("Individual net positions reflect a collective deficit.");
+  if (cfNet < 0)                             riskFlags.push("Net monthly operating cash flow is negative.");
+  if (momNWPct != null && momNWPct < -5)     riskFlags.push(`Net worth declined ${Math.abs(momNWPct).toFixed(1)}% from the prior month.`);
+  (s.reBreakdown || []).forEach(p => {
+    const ltv = (p.debt > 0 && p.market > 0) ? p.debt / p.market * 100 : 0;
+    if (ltv > 80) riskFlags.push(`${p.name}: elevated LTV of ${ltv.toFixed(0)}%.`);
+  });
+
+  // Cash flow completeness — business P&L usually posts around the 5th
+  const snapDay       = s.capturedAt ? new Date(s.capturedAt).getDate() : 1;
+  const cfIncomplete  = snapDay < 5;
 
   function buildPayload() {
-    const cfRentIn   = data.properties.reduce((sum, p) => sum + propJMFEffectiveRent(p), 0);
-    const cfPropOut  = data.properties.reduce((sum, p) => sum + propJMFMonthlyOut(p), 0);
-    const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
     return {
-      reportMonth: s.month,
-      generatedAt: new Date().toISOString(),
-      kpis: { netWorth: s.nw, liquidRE: s.reLiquid, reEquity: s.reEquity, individuals: s.individuals, businesses: s.businesses },
-      cashFlow: { rentalIncome: cfRentIn, propertyObligations: cfPropOut, otherObligations: cfOtherOut, net: cfRentIn - cfPropOut - cfOtherOut },
+      reportMonth: s.month, generatedAt: new Date().toISOString(),
+      kpis: { netWorth: s.nw, liquidRE: s.reLiquid, reEquity: s.reEquity, individuals: s.individuals, businesses: s.businesses, vehicles },
+      cashFlow: { rentalIncome: cfRentIn, otherIncome: cfOtherIncome, propertyObligations: cfPropOut, otherObligations: cfOtherOut, net: cfNet },
       realEstate: (s.reBreakdown || []).map(p => ({ name: p.name, market: p.market, debt: p.debt, equity: p.equity, liquid: p.liquid })),
       individuals: (s.individualBreakdown || []).map(i => ({ name: i.name, net: i.net })),
-      businesses: (s.businessBreakdown || []).map(b => ({ name: b.name, equity: b.eq, type: b.type })),
+      businesses:  (s.businessBreakdown || []).map(b => ({ name: b.name, equity: b.eq, type: b.type })),
       notes: s.note || "",
     };
   }
-
   function handleCopy() {
     navigator.clipboard.writeText(JSON.stringify(buildPayload(), null, 2))
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
@@ -5235,43 +5264,33 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
 
   async function handleDownloadPdf() {
     if (!reportRef.current || downloading) return;
-    setDownloading(true);
-    setDownloadError("");
+    setDownloading(true); setDownloadError("");
     try {
       const { jsPDF, html2canvas } = await loadPdfTools();
       await new Promise(resolve => setTimeout(resolve, 60));
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        backgroundColor: "#ffffff",
-        useCORS: true,
-        logging: false,
-      });
-      const imageData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "pt", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
+      const canvas = await html2canvas(reportRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false });
+      const imageData  = canvas.toDataURL("image/png");
+      const pdf        = new jsPDF("p", "pt", "a4");
+      const pageWidth  = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const imageWidth = pageWidth;
+      const imageWidth  = pageWidth;
       const imageHeight = (canvas.height * imageWidth) / canvas.width;
-      let heightLeft = imageHeight;
-      let position = 0;
+      let heightLeft    = imageHeight;
 
-      pdf.addImage(imageData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+      pdf.addImage(imageData, "PNG", 0, 0, imageWidth, imageHeight, undefined, "FAST");
       heightLeft -= pageHeight;
 
-      while (heightLeft > 0) {
-        position = heightLeft - imageHeight;
+      // Skip near-empty trailing pages (< 8% content) to eliminate blank last pages
+      while (heightLeft > pageHeight * 0.08) {
+        const pos = heightLeft - imageHeight;
         pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, position, imageWidth, imageHeight, undefined, "FAST");
+        pdf.addImage(imageData, "PNG", 0, pos, imageWidth, imageHeight, undefined, "FAST");
         heightLeft -= pageHeight;
       }
 
       const generatedAt = new Date().toISOString();
       pdf.save(reportFileName(s.month));
-      onGenerated?.({
-        snapshotMonth: s.month,
-        snapshotCapturedAt: s.capturedAt,
-        generatedAt,
-      });
+      onGenerated?.({ snapshotMonth: s.month, snapshotCapturedAt: s.capturedAt, generatedAt });
     } catch (error) {
       console.error("Report PDF download failed", error);
       setDownloadError("PDF download failed. Please try again.");
@@ -5284,158 +5303,395 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
     const downloadKey = `${s.month}-${s.capturedAt || "snapshot"}`;
     if (!shouldAutoDownloadReport(downloadKey)) return;
     handleDownloadPdf();
-    // Intentionally run once per modal open; StrictMode double-mount is guarded above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const cfRentIn   = data.properties.reduce((sum, p) => sum + propJMFEffectiveRent(p), 0);
-  const cfPropOut  = data.properties.reduce((sum, p) => sum + propJMFMonthlyOut(p), 0);
-  const cfOtherOut = data.cashflow.obligations.reduce((sum, o) => sum + safe(o.amount), 0);
-  const cfNet      = cfRentIn - cfPropOut - cfOtherOut;
-  const rowSt = { display: "flex", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid #e5e5e5", fontSize: 13 };
-  const secHd = { fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#888", fontWeight: 700, marginBottom: 10, marginTop: 30 };
-  const mono  = { fontFamily: "monospace", fontWeight: 700 };
+  // ── PDF style tokens (light/print theme) ────────────────────────────────────
+  const GOLD  = "#8B6914";
+  const INK   = "#111111";
+  const DIM   = "#444444";
+  const FAINT = "#888888";
+  const LINE  = "#e2e2e2";
+  const POS   = "#1A6B33";
+  const NEG   = "#CC2222";
+  const BLUE  = "#1A3F6B";
+  const nc    = v => v >= 0 ? POS : NEG;
+  const mf    = v => `${v >= 0 ? "+" : ""}${$F(v)}`;
+  const mk    = v => `${v >= 0 ? "+" : ""}${$K(v)}`;
+  const sHd   = { fontSize: 8.5, letterSpacing: "0.18em", textTransform: "uppercase", color: FAINT, fontWeight: 700, marginBottom: 8, marginTop: 26, fontFamily: "sans-serif", borderBottom: `1px solid ${LINE}`, paddingBottom: 5 };
+  const tRow  = bg => ({ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${LINE}`, background: bg });
+  const mon   = { fontFamily: "monospace", fontWeight: 700 };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
-      {/* Action bar */}
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.82)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 9999, overflowY: "auto", padding: "24px 16px" }}>
+
+      {/* ── Action bar ── */}
       <div style={{ position: "fixed", top: isMobile ? 10 : 16, right: isMobile ? 10 : 24, display: "flex", gap: isMobile ? 6 : 10, zIndex: 10000, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: isMobile ? "calc(100vw - 20px)" : "calc(100vw - 32px)" }}>
         {downloadError && <span style={{ fontSize: 11, color: "#FFD4D4", letterSpacing: "0.04em" }}>{downloadError}</span>}
-        {!downloadError && (
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", letterSpacing: "0.04em" }}>
-            {downloading ? "Preparing PDF..." : "PDF download starts automatically"}
-          </span>
-        )}
-        <button onClick={handleCopy}
-          style={{ fontSize: 12, background: copied ? "#1A6B33" : C.surface, color: copied ? "#fff" : C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 600 }}>
-          {copied ? "✓ Copied" : "Copy JSON"}
-        </button>
-        <button onClick={handleDownloadPdf}
-          disabled={downloading}
-          style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 700 }}>
-          {downloading ? "Preparing..." : "Download PDF"}
-        </button>
-        <button onClick={onClose}
-          style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>
-          ✕ Close
-        </button>
+        {!downloadError && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", letterSpacing: "0.04em" }}>{downloading ? "Preparing PDF..." : "PDF download starts automatically"}</span>}
+        <button onClick={handleCopy} style={{ fontSize: 12, background: copied ? "#1A6B33" : C.surface, color: copied ? "#fff" : C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 600 }}>{copied ? "✓ Copied" : "Copy JSON"}</button>
+        <button onClick={handleDownloadPdf} disabled={downloading} style={{ fontSize: 12, background: C.gold, color: "#1A1508", border: "none", borderRadius: 7, padding: "8px 16px", cursor: "pointer", fontWeight: 700 }}>{downloading ? "Preparing..." : "Download PDF"}</button>
+        <button onClick={onClose} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 7, color: C.textDim, padding: "8px 14px", cursor: "pointer" }}>✕ Close</button>
       </div>
 
-      {/* Report content */}
-      <div ref={reportRef} id="jmf-report-content" style={{ background: "#ffffff", color: "#111111", borderRadius: 12, padding: isMobile ? "28px 20px" : "48px 52px", maxWidth: 720, width: "100%", marginTop: isMobile ? 52 : 16, fontFamily: "Georgia, serif" }}>
+      {/* ══════════════════════════════════════════════════════════════════════
+          PDF CONTENT — captured by html2canvas → rendered into jsPDF pages
+          Light/print theme intentionally used here for PDF readability.
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div ref={reportRef} id="jmf-report-content" style={{ background: "#fff", color: INK, borderRadius: 12, padding: isMobile ? "28px 20px" : "44px 48px", maxWidth: 720, width: "100%", marginTop: isMobile ? 52 : 16, fontFamily: "Georgia, serif", lineHeight: 1.5 }}>
 
-        {/* 1. Cover */}
-        <div style={{ textAlign: "center", marginBottom: 40, paddingBottom: 32, borderBottom: "2px solid #111" }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "#999", marginBottom: 10, fontFamily: "sans-serif" }}>JMF Family Office</div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: "#111", letterSpacing: "-0.5px", marginBottom: 6, fontFamily: "sans-serif" }}>Monthly Financial Report</div>
-          <div style={{ fontSize: 20, color: "#444", fontWeight: 500 }}>{monthLabel(s.month)}</div>
-          <div style={{ fontSize: 11, color: "#999", marginTop: 10, fontFamily: "sans-serif" }}>
-            Captured {new Date(s.capturedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-            {s.updatedAt && ` · Updated ${new Date(s.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`}
+        {/* ══ 1. COVER ══════════════════════════════════════════════════════════ */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 18, borderBottom: `2px solid ${INK}`, marginBottom: 4 }}>
+          <div>
+            <div style={{ fontSize: 9, letterSpacing: "0.24em", textTransform: "uppercase", color: FAINT, fontFamily: "sans-serif", marginBottom: 5 }}>JMF Family Office</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: INK, letterSpacing: "-0.5px", fontFamily: "sans-serif", lineHeight: 1.15 }}>Monthly Financial Report</div>
+            <div style={{ fontSize: 14, color: DIM, marginTop: 4, fontFamily: "sans-serif" }}>{monthLabel(s.month)}</div>
+            <div style={{ fontSize: 9.5, color: FAINT, marginTop: 7, fontFamily: "sans-serif" }}>
+              Snapshot captured: {new Date(s.capturedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+              {s.updatedAt && ` · Updated: ${new Date(s.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`}
+            </div>
+            <div style={{ marginTop: 8, display: "inline-block", background: "#F5F0E4", border: "1px solid #C9A84C", borderRadius: 3, padding: "2px 8px", fontSize: 8, color: GOLD, letterSpacing: "0.12em", textTransform: "uppercase", fontFamily: "sans-serif" }}>
+              Confidential · Private &amp; Confidential
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0, paddingLeft: 20 }}>
+            <div style={{ fontSize: 8.5, color: FAINT, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", marginBottom: 4 }}>Consolidated Net Worth</div>
+            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "monospace", color: s.nw >= 0 ? POS : NEG, letterSpacing: -1, lineHeight: 1 }}>{$F(s.nw)}</div>
+            {momNW != null && (
+              <div style={{ fontSize: 10.5, color: nc(momNW), fontFamily: "monospace", marginTop: 4 }}>
+                {mf(momNW)}{momNWPct != null ? ` (${momNWPct >= 0 ? "+" : ""}${momNWPct.toFixed(1)}%)` : ""} vs prior month
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 2. KPIs */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Key Metrics</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e5e5e5", border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+        {/* ══ 2. EXECUTIVE SUMMARY ══════════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Executive Summary</div>
+        <div style={{ fontSize: 11.5, color: DIM, lineHeight: 1.85, background: "#FAFAFA", border: `1px solid ${LINE}`, borderRadius: 6, padding: "12px 16px" }}>
+          {(() => {
+            const reLiqPct = (safe(s.reLiquid) / allocBase * 100).toFixed(0);
+            let text = `This report summarizes the JMF Family Office financial position for ${monthLabel(s.month)}. Consolidated net worth closed at ${$F(s.nw)}`;
+            if (momNW != null) text += `, reflecting a month-over-month ${momNW >= 0 ? "increase" : "decline"} of ${$F(Math.abs(momNW))}${momNWPct != null ? ` (${Math.abs(momNWPct).toFixed(1)}%)` : ""}`;
+            text += `. The portfolio is primarily concentrated in real estate, with liquid real estate value representing approximately ${reLiqPct}% of total net worth.`;
+            if (safe(s.individuals) !== 0) text += ` Individual member net positions contribute ${$K(safe(s.individuals))} (${pctOfNW(s.individuals)}) to consolidated wealth.`;
+            if (safe(s.businesses) > 0) text += ` Business equity stands at ${$K(safe(s.businesses))}.`;
+            text += ` Monthly operating cash flow is ${cfNet >= 0 ? "positive" : "negative"} at ${$F(Math.abs(cfNet))}.`;
+            return text;
+          })()}
+        </div>
+
+        {/* ══ 3. KEY METRICS ════════════════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Key Metrics</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: LINE, border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
           {[
-            { label: "Net Worth",       val: $F(s.nw),        color: s.nw >= 0 ? "#1A6B33" : "#CC2222" },
-            { label: "Liquid RE Value", val: $K(s.reLiquid),  color: "#7A6010" },
-            { label: "RE Equity",       val: $K(s.reEquity),  color: "#7A6010" },
-            { label: "Individuals",     val: $K(s.individuals), color: s.individuals >= 0 ? "#1A6B33" : "#CC2222" },
-            { label: "Business Equity", val: $K(s.businesses), color: "#1A3F6B" },
+            { label: "Net Worth",           val: $F(s.nw),              color: nc(s.nw),      sub: momNW != null ? `${mf(momNW)} MoM` : "Point-in-time" },
+            { label: "Liquid RE Value",     val: $K(safe(s.reLiquid)),  color: GOLD,          sub: pctOfNW(s.reLiquid) + " of NW" },
+            { label: "RE Gross Equity",     val: $K(safe(s.reEquity)),  color: GOLD,          sub: "Before selling costs" },
+            { label: "Individuals Net",     val: $K(safe(s.individuals)), color: nc(s.individuals), sub: `${(s.individualBreakdown||[]).length} members` },
+            { label: "Business Equity",     val: $K(safe(s.businesses)), color: BLUE,         sub: "Operating corps only" },
+            { label: "Vehicles Net Equity", val: $K(vehicles),          color: "#8B5A0A",     sub: `${(s.vehicleBreakdown||[]).length} vehicle${(s.vehicleBreakdown||[]).length !== 1 ? "s" : ""}` },
           ].map((k, i) => (
-            <div key={i} style={{ background: "#fff", padding: "16px 20px" }}>
-              <div style={{ fontSize: 9, color: "#999", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6, fontFamily: "sans-serif" }}>{k.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "monospace", color: k.color }}>{k.val}</div>
+            <div key={i} style={{ background: "#fff", padding: "12px 14px" }}>
+              <div style={{ fontSize: 7.5, color: FAINT, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: 4, fontFamily: "sans-serif" }}>{k.label}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, fontFamily: "monospace", color: k.color }}>{k.val}</div>
+              <div style={{ fontSize: 8.5, color: FAINT, marginTop: 3, fontFamily: "sans-serif" }}>{k.sub}</div>
             </div>
           ))}
         </div>
 
-        {/* 3. Consolidated Snapshot */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Consolidated Snapshot</div>
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
-          {(s.individualBreakdown || []).map((x, i) => (
-            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
-              <span style={{ color: "#555" }}>{x.name}</span>
-              <span style={{ ...mono, color: x.net >= 0 ? "#1A6B33" : "#CC2222" }}>{$F(x.net)}</span>
-            </div>
-          ))}
-          {(s.reBreakdown || []).map((x, i) => (
-            <div key={`re-${i}`} style={{ ...rowSt, background: "#fff" }}>
-              <span style={{ color: "#555" }}>{x.name} <span style={{ fontSize: 10, color: "#aaa" }}>Real Estate</span></span>
-              <span style={{ ...mono, color: "#7A6010" }}>{$K(x.liquid)}</span>
-            </div>
-          ))}
-          {(s.businessBreakdown || []).filter(b => b.type !== "nonprofit").map((x, i) => (
-            <div key={`biz-${i}`} style={{ ...rowSt, background: "#fafafa" }}>
-              <span style={{ color: "#555" }}>{x.name} <span style={{ fontSize: 10, color: "#aaa" }}>Business</span></span>
-              <span style={{ ...mono, color: "#1A3F6B" }}>{$F(x.eq)}</span>
-            </div>
-          ))}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", background: "#111", color: "#fff" }}>
-            <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>Total Net Worth</span>
-            <span style={{ ...mono, fontSize: 15, color: s.nw >= 0 ? "#7EC896" : "#FF9999" }}>{$F(s.nw)}</span>
+        {/* ══ 4. NET WORTH TRAJECTORY ═══════════════════════════════════════════ */}
+        {trajSnaps.length >= 2 && (() => {
+          const W = 580; const H = 88; const PL = 68; const PB = 20;
+          const plotW = W - PL - 6; const plotH = H - PB - 6;
+          const vals = trajSnaps.map(sn => sn.nw);
+          const minV = Math.min(...vals); const maxV = Math.max(...vals);
+          const span = Math.max(1, maxV - minV);
+          const toX  = i => PL + (i / Math.max(1, trajSnaps.length - 1)) * plotW;
+          const toY  = v => 6 + plotH - ((v - minV) / span) * plotH;
+          const pts  = trajSnaps.map((sn, i) => `${toX(i)},${toY(sn.nw)}`).join(" ");
+          return (
+            <>
+              <div style={{ ...sHd }}>Net Worth Trajectory</div>
+              <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ padding: "14px 14px 6px", background: "#FAFAFA" }}>
+                  <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
+                    {[0, 0.5, 1].map(t => {
+                      const yv = minV + t * span; const y = 6 + plotH - t * plotH;
+                      return (
+                        <g key={t}>
+                          <line x1={PL - 2} y1={y} x2={W - 4} y2={y} stroke="#ebebeb" strokeWidth="0.8" />
+                          <text x={PL - 4} y={y + 3.5} textAnchor="end" fontSize="7.5" fill={FAINT} fontFamily="monospace">{$K(yv)}</text>
+                        </g>
+                      );
+                    })}
+                    <polygon points={`${toX(0)},${6+plotH} ${pts} ${toX(trajSnaps.length-1)},${6+plotH}`} fill="rgba(139,105,20,0.07)" />
+                    <polyline points={pts} fill="none" stroke={GOLD} strokeWidth="1.8" strokeLinejoin="round" />
+                    {trajSnaps.map((sn, i) => (
+                      <circle key={i} cx={toX(i)} cy={toY(sn.nw)} r="2.5" fill={GOLD} stroke="#fff" strokeWidth="1" />
+                    ))}
+                    {trajSnaps.map((sn, i) => (
+                      <text key={i} x={toX(i)} y={H - 3} textAnchor="middle" fontSize="7.5" fill={FAINT} fontFamily="sans-serif">{shortMo(sn.month)}</text>
+                    ))}
+                  </svg>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(trajSnaps.length, 6)}, 1fr)`, background: "#fff", borderTop: `1px solid ${LINE}` }}>
+                  {trajSnaps.map((sn, i) => {
+                    const prev = i > 0 ? trajSnaps[i-1] : null;
+                    const chg  = prev ? sn.nw - prev.nw : null;
+                    return (
+                      <div key={i} style={{ padding: "8px 10px", borderRight: i < trajSnaps.length - 1 ? `1px solid ${LINE}` : "none", textAlign: "center" }}>
+                        <div style={{ fontSize: 7.5, color: FAINT, fontFamily: "sans-serif", marginBottom: 2 }}>{shortMo(sn.month)}</div>
+                        <div style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 700, color: sn.nw >= 0 ? GOLD : NEG }}>{$K(sn.nw)}</div>
+                        {chg != null && <div style={{ fontSize: 7.5, color: nc(chg), fontFamily: "monospace", marginTop: 2 }}>{mk(chg)}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* ══ 5. ASSET ALLOCATION ═══════════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Asset Allocation</div>
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "10px 1fr 90px 60px 72px", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 10px", alignItems: "center" }}>
+            <div /><div>Category</div><div style={{ textAlign: "right" }}>Value</div><div style={{ textAlign: "right" }}>% NW</div><div style={{ textAlign: "center" }}>Allocation</div>
           </div>
-        </div>
-
-        {/* 4. Cash Flow */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Cash Flow (Live)</div>
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
           {[
-            { label: "Rental Income",        val: cfRentIn    },
-            { label: "Property Obligations", val: -cfPropOut  },
-            { label: "Other Obligations",    val: -cfOtherOut },
-          ].map((row, i) => (
-            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
-              <span style={{ color: "#555" }}>{row.label}</span>
-              <span style={{ ...mono, color: row.val >= 0 ? "#1A6B33" : "#CC2222" }}>{row.val >= 0 ? "+" : ""}{$F(row.val)}</span>
-            </div>
-          ))}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", background: "#111", color: "#fff" }}>
-            <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>Net Cash Flow</span>
-            <span style={{ ...mono, fontSize: 15, color: cfNet >= 0 ? "#7EC896" : "#FF9999" }}>{cfNet >= 0 ? "+" : ""}{$F(cfNet)}</span>
+            { label: "Liquid Real Estate", val: safe(s.reLiquid),    color: GOLD,      bg: "#F5F0E4" },
+            { label: "Individuals",         val: safe(s.individuals), color: POS,       bg: "#EAF7EE" },
+            { label: "Business Equity",     val: safe(s.businesses),  color: BLUE,      bg: "#EAF2F8" },
+            { label: "Vehicles",            val: vehicles,            color: "#8B5A0A", bg: "#FEF5E4" },
+          ].map((row, i) => {
+            const rawPct = s.nw !== 0 ? (row.val / s.nw * 100) : 0;
+            const barPct = Math.max(0, Math.min(100, (row.val / allocBase * 100)));
+            return (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "10px 1fr 90px 60px 72px", padding: "8px 14px", borderBottom: `1px solid ${LINE}`, background: i % 2 === 0 ? "#fafafa" : "#fff", gap: "0 10px", alignItems: "center" }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: row.color, flexShrink: 0 }} />
+                <div style={{ fontSize: 11.5, color: DIM }}>{row.label}</div>
+                <div style={{ ...mon, fontSize: 11.5, color: row.val >= 0 ? row.color : NEG, textAlign: "right" }}>{$K(row.val)}</div>
+                <div style={{ fontSize: 10.5, color: FAINT, textAlign: "right", fontFamily: "monospace" }}>{rawPct.toFixed(1)}%</div>
+                <div style={{ paddingLeft: 4 }}>
+                  <div style={{ height: 5, background: LINE, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${barPct}%`, background: row.color, borderRadius: 3 }} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ display: "grid", gridTemplateColumns: "10px 1fr 90px 60px 72px", padding: "8px 14px", background: "#111", color: "#fff", gap: "0 10px", alignItems: "center" }}>
+            <div /><div style={{ fontSize: 12, fontFamily: "sans-serif", fontWeight: 700 }}>Total Net Worth</div>
+            <div style={{ ...mon, fontSize: 13, color: s.nw >= 0 ? "#7EC896" : "#FF9999", textAlign: "right" }}>{$F(s.nw)}</div>
+            <div /><div />
           </div>
         </div>
 
-        {/* 5. Real Estate Portfolio */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Real Estate Portfolio</div>
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: "#111", color: "#ccc", padding: "8px 16px", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "sans-serif" }}>
-            {["Property", "Market", "Debt", "Liquid"].map(h => <div key={h}>{h}</div>)}
-          </div>
+        {/* ══ 6. CONSOLIDATED SNAPSHOT ══════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Consolidated Snapshot</div>
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          {/* Individuals */}
+          <div style={{ padding: "6px 14px", background: "#F5F5F5", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: FAINT, fontFamily: "sans-serif", fontWeight: 700 }}>Individuals</div>
+          {(s.individualBreakdown || []).map((x, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", padding: "5px 14px", borderBottom: `1px solid ${LINE}`, background: "#fff", fontSize: 10.5, gap: "0 6px", alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: DIM }}>{x.name}</div>
+              <div style={{ fontFamily: "monospace", color: FAINT, textAlign: "right" }}>{$K(safe(x.cash))} cash</div>
+              <div style={{ fontFamily: "monospace", color: FAINT, textAlign: "right" }}>{$K(safe(x.accounts))} accts</div>
+              <div style={{ fontFamily: "monospace", color: safe(x.securities) > 0 ? BLUE : FAINT, textAlign: "right" }}>{$K(safe(x.securities))} sec.</div>
+              <div style={{ ...mon, color: nc(x.net), textAlign: "right" }}>{$K(x.net)}</div>
+            </div>
+          ))}
+          {/* Real Estate */}
+          <div style={{ padding: "6px 14px", background: "#F5F5F5", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: FAINT, fontFamily: "sans-serif", fontWeight: 700 }}>Real Estate (Liquid Value)</div>
           {(s.reBreakdown || []).map((x, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", padding: "9px 16px", borderBottom: "1px solid #e5e5e5", background: i % 2 === 0 ? "#fafafa" : "#fff", fontSize: 12 }}>
-              <div style={{ fontWeight: 600, color: "#222" }}>{x.name}</div>
-              <div style={{ fontFamily: "monospace", color: "#555" }}>{$K(x.market)}</div>
-              <div style={{ fontFamily: "monospace", color: "#CC2222" }}>{$K(x.debt)}</div>
-              <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#7A6010" }}>{$K(x.liquid)}</div>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr", padding: "5px 14px", borderBottom: `1px solid ${LINE}`, background: "#fff", fontSize: 10.5, gap: "0 6px", alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: DIM }}>{x.name}</div>
+              <div style={{ fontFamily: "monospace", color: FAINT, textAlign: "right" }}>Equity: {$K(x.equity)}</div>
+              <div style={{ ...mon, color: GOLD, textAlign: "right" }}>{$K(x.liquid)} liq.</div>
             </div>
           ))}
+          {/* Businesses */}
+          <div style={{ padding: "6px 14px", background: "#F5F5F5", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: FAINT, fontFamily: "sans-serif", fontWeight: 700 }}>Business Entities</div>
+          {(s.businessBreakdown || []).filter(b => b.type !== "nonprofit").map((x, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr", padding: "5px 14px", borderBottom: `1px solid ${LINE}`, background: "#fff", fontSize: 10.5, gap: "0 6px", alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: DIM }}>{x.name}</div>
+              <div style={{ fontFamily: "monospace", color: x.monthlyProfit != null ? nc(x.monthlyProfit) : FAINT, textAlign: "right" }}>{x.monthlyProfit != null ? `${$K(x.monthlyProfit)} P&L` : "—"}</div>
+              <div style={{ ...mon, color: nc(x.eq), textAlign: "right" }}>{$K(x.eq)} eq.</div>
+            </div>
+          ))}
+          {/* Vehicles */}
+          {(s.vehicleBreakdown || []).length > 0 && (
+            <>
+              <div style={{ padding: "6px 14px", background: "#F5F5F5", borderBottom: `1px solid ${LINE}`, fontSize: 7.5, letterSpacing: "0.12em", textTransform: "uppercase", color: FAINT, fontFamily: "sans-serif", fontWeight: 700 }}>Vehicles</div>
+              {(s.vehicleBreakdown || []).map((v, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr", padding: "5px 14px", borderBottom: `1px solid ${LINE}`, background: "#fff", fontSize: 10.5, gap: "0 6px", alignItems: "center" }}>
+                  <div style={{ fontWeight: 600, color: DIM }}>{v.year} {v.make} {v.model}</div>
+                  <div style={{ fontFamily: "monospace", color: FAINT, textAlign: "right" }}>{$K(v.marketValue)} mkt</div>
+                  <div style={{ ...mon, color: nc(v.equity), textAlign: "right" }}>{$K(v.equity)} eq.</div>
+                </div>
+              ))}
+            </>
+          )}
+          {/* Total row */}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 14px", background: "#111", color: "#fff" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "sans-serif" }}>Total Net Worth</span>
+            <span style={{ ...mon, fontSize: 14, color: s.nw >= 0 ? "#7EC896" : "#FF9999" }}>{$F(s.nw)}</span>
+          </div>
         </div>
 
-        {/* 6. Businesses */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Business Entities</div>
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 4 }}>
+        {/* ══ 7. REAL ESTATE PORTFOLIO ══════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Real Estate Portfolio</div>
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2.5fr 0.9fr 0.9fr 0.9fr 0.9fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
+            {["Property / Rate", "Market", "Debt", "Equity", "Liquid"].map((h, i) => <div key={h} style={{ textAlign: i === 0 ? "left" : "right" }}>{h}</div>)}
+          </div>
+          {(s.reBreakdown || []).map((x, i) => {
+            const fp  = data.properties.find(p => p.id === x.id);
+            const ltv = x.debt > 0 && x.market > 0 ? (x.debt / x.market * 100) : 0;
+            const ncf = fp ? propEffectiveRent(fp) - propMonthlyOut(fp) : null;
+            const statusStr = fp?.status === "STRONG" ? "Strong" : fp?.status === "WATCH" ? "Watch" : fp?.status === "RISK" ? "Risk" : "";
+            const occupStr  = (fp?.occupancy_status || "").replace(/_/g, " ");
+            return (
+              <div key={i} style={{ borderBottom: `1px solid ${LINE}`, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2.5fr 0.9fr 0.9fr 0.9fr 0.9fr", padding: "7px 14px", fontSize: 11, alignItems: "center", gap: "0 6px" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: INK }}>{x.name}</div>
+                    <div style={{ fontSize: 8.5, color: FAINT, marginTop: 1.5, fontFamily: "sans-serif" }}>
+                      {[fp?.rate, statusStr, occupStr].filter(Boolean).join(" · ")}
+                      {ncf != null && <span style={{ color: ncf >= 0 ? POS : NEG }}> · NCF {ncf >= 0 ? "+" : ""}{$K(ncf)}/mo</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "monospace", color: DIM, textAlign: "right" }}>{$K(x.market)}</div>
+                  <div style={{ fontFamily: "monospace", color: ltv > 80 ? NEG : ltv > 65 ? "#A67C00" : DIM, textAlign: "right" }}>{$K(x.debt)}</div>
+                  <div style={{ fontFamily: "monospace", fontWeight: 700, color: GOLD, textAlign: "right" }}>{$K(x.equity)}</div>
+                  <div style={{ fontFamily: "monospace", fontWeight: 700, color: x.liquid >= 0 ? POS : NEG, textAlign: "right" }}>{$K(x.liquid)}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ display: "grid", gridTemplateColumns: "2.5fr 0.9fr 0.9fr 0.9fr 0.9fr", padding: "8px 14px", background: "#111", color: "#fff", fontSize: 11, gap: "0 6px" }}>
+            <div style={{ fontWeight: 700, fontFamily: "sans-serif" }}>Portfolio Total</div>
+            <div style={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right" }}>{$K((s.reBreakdown||[]).reduce((a,x)=>a+x.market,0))}</div>
+            <div style={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: "#FF9999" }}>{$K((s.reBreakdown||[]).reduce((a,x)=>a+x.debt,0))}</div>
+            <div style={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: "#F5D080" }}>{$K((s.reBreakdown||[]).reduce((a,x)=>a+x.equity,0))}</div>
+            <div style={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: "#7EC896" }}>{$K((s.reBreakdown||[]).reduce((a,x)=>a+x.liquid,0))}</div>
+          </div>
+        </div>
+
+        {/* ══ 8. BUSINESS ENTITIES ══════════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Business Entities</div>
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 0.9fr 0.9fr 0.9fr 0.9fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
+            {["Entity", "Monthly P&L", "Cash/Assets", "Liabilities", "Net Equity"].map((h, i) => <div key={h} style={{ textAlign: i === 0 ? "left" : "right" }}>{h}</div>)}
+          </div>
           {(s.businessBreakdown || []).map((x, i) => (
-            <div key={i} style={{ ...rowSt, background: i % 2 === 0 ? "#fafafa" : "#fff" }}>
-              <span style={{ color: "#555" }}>{x.name}{x.type === "nonprofit" ? " (Non-Profit)" : ""}</span>
-              <span style={{ ...mono, color: x.eq >= 0 ? "#1A3F6B" : "#CC2222" }}>{$F(x.eq)}</span>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 0.9fr 0.9fr 0.9fr 0.9fr", padding: "7px 14px", borderBottom: `1px solid ${LINE}`, background: i % 2 === 0 ? "#fafafa" : "#fff", fontSize: 11, alignItems: "center", gap: "0 6px" }}>
+              <div>
+                <div style={{ fontWeight: 700, color: INK }}>{x.name}</div>
+                <div style={{ fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>{x.type === "nonprofit" ? "Non-Profit" : x.type === "tracked_only" ? "Tracked Only" : "Corporation"}</div>
+              </div>
+              <div style={{ fontFamily: "monospace", color: x.monthlyProfit != null ? nc(x.monthlyProfit) : FAINT, textAlign: "right" }}>{x.monthlyProfit != null ? `${x.monthlyProfit >= 0 ? "+" : ""}${$K(x.monthlyProfit)}` : "—"}</div>
+              <div style={{ fontFamily: "monospace", color: DIM, textAlign: "right" }}>{$K(safe(x.cashAccounts))}</div>
+              <div style={{ fontFamily: "monospace", color: safe(x.liabilities) > 0 ? NEG : DIM, textAlign: "right" }}>{$K(safe(x.liabilities))}</div>
+              <div style={{ ...mon, color: nc(x.eq), textAlign: "right" }}>{$K(x.eq)}</div>
             </div>
           ))}
         </div>
 
-        {/* 7. Notes & Risks */}
-        <div style={{ ...secHd, fontFamily: "sans-serif" }}>Notes &amp; Risk Commentary</div>
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: "16px 20px", fontSize: 13, color: "#444", lineHeight: 1.8, background: "#fafafa", minHeight: 60 }}>
-          {s.note ? s.note : <span style={{ color: "#bbb", fontStyle: "italic" }}>No notes recorded for this snapshot.</span>}
+        {/* ══ 9. CASH FLOW SUMMARY ══════════════════════════════════════════════ */}
+        <div style={{ ...sHd }}>Cash Flow Summary</div>
+        {cfIncomplete && (
+          <div style={{ background: "#FFF8E8", border: "1px solid #E6A817", borderRadius: 5, padding: "7px 12px", marginBottom: 8, fontSize: 10, color: "#7A5800", fontFamily: "sans-serif", lineHeight: 1.65 }}>
+            <strong>Note:</strong> Business P&amp;L figures are typically finalized around the 5th of the following month. Cash flow shown reflects the most recently available data and may be incomplete for the current reporting period.
+          </div>
+        )}
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+          {[
+            { label: "JMF Rental Income",                val: cfRentIn,       note: `${data.properties.filter(p => propEffectiveRent(p) > 0).length} income-generating properties` },
+            ...(cfOtherIncome > 0 ? [{ label: "Other Income",                   val: cfOtherIncome,  note: "" }] : []),
+            { label: "Property Obligations (JMF share)", val: -cfPropOut,      note: "Mortgage payments, property tax" },
+            ...(cfOtherOut > 0   ? [{ label: "Other Obligations",               val: -cfOtherOut,    note: "" }] : []),
+          ].map((row, i) => (
+            <div key={i} style={{ ...tRow(i % 2 === 0 ? "#fafafa" : "#fff") }}>
+              <div>
+                <div style={{ fontSize: 12, color: DIM }}>{row.label}</div>
+                {row.note && <div style={{ fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>{row.note}</div>}
+              </div>
+              <span style={{ ...mon, color: row.val >= 0 ? POS : NEG }}>{row.val >= 0 ? "+" : ""}{$F(row.val)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", background: "#111", color: "#fff" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "sans-serif" }}>Net Operating Cash Flow</span>
+            <span style={{ ...mon, fontSize: 14, color: cfNet >= 0 ? "#7EC896" : "#FF9999" }}>{cfNet >= 0 ? "+" : ""}{$F(cfNet)}</span>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div style={{ marginTop: 40, paddingTop: 20, borderTop: "1px solid #e5e5e5", display: "flex", justifyContent: "space-between", fontSize: 10, color: "#bbb", fontFamily: "sans-serif" }}>
-          <span>JMF Family Office — Confidential</span>
+        {/* ══ 10. MONTH-OVER-MONTH ══════════════════════════════════════════════ */}
+        {prevSnap != null ? (
+          <>
+            <div style={{ ...sHd }}>Month-over-Month Comparison</div>
+            <div style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: "#111", color: "#ccc", padding: "7px 14px", fontSize: 7.5, letterSpacing: "0.10em", textTransform: "uppercase", fontFamily: "sans-serif", gap: "0 6px" }}>
+                {["Metric", shortMo(prevSnap.month), shortMo(s.month), "Change"].map((h, i) => <div key={h} style={{ textAlign: i === 0 ? "left" : "right" }}>{h}</div>)}
+              </div>
+              {[
+                { label: "Net Worth",       cur: s.nw,                prv: prevSnap.nw,                bold: true },
+                { label: "Liquid RE",       cur: safe(s.reLiquid),    prv: safe(prevSnap.reLiquid) },
+                { label: "RE Equity",       cur: safe(s.reEquity),    prv: safe(prevSnap.reEquity) },
+                { label: "Individuals",     cur: safe(s.individuals), prv: safe(prevSnap.individuals) },
+                { label: "Business Equity", cur: safe(s.businesses),  prv: safe(prevSnap.businesses) },
+                ...(s.vehicles != null && prevSnap.vehicles != null ? [{ label: "Vehicles", cur: safe(s.vehicles), prv: safe(prevSnap.vehicles) }] : []),
+              ].map((row, i) => {
+                const chg    = row.cur - row.prv;
+                const chgPct = Math.abs(row.prv) > 1 ? (chg / Math.abs(row.prv)) * 100 : null;
+                return (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", padding: "6px 14px", borderBottom: `1px solid ${LINE}`, background: i % 2 === 0 ? "#fafafa" : "#fff", fontSize: 11, gap: "0 6px", alignItems: "center" }}>
+                    <div style={{ fontWeight: row.bold ? 700 : 400, color: row.bold ? INK : DIM }}>{row.label}</div>
+                    <div style={{ fontFamily: "monospace", color: FAINT, textAlign: "right" }}>{$K(row.prv)}</div>
+                    <div style={{ fontFamily: "monospace", fontWeight: row.bold ? 700 : 400, color: row.bold ? nc(row.cur) : DIM, textAlign: "right" }}>{$K(row.cur)}</div>
+                    <div style={{ fontFamily: "monospace", color: nc(chg), textAlign: "right" }}>
+                      {chg >= 0 ? "+" : ""}{$K(chg)}{chgPct != null ? ` (${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(1)}%)` : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ ...sHd }}>Month-over-Month Comparison</div>
+            <div style={{ border: `1px solid ${LINE}`, borderRadius: 6, padding: "12px 16px", background: "#FAFAFA", fontSize: 11, color: FAINT, fontStyle: "italic" }}>
+              Prior month comparison unavailable for this reporting period.
+            </div>
+          </>
+        )}
+
+        {/* ══ 11. NOTES &amp; RISK COMMENTARY ══════════════════════════════════ */}
+        <div style={{ ...sHd }}>Notes &amp; Risk Commentary</div>
+        {s.note && (
+          <div style={{ border: `1px solid ${LINE}`, borderRadius: 6, padding: "11px 14px", marginBottom: 8, fontSize: 11.5, color: DIM, lineHeight: 1.8, background: "#FAFAFA" }}>
+            <div style={{ fontSize: 7.5, color: FAINT, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: 6 }}>Snapshot Notes</div>
+            {s.note}
+          </div>
+        )}
+        <div style={{ border: `1px solid ${LINE}`, borderRadius: 6, padding: "11px 14px", background: "#FAFAFA" }}>
+          <div style={{ fontSize: 7.5, color: FAINT, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: "0.10em", textTransform: "uppercase", marginBottom: 8 }}>Automated Commentary</div>
+          {riskFlags.length > 0 ? riskFlags.map((flag, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 5, fontSize: 11.5, color: DIM }}>
+              <span style={{ color: "#B8860B", fontSize: 9, marginTop: 3, flexShrink: 0 }}>▶</span>
+              <span>{flag}</span>
+            </div>
+          )) : (
+            <div style={{ fontSize: 11.5, color: FAINT, fontStyle: "italic" }}>No risk flags identified for this reporting period.</div>
+          )}
+        </div>
+
+        {/* ══ FOOTER ════════════════════════════════════════════════════════════ */}
+        <div style={{ marginTop: 28, paddingTop: 14, borderTop: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between", fontSize: 8.5, color: FAINT, fontFamily: "sans-serif" }}>
+          <span>JMF Family Office — Private &amp; Confidential</span>
           <span>Generated {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
         </div>
+
       </div>
     </div>
   );
