@@ -5405,10 +5405,10 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       sdc(GOLD); doc.setLineWidth(0.5); doc.line(ML, y, ML+CW, y); y += 9;
 
       const indN = f => safe(f.cash)+safe(f.accounts)+safe(f.securities)+safe(f.crypto)+safe(f.physicalAssets);
-      const reNRE    = data.properties.reduce((acc, p) => { const mkt = getMarketValueCad(p), fee = mkt*0.035, sc2 = fee+fee*0.13+5000; return acc+(mkt-propCurrentMortgageBalance(p)-sc2)*propOwnership(p); }, 0);
-      const reGrossEq= data.properties.reduce((acc, p) => acc + propGrossEquity(p), 0);
-      const totalLiq = data.individuals.reduce((acc, f) => acc + indN(f), 0);
-      const totalBizEq = data.businesses.filter(b => b.type!=="nonprofit"&&b.type!=="tracked_only").reduce((acc, b) => acc+safe(b.cashAccounts)-safe(b.liabilities), 0);
+      const reNRE    = s.reLiquid != null ? s.reLiquid : data.properties.reduce((acc, p) => { const mkt = getMarketValueCad(p), fee = mkt*0.035, sc2 = fee+fee*0.13+5000; return acc+(mkt-propCurrentMortgageBalance(p, s.month)-sc2)*propOwnership(p); }, 0);
+      const reGrossEq= data.properties.reduce((acc, p) => acc + getMarketValueCad(p) - propCurrentMortgageBalance(p, s.month), 0);
+      const totalLiq = s.individuals != null ? s.individuals : data.individuals.reduce((acc, f) => acc + indN(f), 0);
+      const totalBizEq = s.businesses != null ? s.businesses : data.businesses.filter(b => b.type!=="nonprofit"&&b.type!=="tracked_only").reduce((acc, b) => acc+safe(b.cashAccounts)-safe(b.liabilities), 0);
       const totalMortObl = data.properties.reduce((acc, p) => acc + getMortgageOperatingPayment(p), 0);
       const totalOutflows = data.properties.reduce((acc, p) => acc + propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
       const totalIncLog = data.individuals.reduce((acc, ind) => { const e = (ind.monthlyIncome||[]).find(x => x.month === s.month); return acc+safe(e?.income); }, 0);
@@ -5436,8 +5436,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
 
         const ov = [
           ["Purchase",        $p(p.purchase)],         ["Market Value",    $p(getMarketValueCad(p))],
-          ["Mortgage Bal.",   $p(propCurrentMortgageBalance(p))], ["Gross Equity",  $p(propGrossEquity(p))],
-          ["LTV",             safe(p.mortgage)>0 ? `${Math.round(propCurrentMortgageBalance(p)/getMarketValueCad(p)*100)}%` : "N/A"],
+          ["Mortgage Bal.",   $p(propCurrentMortgageBalance(p, s.month))], ["Gross Equity",  $p(getMarketValueCad(p) - propCurrentMortgageBalance(p, s.month))],
+          ["LTV",             safe(p.mortgage)>0 ? `${Math.round(propCurrentMortgageBalance(p, s.month)/getMarketValueCad(p)*100)}%` : "N/A"],
           ["Ownership",       `${Math.round(propOwnership(p)*100)}%`],
           ...(p.co_owner ? [["Co-Owner", p.co_owner]] : []),
           ["Lender",          p.lender||"—"],           ["Rate",            p.rate||"—"],
@@ -5453,13 +5453,13 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         y += 3; pdfNote(p.notes);
 
         // Mortgage schedule — next 12 months
-        const ms = calculateMortgageSnapshot(p, currentYM());
+        const ms = calculateMortgageSnapshot(p, s.month);
         if (ms.monthlyPI > 0) {
           checkY(12); subHead("Mortgage Schedule — Next 12 Months");
           let bal2 = ms.displayedBalance, mr2 = safe(p.interest_rate)/100/12;
           tbl(["Month","Payment","Interest","Principal","Balance"],
             Array.from({length:12}, (_, mi) => {
-              const mym = shiftYM(currentYM(), mi);
+              const mym = shiftYM(s.month, mi);
               const int2 = mr2>0 ? bal2*mr2 : 0;
               const pri2 = (p.payment_structure==="interest_only"||p.payment_structure==="loc") ? 0 : Math.max(0,Math.min(bal2,ms.monthlyPI-int2));
               bal2 = Math.max(0, bal2-pri2);
@@ -5484,8 +5484,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
               `Rent: ${$p(ledger.lease.monthly_rent)}/mo`,
               `Deposit: ${$p(ledger.lease.deposit_received)}`,
             ].join("   "), ML+2, y); y += 6;
-            const fromYM = shiftYM(currentYM(), -11);
-            const lRows = ledger.rows.filter(r => r.month>=fromYM && r.month<=currentYM()).map(r => [
+            const fromYM = shiftYM(s.month, -11);
+            const lRows = ledger.rows.filter(r => r.month>=fromYM && r.month<=s.month).map(r => [
               monthLabel(r.month), r.dueDate||r.month+"-01", $p(r.amount), $p(r.paid), $p(r.creditApplied), $p(r.outstanding),
             ]);
             if (lRows.length > 0) tbl(["Month","Due Date","Amount","Paid","Credit","Outstanding"], lRows, [25,28,25,24,20,28]);
@@ -5505,15 +5505,16 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       // ── 4. INDIVIDUALS ────────────────────────────────────────────────────
       secHeader("Individuals");
       data.individuals.forEach((ind, ii) => {
+        const iSnap = (s.individualBreakdown||[]).find(x => x.id === ind.id) || ind;
         if (ii > 0) checkY(30);
         doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
         doc.text(ind.name, ML, y); y += 2;
         sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+45, y); y += 7;
-        const net2 = indN(ind);
+        const net2 = iSnap.net != null ? iSnap.net : indN(iSnap);
         const bf = [
-          ["Cash", $p(ind.cash)],           ["Accounts",        $p(ind.accounts)],
-          ["Debt", $p(ind.debt)],           ["Securities",      $p(ind.securities)],
-          ["Crypto", $p(ind.crypto)],       ["Physical Assets", $p(ind.physicalAssets)],
+          ["Cash", $p(iSnap.cash)],           ["Accounts",        $p(iSnap.accounts)],
+          ["Debt", $p(ind.debt)],              ["Securities",      $p(iSnap.securities)],
+          ["Crypto", $p(iSnap.crypto)],        ["Physical Assets", $p(iSnap.physicalAssets)],
           ["Net Worth", $p(net2)],
         ];
         for (let i = 0; i < bf.length; i += 2) {
@@ -5530,7 +5531,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           y += 5;
         }
         y += 3;
-        const incLog = (ind.monthlyIncome||[]).slice().reverse();
+        const incLog = (ind.monthlyIncome||[]).filter(e => e.month <= s.month).slice().reverse();
         if (incLog.length > 0) {
           checkY(12); subHead("Monthly Income Log");
           tbl(["Month","Kratos Income","Other Income","Total","Notes"],
@@ -5543,16 +5544,17 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       // ── 5. BUSINESSES ─────────────────────────────────────────────────────
       secHeader("Business Entities");
       data.businesses.forEach((biz, bi) => {
+        const bSnap = (s.businessBreakdown||[]).find(x => x.id === biz.id) || biz;
         if (bi > 0) checkY(30);
         doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
         doc.text(biz.name, ML, y); y += 5;
         if (biz.type==="nonprofit")    { doc.setFontSize(8); sc(AMBER); doc.text("NON-PROFIT — excluded from consolidated net worth",   ML, y); y += 5; }
         if (biz.type==="tracked_only") { doc.setFontSize(8); sc(AMBER); doc.text("TRACKED ONLY — excluded from consolidated net worth",  ML, y); y += 5; }
         sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+45, y); y += 7;
-        const bizEq = safe(biz.cashAccounts)-safe(biz.liabilities);
+        const bizEq = bSnap.eq != null ? bSnap.eq : safe(bSnap.cashAccounts)-safe(bSnap.liabilities);
         const bf2 = [
-          ["Cash Accounts",$p(biz.cashAccounts)], ["Liabilities", $p(biz.liabilities)],
-          ["Tax Payable",  $p(biz.taxPayable)],   ["Credit Cards",$p(biz.creditCards)],
+          ["Cash Accounts",$p(bSnap.cashAccounts)], ["Liabilities", $p(bSnap.liabilities)],
+          ["Tax Payable",  $p(bSnap.taxPayable)],   ["Credit Cards",$p(bSnap.creditCards)],
           ["Net Equity",   $p(bizEq)],
         ];
         for (let i = 0; i < bf2.length; i += 2) {
@@ -5567,7 +5569,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           y += 5;
         }
         y += 2; pdfNote(biz.notes);
-        const plog = (biz.monthlyProfits||[]).slice().reverse();
+        const plog = (biz.monthlyProfits||[]).filter(e => e.month <= s.month).slice().reverse();
         if (plog.length > 0) {
           checkY(12); subHead("Monthly P&L Log");
           tbl(["Month","Revenue","Expenses","Profit"],
@@ -5613,7 +5615,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const cfRentBase = data.properties.reduce((acc,p) => acc+propEffectiveRent(p), 0);
       const cfOutBase  = data.properties.reduce((acc,p) => acc+propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
       tbl(["Month","Total In","Total Out","Net Cash Flow"],
-          Array.from({length:6}, (_, ti) => shiftYM(currentYM(), -(5-ti))).map(tYM => [
+          Array.from({length:6}, (_, ti) => shiftYM(s.month, -(5-ti))).map(tYM => [
             monthLabel(tYM), $p(cfRentBase), $p(cfOutBase), $p(cfRentBase-cfOutBase),
           ]),
           [38,47,47,48]);
@@ -5625,7 +5627,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       let hasRent = false;
       data.properties.forEach(p => {
         propertyLeaseLedgers(p, data.rentPayments||[]).forEach(({ unit, ledger }) => {
-          const nd = ledger.rows.find(r => r.month >= currentYM() && r.outstanding > 0);
+          const nd = ledger.rows.find(r => r.month >= s.month && r.outstanding > 0);
           if (nd) {
             checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
             doc.text(`${p.name} · ${unit.label}`, ML+3, y);
