@@ -305,6 +305,7 @@ function makeLease(lease = {}) {
     lease_notes: lease.lease_notes || "",
     lease_status: lease.lease_status || "vacant",
     deposit_applies_to_rent: lease.deposit_applies_to_rent !== false,
+    rent_due_day: safe(lease.rent_due_day) || 1,
   };
 }
 function makeUnit(unit = {}) {
@@ -453,6 +454,7 @@ const DEFAULT = {
             deposit_date:"2026-04-27",
             payment_frequency:"monthly",
             lease_status:"active",
+            rent_due_day:17,
             lease_notes:"Deposit is currently treated as prepaid rent credit unless manually overridden later."
           }
         }),
@@ -470,6 +472,7 @@ const DEFAULT = {
             deposit_date:"",
             payment_frequency:"monthly",
             lease_status:"active",
+            rent_due_day:17,
             lease_notes:"Lower level lease placeholder. Tenant details can be added inline."
           }
         }),
@@ -5205,8 +5208,8 @@ function AdminExpensesTab({ userId, isAdmin, allProfiles, individuals }) {
 }
 
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
-function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
-  const [copied, setCopied]       = useState(false);
+function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
+  const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const reportRef = useRef(null);
@@ -5274,34 +5277,390 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated }) {
   }
 
   async function handleDownloadPdf() {
-    if (!reportRef.current || downloading) return;
-    setDownloading(true); setDownloadError("");
+    if (downloading) return;
+    setDownloading(true);
+    setDownloadError("");
     try {
-      const { jsPDF, html2canvas } = await loadPdfTools();
-      await new Promise(resolve => setTimeout(resolve, 60));
-      const canvas = await html2canvas(reportRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false });
-      const imageData  = canvas.toDataURL("image/png");
-      const pdf        = new jsPDF("p", "pt", "a4");
-      const pageWidth  = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imageWidth  = pageWidth;
-      const imageHeight = (canvas.height * imageWidth) / canvas.width;
-      let heightLeft    = imageHeight;
+      const { jsPDF } = await loadPdfTools();
+      const doc = new jsPDF("p", "mm", "a4");
+      const PW = 210, PH = 297, ML = 15, MR = 15, MT = 18, MB = 18, FH = 12;
+      const CW = PW - ML - MR;
+      const BOTTOM = PH - MB - FH;
+      let y = MT;
+      let pageNum = 1;
+      const genTS = new Date().toLocaleString("en-CA", { year:"numeric", month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
+      const adminDisplayName = adminName || "Admin";
 
-      pdf.addImage(imageData, "PNG", 0, 0, imageWidth, imageHeight, undefined, "FAST");
-      heightLeft -= pageHeight;
+      const NAV   = [11,  24,  41 ];
+      const GOLD  = [184, 150, 46 ];
+      const BLACK = [15,  25,  35 ];
+      const DIM   = [138, 150, 168];
+      const MID   = [74,  85,  104];
+      const RED   = [192, 57,  43 ];
+      const GREEN = [30,  132, 73 ];
+      const AMBER = [183, 119, 13 ];
+      const BORDER= [223, 228, 237];
 
-      // Skip near-empty trailing pages (< 8% content) to eliminate blank last pages
-      while (heightLeft > pageHeight * 0.08) {
-        const pos = heightLeft - imageHeight;
-        pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, pos, imageWidth, imageHeight, undefined, "FAST");
-        heightLeft -= pageHeight;
+      const sc  = (rgb) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+      const sdc = (rgb) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+      const sfc = (rgb) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      const $p  = (n) => { const v = safe(n), a = Math.abs(v), sg = v < 0 ? "-$" : "$"; return sg + Math.round(a).toLocaleString("en-CA"); };
+
+      function addFooter() {
+        doc.setFontSize(7); doc.setFont("helvetica","normal"); sc(DIM);
+        doc.text("JMF Family Office — CONFIDENTIAL", ML, PH - MB + 5);
+        doc.text(`Page ${pageNum}`, PW/2, PH - MB + 5, { align:"center" });
+        doc.text(genTS, PW - MR, PH - MB + 5, { align:"right" });
       }
 
-      const generatedAt = new Date().toISOString();
-      pdf.save(reportFileName(s.month));
-      onGenerated?.({ snapshotMonth: s.month, snapshotCapturedAt: s.capturedAt, generatedAt });
+      function newPage() { addFooter(); doc.addPage(); pageNum++; y = MT; }
+      function checkY(h) { if (y + h > BOTTOM) newPage(); }
+
+      function secHeader(title) {
+        newPage();
+        doc.setFontSize(16); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(title, ML, y); y += 2;
+        sdc(GOLD); doc.setLineWidth(0.5); doc.line(ML, y, ML+CW, y); y += 9;
+      }
+
+      function subHead(title) {
+        checkY(12); doc.setFontSize(11); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(title, ML, y); y += 7;
+      }
+
+      function row2(lbl, val, col) {
+        checkY(7); doc.setFontSize(9); doc.setFont("helvetica","bold"); sc(MID);
+        doc.text(lbl, ML, y); doc.setFont("helvetica","normal"); sc(col || BLACK);
+        doc.text(String(val), PW - MR, y, { align:"right" }); y += 7;
+      }
+
+      function pair(l1, v1, l2, v2) {
+        checkY(6);
+        doc.setFontSize(8.5); doc.setFont("helvetica","bold"); sc(MID);
+        doc.text(l1 + ":", ML, y);
+        doc.setFont("helvetica","normal"); sc(BLACK); doc.text(String(v1 ?? "—"), ML+28, y);
+        if (l2 !== undefined) {
+          doc.setFont("helvetica","bold"); sc(MID); doc.text(l2 + ":", ML+CW/2, y);
+          doc.setFont("helvetica","normal"); sc(BLACK); doc.text(String(v2 ?? "—"), ML+CW/2+28, y);
+        }
+        y += 5;
+      }
+
+      function pdfNote(text) {
+        if (!text) return;
+        checkY(7); doc.setFontSize(8); doc.setFont("helvetica","italic"); sc(DIM);
+        doc.splitTextToSize("Notes: " + text, CW).forEach(line => { checkY(5); doc.text(line, ML, y); y += 4.5; });
+        y += 2;
+      }
+
+      function tblRow(cols, widths, isHdr, isAlt) {
+        const rh = 6;
+        if (isHdr)      { sfc(NAV);           doc.rect(ML, y-4.5, CW, rh, "F"); }
+        else if (isAlt) { sfc([248,249,251]);  doc.rect(ML, y-4.5, CW, rh, "F"); }
+        let x = ML + 1;
+        cols.forEach((txt, ci) => {
+          doc.setFontSize(8.5);
+          if (isHdr) { doc.setFont("helvetica","bold"); sc([255,255,255]); }
+          else       { doc.setFont("helvetica","normal"); sc(BLACK); }
+          const al = (ci === cols.length - 1) ? "right" : "left";
+          doc.text(String(txt || ""), al === "right" ? x + widths[ci] - 3 : x + 1, y, { align: al });
+          x += widths[ci];
+        });
+        y += rh;
+      }
+
+      function tbl(headers, rows, widths) {
+        checkY(8 + Math.min(rows.length, 4) * 6);
+        tblRow(headers, widths, true, false);
+        rows.forEach((row, ri) => { checkY(6); tblRow(row, widths, false, ri % 2 === 1); });
+        sdc(BORDER); doc.setLineWidth(0.2); doc.line(ML, y, ML+CW, y); y += 4;
+      }
+
+      // ── 1. COVER ──────────────────────────────────────────────────────────
+      sfc(GOLD); doc.rect(0, 0, PW, 3, "F");
+      sfc(NAV);  doc.rect(0, 3, PW, 76, "F");
+      doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(GOLD);
+      doc.text("JMF FAMILY OFFICE", PW/2, 28, { align:"center" });
+      doc.setFontSize(24); doc.setFont("helvetica","bold"); sc([255,255,255]);
+      doc.text("Family Office Strategic Report", PW/2, 46, { align:"center" });
+      doc.setFontSize(14); doc.setFont("helvetica","normal"); sc([200,210,220]);
+      doc.text(monthLabel(s.month), PW/2, 60, { align:"center" });
+      y = 100;
+      [["Period", monthLabel(s.month)], ["Generated", genTS],
+       ["Generated By", adminDisplayName],
+       ["Snapshot Captured", new Date(s.capturedAt).toLocaleDateString("en-CA", { year:"numeric", month:"long", day:"numeric" })]
+      ].forEach(([lbl, val]) => {
+        doc.setFontSize(9); doc.setFont("helvetica","bold"); sc(DIM);
+        doc.text(lbl + ":", PW/2 - 5, y, { align:"right" });
+        doc.setFont("helvetica","normal"); sc(BLACK); doc.text(val, PW/2 + 5, y); y += 7;
+      });
+      doc.setFontSize(8); sc(DIM);
+      doc.text("CONFIDENTIAL — For authorized recipients only.", PW/2, PH - 22, { align:"center" });
+      addFooter();
+
+      // ── 2. EXECUTIVE SUMMARY ──────────────────────────────────────────────
+      doc.addPage(); pageNum++; y = MT;
+      doc.setFontSize(16); doc.setFont("helvetica","bold"); sc(NAV);
+      doc.text("Executive Summary", ML, y); y += 2;
+      sdc(GOLD); doc.setLineWidth(0.5); doc.line(ML, y, ML+CW, y); y += 9;
+
+      const indN = f => safe(f.cash)+safe(f.accounts)+safe(f.securities)+safe(f.crypto)+safe(f.physicalAssets);
+      const reNRE    = data.properties.reduce((acc, p) => { const mkt = getMarketValueCad(p), fee = mkt*0.035, sc2 = fee+fee*0.13+5000; return acc+(mkt-propCurrentMortgageBalance(p)-sc2)*propOwnership(p); }, 0);
+      const reGrossEq= data.properties.reduce((acc, p) => acc + propGrossEquity(p), 0);
+      const totalLiq = data.individuals.reduce((acc, f) => acc + indN(f), 0);
+      const totalBizEq = data.businesses.filter(b => b.type!=="nonprofit"&&b.type!=="tracked_only").reduce((acc, b) => acc+safe(b.cashAccounts)-safe(b.liabilities), 0);
+      const totalMortObl = data.properties.reduce((acc, p) => acc + getMortgageOperatingPayment(p), 0);
+      const totalOutflows = data.properties.reduce((acc, p) => acc + propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
+      const totalIncLog = data.individuals.reduce((acc, ind) => { const e = (ind.monthlyIncome||[]).find(x => x.month === s.month); return acc+safe(e?.income); }, 0);
+      const snapNW = s.nw != null ? s.nw : reNRE + totalLiq + totalBizEq;
+
+      [
+        ["Consolidated Net Worth (Net Realisable)", $p(snapNW),       null ],
+        ["RE Gross Equity",                         $p(reGrossEq),    null ],
+        ["RE Net Realisable (after est. sale costs)",$p(reNRE),       null ],
+        ["Total Individual Liquid Assets",           $p(totalLiq),    null ],
+        ["Total Business Equity",                   $p(totalBizEq),   null ],
+        ["Total Monthly Mortgage Obligations",      $p(totalMortObl), RED  ],
+        ["Total Monthly Outflows",                  $p(totalOutflows),RED  ],
+        ["Total Income Logged (period)",            $p(totalIncLog),  GREEN],
+      ].forEach(([lbl, val, col]) => row2(lbl, val, col));
+      // footer drawn by secHeader("Real Estate Portfolio") via newPage()
+
+      // ── 3. REAL ESTATE ────────────────────────────────────────────────────
+      secHeader("Real Estate Portfolio");
+      data.properties.forEach((p, pi) => {
+        if (pi > 0) checkY(30);
+        doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(p.name, ML, y); y += 2;
+        sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+55, y); y += 7;
+
+        const ov = [
+          ["Purchase",        $p(p.purchase)],         ["Market Value",    $p(getMarketValueCad(p))],
+          ["Mortgage Bal.",   $p(propCurrentMortgageBalance(p))], ["Gross Equity",  $p(propGrossEquity(p))],
+          ["LTV",             safe(p.mortgage)>0 ? `${Math.round(propCurrentMortgageBalance(p)/getMarketValueCad(p)*100)}%` : "N/A"],
+          ["Ownership",       `${Math.round(propOwnership(p)*100)}%`],
+          ...(p.co_owner ? [["Co-Owner", p.co_owner]] : []),
+          ["Lender",          p.lender||"—"],           ["Rate",            p.rate||"—"],
+          ["Rate Type",       p.rateType||"—"],          ["Maturity",        p.maturity||"—"],
+          ["Monthly Pmt.",    $p(p.monthlyPayment)],    ["Monthly P+I",     $p(p.monthly_pi)],
+          ["Monthly Tax",     $p(p.monthlyTax)],        ["Tax Acc. Bal.",   $p(p.tax_account_balance)],
+          ["Insurance/mo",    $p(p.monthly_insurance)], ["Mgmt Fee",        $p(p.management_fee_monthly)],
+          ["Maint. Reserve",  $p(p.maintenance_reserve_monthly)], ["Utilities", $p(p.utilities_monthly)],
+          ["Monthly Rent",    $p(propEffectiveRent(p))],["Occupancy",       (p.occupancy_status||"—").replace(/_/g," ")],
+          ["Status",          p.status||"—"],
+        ];
+        for (let i = 0; i < ov.length; i += 2) pair(ov[i][0], ov[i][1], ov[i+1]?.[0], ov[i+1]?.[1]);
+        y += 3; pdfNote(p.notes);
+
+        // Mortgage schedule — next 12 months
+        const ms = calculateMortgageSnapshot(p, currentYM());
+        if (ms.monthlyPI > 0) {
+          checkY(12); subHead("Mortgage Schedule — Next 12 Months");
+          let bal2 = ms.displayedBalance, mr2 = safe(p.interest_rate)/100/12;
+          tbl(["Month","Payment","Interest","Principal","Balance"],
+            Array.from({length:12}, (_, mi) => {
+              const mym = shiftYM(currentYM(), mi);
+              const int2 = mr2>0 ? bal2*mr2 : 0;
+              const pri2 = (p.payment_structure==="interest_only"||p.payment_structure==="loc") ? 0 : Math.max(0,Math.min(bal2,ms.monthlyPI-int2));
+              bal2 = Math.max(0, bal2-pri2);
+              return [monthLabel(mym), `$${ms.monthlyPI.toFixed(2)}`, `$${int2.toFixed(2)}`, `$${pri2.toFixed(2)}`, `$${bal2.toFixed(2)}`];
+            }),
+            [30,33,33,33,31]
+          );
+        }
+
+        // Tenants & rent ledger
+        const ldgs = propertyLeaseLedgers(p, data.rentPayments||[]);
+        if (ldgs.length > 0) {
+          checkY(12); subHead("Tenants & Rent Ledger");
+          ldgs.forEach(({ unit, ledger }) => {
+            checkY(14);
+            doc.setFontSize(9); doc.setFont("helvetica","bold"); sc(MID);
+            doc.text(`${unit.label} — ${ledger.lease.tenant_full_name||"Tenant TBD"}`, ML+2, y); y += 5;
+            doc.setFontSize(8.5); doc.setFont("helvetica","normal"); sc(BLACK);
+            doc.text([
+              `Start: ${formatDate(ledger.lease.lease_start_date)}`,
+              `End: ${formatDate(ledger.lease.lease_end_date)}`,
+              `Rent: ${$p(ledger.lease.monthly_rent)}/mo`,
+              `Deposit: ${$p(ledger.lease.deposit_received)}`,
+            ].join("   "), ML+2, y); y += 6;
+            const fromYM = shiftYM(currentYM(), -11);
+            const lRows = ledger.rows.filter(r => r.month>=fromYM && r.month<=currentYM()).map(r => [
+              monthLabel(r.month), r.dueDate||r.month+"-01", $p(r.amount), $p(r.paid), $p(r.creditApplied), $p(r.outstanding),
+            ]);
+            if (lRows.length > 0) tbl(["Month","Due Date","Amount","Paid","Credit","Outstanding"], lRows, [25,28,25,24,20,28]);
+          });
+        }
+
+        // Tax notice
+        if (safe(p.tax_notice_next_installment) > 0) {
+          checkY(14); doc.setFontSize(9); doc.setFont("helvetica","bold"); sc(AMBER);
+          doc.text("Tax Notice:", ML, y); y += 5;
+          doc.setFont("helvetica","normal"); sc(BLACK);
+          doc.text(`Outstanding: ${$p(p.tax_notice_outstanding)}   Penalty: ${$p(p.tax_notice_penalty)}   Next: ${$p(p.tax_notice_next_installment)} due ${p.tax_notice_next_due||"—"}`, ML, y); y += 6;
+        }
+        y += 5;
+      });
+
+      // ── 4. INDIVIDUALS ────────────────────────────────────────────────────
+      secHeader("Individuals");
+      data.individuals.forEach((ind, ii) => {
+        if (ii > 0) checkY(30);
+        doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(ind.name, ML, y); y += 2;
+        sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+45, y); y += 7;
+        const net2 = indN(ind);
+        const bf = [
+          ["Cash", $p(ind.cash)],           ["Accounts",        $p(ind.accounts)],
+          ["Debt", $p(ind.debt)],           ["Securities",      $p(ind.securities)],
+          ["Crypto", $p(ind.crypto)],       ["Physical Assets", $p(ind.physicalAssets)],
+          ["Net Worth", $p(net2)],
+        ];
+        for (let i = 0; i < bf.length; i += 2) {
+          checkY(6);
+          doc.setFontSize(8.5); doc.setFont("helvetica","bold"); sc(MID);
+          doc.text(bf[i][0]+":", ML, y);
+          doc.setFont("helvetica","normal");
+          sc(bf[i][0]==="Net Worth" ? (net2>=0?GREEN:RED) : BLACK);
+          doc.text(bf[i][1], ML+28, y);
+          if (bf[i+1]) {
+            doc.setFont("helvetica","bold"); sc(MID); doc.text(bf[i+1][0]+":", ML+CW/2, y);
+            doc.setFont("helvetica","normal"); sc(BLACK); doc.text(bf[i+1][1], ML+CW/2+28, y);
+          }
+          y += 5;
+        }
+        y += 3;
+        const incLog = (ind.monthlyIncome||[]).slice().reverse();
+        if (incLog.length > 0) {
+          checkY(12); subHead("Monthly Income Log");
+          tbl(["Month","Kratos Income","Other Income","Total","Notes"],
+              incLog.map(e => [monthLabel(e.month),$p(e.kratosIncome),$p(e.otherIncome),$p(e.income),e.notes||""]),
+              [30,32,32,30,36]);
+        }
+        y += 5;
+      });
+
+      // ── 5. BUSINESSES ─────────────────────────────────────────────────────
+      secHeader("Business Entities");
+      data.businesses.forEach((biz, bi) => {
+        if (bi > 0) checkY(30);
+        doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(biz.name, ML, y); y += 5;
+        if (biz.type==="nonprofit")    { doc.setFontSize(8); sc(AMBER); doc.text("NON-PROFIT — excluded from consolidated net worth",   ML, y); y += 5; }
+        if (biz.type==="tracked_only") { doc.setFontSize(8); sc(AMBER); doc.text("TRACKED ONLY — excluded from consolidated net worth",  ML, y); y += 5; }
+        sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+45, y); y += 7;
+        const bizEq = safe(biz.cashAccounts)-safe(biz.liabilities);
+        const bf2 = [
+          ["Cash Accounts",$p(biz.cashAccounts)], ["Liabilities", $p(biz.liabilities)],
+          ["Tax Payable",  $p(biz.taxPayable)],   ["Credit Cards",$p(biz.creditCards)],
+          ["Net Equity",   $p(bizEq)],
+        ];
+        for (let i = 0; i < bf2.length; i += 2) {
+          checkY(6); doc.setFontSize(8.5); doc.setFont("helvetica","bold"); sc(MID);
+          doc.text(bf2[i][0]+":", ML, y);
+          doc.setFont("helvetica","normal"); sc(bf2[i][0]==="Net Equity"?(bizEq>=0?GREEN:RED):BLACK);
+          doc.text(bf2[i][1], ML+30, y);
+          if (bf2[i+1]) {
+            doc.setFont("helvetica","bold"); sc(MID); doc.text(bf2[i+1][0]+":", ML+CW/2, y);
+            doc.setFont("helvetica","normal"); sc(BLACK); doc.text(bf2[i+1][1], ML+CW/2+30, y);
+          }
+          y += 5;
+        }
+        y += 2; pdfNote(biz.notes);
+        const plog = (biz.monthlyProfits||[]).slice().reverse();
+        if (plog.length > 0) {
+          checkY(12); subHead("Monthly P&L Log");
+          tbl(["Month","Revenue","Expenses","Profit"],
+              plog.map(e => [monthLabel(e.month),$p(e.revenue),$p(e.expenses),$p(e.profit)]),
+              [38,47,47,48]);
+        }
+        y += 5;
+      });
+
+      // ── 6. CASH FLOW ──────────────────────────────────────────────────────
+      secHeader("Cash Flow");
+      subHead("Income");
+      const cfInc = [
+        { label:"Rental Income", amount: data.properties.reduce((acc,p) => acc+propEffectiveRent(p), 0) },
+        ...(data.cashflow?.income||[]).filter(x => safe(x.amount)>0),
+      ];
+      cfInc.forEach(x => {
+        checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
+        doc.text(x.label||"Other", ML+3, y); sc(GREEN); doc.text($p(x.amount), PW-MR, y, {align:"right"}); y += 5;
+      });
+      const tIn = cfInc.reduce((acc,x) => acc+safe(x.amount), 0);
+      checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(GREEN);
+      doc.text("Total Income", ML, y); doc.text($p(tIn), PW-MR, y, {align:"right"}); y += 9;
+
+      subHead("Obligations");
+      const cfObl2 = [
+        ...data.properties.map(p => ({ label:p.name+" (mortgage+tax+ins.)", amount:propMonthlyOut(p) })),
+        ...(data.cashflow?.obligations||[]).filter(x => safe(x.amount)>0),
+      ];
+      cfObl2.forEach(x => {
+        checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
+        doc.text(x.label||"Other", ML+3, y); sc(RED); doc.text($p(-safe(x.amount)), PW-MR, y, {align:"right"}); y += 5;
+      });
+      const tOut = cfObl2.reduce((acc,x) => acc+safe(x.amount), 0);
+      checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(RED);
+      doc.text("Total Obligations", ML, y); doc.text($p(-tOut), PW-MR, y, {align:"right"}); y += 6;
+      sdc(BORDER); doc.setLineWidth(0.3); doc.line(ML, y, ML+CW, y); y += 5;
+      const ncf = tIn - tOut;
+      checkY(9); doc.setFontSize(12); doc.setFont("helvetica","bold"); sc(ncf>=0?GREEN:RED);
+      doc.text("Net Cash Flow (Current Month)", ML, y); doc.text($p(ncf), PW-MR, y, {align:"right"}); y += 10;
+
+      subHead("Cash Flow Trend — Last 6 Months");
+      const cfRentBase = data.properties.reduce((acc,p) => acc+propEffectiveRent(p), 0);
+      const cfOutBase  = data.properties.reduce((acc,p) => acc+propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
+      tbl(["Month","Total In","Total Out","Net Cash Flow"],
+          Array.from({length:6}, (_, ti) => shiftYM(currentYM(), -(5-ti))).map(tYM => [
+            monthLabel(tYM), $p(cfRentBase), $p(cfOutBase), $p(cfRentBase-cfOutBase),
+          ]),
+          [38,47,47,48]);
+
+      // ── 7. REMINDERS ──────────────────────────────────────────────────────
+      secHeader("Reminders & Action Items");
+
+      subHead("Upcoming Rent Collections");
+      let hasRent = false;
+      data.properties.forEach(p => {
+        propertyLeaseLedgers(p, data.rentPayments||[]).forEach(({ unit, ledger }) => {
+          const nd = ledger.rows.find(r => r.month >= currentYM() && r.outstanding > 0);
+          if (nd) {
+            checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
+            doc.text(`${p.name} · ${unit.label}`, ML+3, y);
+            sc(BLACK); doc.text(`${$p(nd.outstanding)} due ${nd.dueDate||nd.month}`, PW-MR, y, {align:"right"});
+            y += 5; hasRent = true;
+          }
+        });
+      });
+      if (!hasRent) { checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(DIM); doc.text("All rent collections up to date.", ML, y); y += 5; }
+      y += 4;
+
+      subHead("Mortgage Maturities");
+      let hasMat = false;
+      data.properties.filter(p => p.maturity && p.maturity!=="N/A" && p.maturity!=="TBC").forEach(p => {
+        checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
+        doc.text(p.name, ML+3, y); sc(AMBER); doc.text(`Matures ${p.maturity} · ${p.rateType||"—"}`, PW-MR, y, {align:"right"});
+        y += 5; hasMat = true;
+      });
+      if (!hasMat) { checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(DIM); doc.text("No mortgage maturities recorded.", ML, y); y += 5; }
+      y += 4;
+
+      subHead("Tax Notice Due Dates");
+      let hasTax = false;
+      data.properties.filter(p => safe(p.tax_notice_next_installment) > 0).forEach(p => {
+        checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
+        doc.text(p.name, ML+3, y); sc(AMBER); doc.text(`${$p(p.tax_notice_next_installment)} due ${p.tax_notice_next_due||"—"}`, PW-MR, y, {align:"right"});
+        y += 5; hasTax = true;
+      });
+      if (!hasTax) { checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(DIM); doc.text("No outstanding tax notice installments.", ML, y); y += 5; }
+
+      addFooter();
+
+      const generatedAtISO = new Date().toISOString();
+      doc.save(reportFileName(s.month));
+      onGenerated?.({ snapshotMonth: s.month, snapshotCapturedAt: s.capturedAt, generatedAt: generatedAtISO });
     } catch (error) {
       console.error("Report PDF download failed", error);
       setDownloadError("PDF download failed. Please try again.");
@@ -6058,7 +6417,7 @@ function SnapshotBreakdownModal({ item, month, onClose }) {
 }
 
 // ─── REPORTS TAB ──────────────────────────────────────────────────────────────
-function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
+function HistoryTab({ data, onSaveSnapshot, onReportGenerated, adminName }) {
   const [drill, setDrill] = useState(null); // snapshot object
   const [breakdownItem, setBreakdownItem] = useState(null); // { ...row, _type, _month }
   const [snapNote, setSnapNote] = useState("");
@@ -6073,7 +6432,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
   if (drill) {
     return (
       <div>
-        {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
+        {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} adminName={adminName} />}
         {breakdownItem && <SnapshotBreakdownModal item={breakdownItem} month={drill.month} onClose={() => setBreakdownItem(null)} />}
         <button onClick={() => setDrill(null)} style={{ fontSize: 12, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, padding: "6px 14px", cursor: "pointer", marginBottom: 20 }}>← Back</button>
         <div style={{ marginBottom: 16 }}>
@@ -6163,7 +6522,7 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated }) {
 
   return (
     <div>
-      {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} />}
+      {reportSnap && <ReportModal snapshot={reportSnap} data={data} onClose={() => setReportSnap(null)} onGenerated={onReportGenerated} adminName={adminName} />}
       {/* Capture Snapshot */}
       <div style={{ background: hasThisMonth ? C.greenLight : C.amberLight, border: `1px solid ${hasThisMonth ? "rgba(39,174,96,0.30)" : "rgba(230,168,23,0.35)"}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -6296,8 +6655,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const ym = currentYM();
     const prevYM = shiftYM(ym, -1);
     const dayOfMonth = new Date().getDate();
-    const missingRent = data.properties
-      .filter(p => propertyOutstandingForMonth(p, data.rentPayments || [], ym) > 0);
+    const missingRent = data.properties.filter(p =>
+      getPropertyUnits(p).some(unit => {
+        const lease = getActiveLease(unit);
+        if (!lease) return false;
+        const dueDay = safe(lease.rent_due_day) || 1;
+        if (dayOfMonth < dueDay + 3) return false;
+        const ledger = buildLeaseLedger(unit, p, data.rentPayments || []);
+        const row = ledger?.rows.find(r => r.month === ym);
+        return row ? row.outstanding > 0 : false;
+      })
+    );
     // P&L for previous month is only due on/after the 5th (mirrors notification logic)
     const missingProfits = dayOfMonth >= 5
       ? data.businesses
@@ -7798,6 +8166,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             data={data}
             onSaveSnapshot={note => saveSnapshot(note)}
             onReportGenerated={entry => recordReportGeneration(entry)}
+            adminName={user?.profile?.display_name || "Admin"}
           />
         )}
 
