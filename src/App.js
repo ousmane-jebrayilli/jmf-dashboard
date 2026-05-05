@@ -5581,43 +5581,60 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
 
       // ── 6. CASH FLOW ──────────────────────────────────────────────────────
       secHeader("Cash Flow");
-      subHead("Income");
-      const cfInc = [
-        { label:"Rental Income", amount: data.properties.reduce((acc,p) => acc+propEffectiveRent(p), 0) },
-        ...(data.cashflow?.income||[]).filter(x => safe(x.amount)>0),
+      subHead(`Income — ${monthLabel(s.month)}`);
+      const cfBizIn   = data.businesses.filter(b => b.type !== "nonprofit").reduce((acc, b) => {
+        const e = (b.monthlyProfits||[]).find(p => p.month === s.month); return acc + safe(e?.profit);
+      }, 0);
+      const cfPayroll = data.individuals.reduce((acc, ind) => {
+        const e = (ind.monthlyIncome||[]).find(p => p.month === s.month); return acc + safe(e?.income);
+      }, 0);
+      const cfRentIn  = data.properties.reduce((acc, p) => acc + propJMFEffectiveRent(p), 0);
+      const cfOtherIn = (data.cashflow?.income||[]).reduce((acc, i) => acc + safe(i.amount), 0);
+      const cfIncItems = [
+        ...(cfBizIn  > 0 ? [{ label:"Business Profits",  amount: cfBizIn  }] : []),
+        ...(cfPayroll > 0 ? [{ label:"Individual Income", amount: cfPayroll }] : []),
+        { label:"Rental Income", amount: cfRentIn },
+        ...(data.cashflow?.income||[]).filter(x => safe(x.amount) > 0),
       ];
-      cfInc.forEach(x => {
+      cfIncItems.forEach(x => {
         checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
         doc.text(x.label||"Other", ML+3, y); sc(GREEN); doc.text($p(x.amount), PW-MR, y, {align:"right"}); y += 5;
       });
-      const tIn = cfInc.reduce((acc,x) => acc+safe(x.amount), 0);
+      const tIn = cfBizIn + cfPayroll + cfRentIn + cfOtherIn;
       checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(GREEN);
       doc.text("Total Income", ML, y); doc.text($p(tIn), PW-MR, y, {align:"right"}); y += 9;
 
       subHead("Obligations");
+      const cfVehicleOut = (data.vehicles||[]).reduce((acc, v) => acc + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
       const cfObl2 = [
-        ...data.properties.map(p => ({ label:p.name+" (mortgage+tax+ins.)", amount:propMonthlyOut(p) })),
-        ...(data.cashflow?.obligations||[]).filter(x => safe(x.amount)>0),
+        ...data.properties.map(p => ({ label: p.name+" (mortgage+tax+ins.)", amount: propJMFMonthlyOut(p) })),
+        ...(cfVehicleOut > 0 ? [{ label:"Vehicles", amount: cfVehicleOut }] : []),
+        ...(data.cashflow?.obligations||[]).filter(x => safe(x.amount) > 0),
       ];
       cfObl2.forEach(x => {
         checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
         doc.text(x.label||"Other", ML+3, y); sc(RED); doc.text($p(-safe(x.amount)), PW-MR, y, {align:"right"}); y += 5;
       });
-      const tOut = cfObl2.reduce((acc,x) => acc+safe(x.amount), 0);
+      const tOut = cfObl2.reduce((acc, x) => acc + safe(x.amount), 0);
       checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(RED);
       doc.text("Total Obligations", ML, y); doc.text($p(-tOut), PW-MR, y, {align:"right"}); y += 6;
       sdc(BORDER); doc.setLineWidth(0.3); doc.line(ML, y, ML+CW, y); y += 5;
       const ncf = tIn - tOut;
       checkY(9); doc.setFontSize(12); doc.setFont("helvetica","bold"); sc(ncf>=0?GREEN:RED);
-      doc.text("Net Cash Flow (Current Month)", ML, y); doc.text($p(ncf), PW-MR, y, {align:"right"}); y += 10;
+      doc.text(`Net Cash Flow — ${monthLabel(s.month)}`, ML, y); doc.text($p(ncf), PW-MR, y, {align:"right"}); y += 10;
 
       subHead("Cash Flow Trend — Last 6 Months");
-      const cfRentBase = data.properties.reduce((acc,p) => acc+propEffectiveRent(p), 0);
-      const cfOutBase  = data.properties.reduce((acc,p) => acc+propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
       tbl(["Month","Total In","Total Out","Net Cash Flow"],
-          Array.from({length:6}, (_, ti) => shiftYM(s.month, -(5-ti))).map(tYM => [
-            monthLabel(tYM), $p(cfRentBase), $p(cfOutBase), $p(cfRentBase-cfOutBase),
-          ]),
+          Array.from({length:6}, (_, ti) => shiftYM(s.month, -(5-ti))).map(tYM => {
+            const tBiz = data.businesses.filter(b => b.type !== "nonprofit").reduce((acc, b) => {
+              const e = (b.monthlyProfits||[]).find(p => p.month === tYM); return acc + safe(e?.profit);
+            }, 0);
+            const tPay = data.individuals.reduce((acc, ind) => {
+              const e = (ind.monthlyIncome||[]).find(p => p.month === tYM); return acc + safe(e?.income);
+            }, 0);
+            const tIn2 = tBiz + tPay + cfRentIn + cfOtherIn;
+            return [monthLabel(tYM), $p(tIn2), $p(-tOut), $p(tIn2 - tOut)];
+          }),
           [38,47,47,48]);
 
       // ── 7. REMINDERS ──────────────────────────────────────────────────────
