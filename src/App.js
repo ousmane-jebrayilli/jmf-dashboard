@@ -5305,6 +5305,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const sdc = (rgb) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
       const sfc = (rgb) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
       const $p  = (n) => { const v = safe(n), a = Math.abs(v), sg = v < 0 ? "-$" : "$"; return sg + Math.round(a).toLocaleString("en-CA"); };
+      const $pfull = (n) => { const v = parseFloat(n)||0; return (v<0?"-$":"$")+Math.abs(v).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2}); };
+      const pdfStr = (s) => (s||"").replace(/≈/g,"~").replace(/≥/g,">=").replace(/×/g,"x").replace(/≤/g,"<=");
 
       function addFooter() {
         doc.setFontSize(7); doc.setFont("helvetica","normal"); sc(DIM);
@@ -5441,14 +5443,13 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const _tocYs = {}; // key → y position on TOC page for page num column
       const _spgs  = {}; // key → section start page num (recorded as each section starts)
       const _tocDef = [
-        { key:"exec", num:"1", title:"Executive Summary",        desc:"Performance snapshot · KPIs · risk flags · portfolio allocation · net worth history" },
+        { key:"exec", num:"1", title:"Executive Summary",        desc:"Performance snapshot · KPIs · portfolio allocation · net worth history" },
         { key:"obs",  num:"2", title:"Key Observations",         desc:"Auto-generated risk, watch, and opportunity insights in priority order" },
         { key:"re",   num:"3", title:"Real Estate Portfolio",    desc:"Per-property detail · mortgage schedules · rent ledgers · cash-flow & yield analysis" },
         { key:"ind",  num:"4", title:"Individuals",              desc:"Liquid asset balances · income logs" },
         { key:"biz",  num:"5", title:"Business Entities",        desc:"Balance sheets · P&L history · trend analysis · year-over-year comparison" },
         { key:"cf",   num:"6", title:"Cash Flow",                desc:"Income vs obligations · net cash flow · 6-month trend · analysis commentary" },
         { key:"rem",  num:"7", title:"Reminders & Action Items", desc:"Outstanding rent · mortgage maturities · upcoming tax notices" },
-        { key:"gloss",num:"3*",title:"Glossary & Definitions",   desc:"Key terms, metric definitions and calculation methodology (page 3)" },
       ];
       doc.addPage(); pageNum++; y = MT;
       doc.setFontSize(14); doc.setFont("helvetica","bold"); sc(NAV);
@@ -5460,7 +5461,13 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         doc.rect(ML, y-5, CW, 13, "FD");
         sfc(GOLD); doc.rect(ML, y-5, 3, 13, "F");
         doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(NAV);
-        doc.text(num+". "+title, ML+6, y);
+        const _tocTitle = num+". "+title;
+        doc.text(_tocTitle, ML+6, y);
+        const _titW = doc.getTextWidth(_tocTitle);
+        doc.setFontSize(8); doc.setFont("helvetica","normal"); sc([180,190,205]);
+        const _dotW = doc.getTextWidth(".");
+        const _ds = ML+6+_titW+3, _de = PW-MR-14;
+        if (_de > _ds && _dotW > 0) doc.text(".".repeat(Math.floor((_de-_ds)/_dotW)), _ds, y);
         doc.setFontSize(8); doc.setFont("helvetica","normal"); sc(MID);
         doc.text(desc, ML+6, y+5.5);
         _tocYs[key] = y; // save for deferred page number write
@@ -5478,7 +5485,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         ["Net Realisable Equity (NRE)", "Estimated cash from selling a property: market value minus outstanding mortgage, minus selling costs (~3.5% commission + HST + $5K legal), adjusted for JMF ownership %."],
         ["Gross Equity",                "Market value minus outstanding mortgage. Does not deduct selling costs or adjust for co-ownership percentage."],
         ["LTV — Loan-to-Value",         "Outstanding mortgage ÷ market value, as %. Above 80% limits refinancing options; above 90% is considered high leverage."],
-        ["DSCR — Debt Service Coverage","Annual rental income ÷ annual mortgage debt service. Below 1.0x means rent does not self-fund the mortgage. Lenders typically require ≥1.2x."],
+        ["DSCR — Debt Service Coverage","Annual rental income / annual mortgage debt service. Below 1.0x means rent does not self-fund the mortgage. Lenders typically require >=1.2x."],
         ["NCF — Net Cash Flow",         "Total monthly inflows (business profits + individual income + rent + other) minus total monthly obligations (mortgages + tax + insurance + vehicles + other)."],
         ["P+I — Principal + Interest",  "Core mortgage payment component. Excludes property tax, insurance, maintenance reserves, and management fees."],
         ["Cap Rate",                    "Net Operating Income (annual rent minus operating expenses) ÷ market value. A yield measure independent of financing structure."],
@@ -5632,42 +5639,6 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       });
       y += 3;
 
-      // ── Risk Flags ──
-      subHead("Risk Flags");
-      const _rFlags = [];
-      data.properties.forEach(p => {
-        const ltv = safe(p.mortgage) > 0 ? propCurrentMortgageBalance(p, s.month) / Math.max(1, getMarketValueCad(p)) : 0;
-        if (ltv > 0.8) _rFlags.push(["HIGH",   p.name, `LTV ${(ltv*100).toFixed(0)}% — elevated leverage; monitor refinancing options and rate exposure on renewal`]);
-        if ((p.occupancy_status||"").toLowerCase().includes("vacant")) _rFlags.push(["MEDIUM", p.name, "Vacant — carrying costs ongoing with no rental income offsetting obligations"]);
-        if (p.maturity && p.maturity !== "N/A" && p.maturity !== "TBC") {
-          const mStr = String(p.maturity).replace(/\s+/g,"-").slice(0,7);
-          if (mStr > s.month && mStr <= shiftYM(s.month, 12)) _rFlags.push(["HIGH", p.name, `Mortgage matures ${p.maturity} — renewal required within 12 months; rate risk on renewal`]);
-        }
-      });
-      data.businesses.filter(b => b.type !== "nonprofit").forEach(b => {
-        const bpe = (b.monthlyProfits||[]).find(e => e.month === s.month);
-        if (!bpe)                    _rFlags.push(["INFO",   b.name, "No P&L entry logged for this period — update required"]);
-        else if (safe(bpe.profit) < 0) _rFlags.push(["MEDIUM", b.name, `Loss of ${$p(Math.abs(safe(bpe.profit)))} recorded this period — review cost structure`]);
-      });
-      if (_cfNet < -5000) _rFlags.push(["MEDIUM", "Portfolio", `Cash deficit of ${$p(Math.abs(_cfNet))} this period — drawing on liquid reserves; review outflow structure`]);
-      const RFCOL = { HIGH:[200,57,43], MEDIUM:[183,119,13], INFO:[74,85,104] };
-      if (_rFlags.length > 0) {
-        _rFlags.forEach(([lvl, entity, note]) => {
-          checkY(13);
-          sfc([250,250,252]); doc.rect(ML, y-4, CW, 11, "F");
-          sfc(RFCOL[lvl]||MID); doc.rect(ML, y-4, 3, 11, "F");
-          doc.setFontSize(7.5); doc.setFont("helvetica","bold"); sc(RFCOL[lvl]||MID);
-          doc.text(lvl, ML+5, y+0.5);
-          doc.setFontSize(8.5); doc.setFont("helvetica","bold"); sc(BLACK);
-          doc.text(entity, ML+22, y+0.5);
-          doc.setFontSize(8); doc.setFont("helvetica","normal"); sc(MID);
-          doc.text(note, ML+22, y+5.5);
-          y += 14;
-        });
-      } else {
-        doc.setFontSize(9); doc.setFont("helvetica","italic"); sc(DIM);
-        doc.text("No risk flags identified for this period.", ML, y); y += 8;
-      }
       y += 2;
 
       // ── KEY OBSERVATIONS ──────────────────────────────────────────────────
@@ -5724,22 +5695,32 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           head:`${_ltv8090.length} propert${_ltv8090.length===1?"y":"ies"} in elevated LTV range (80–90%)`,
           body:`${_ltv8090.map(p=>{const ltv=propCurrentMortgageBalance(p,s.month)/Math.max(1,getMarketValueCad(p))*100;return `${p.name} at ${ltv.toFixed(0)}% LTV`;}).join(", ")}. Monitor closely. Approaching the 85%+ threshold reduces refinancing options significantly at renewal.` });
       }
-      // P7: Vacant units opportunity
-      const _vacP = data.properties.filter(p=>(p.occupancy_status||"").toLowerCase().includes("vacant"));
+      // P7: Vacant units opportunity (excluding vacant_land — no potential rental income)
+      const _vacP = data.properties.filter(p=>(p.occupancy_status||"").toLowerCase().includes("vacant") && p.property_type !== "vacant_land");
       if (_vacP.length > 0 && _obs.length < 5) {
         const _potRent = _vacP.reduce((a,p)=>a+propEffectiveRent(p),0);
         _obs.push({ level:"WATCH", col:AMBER,
           head:`${_vacP.length} propert${_vacP.length===1?"y is":"ies are"} currently vacant`,
           body:`${_vacP.map(p=>p.name).join(", ")} — representing approximately ${$p(_potRent)}/month in unrealised rental income. Immediate tenant placement is the single highest-impact action available to improve monthly cash flow.` });
       }
-      // P8: Opportunity — large idle RE equity
+      // P8: Business operating losses
+      data.businesses.filter(b=>b.type!=="nonprofit"&&b.type!=="tracked_only").forEach(b => {
+        if (_obs.length >= 5) return;
+        const _bpe = (b.monthlyProfits||[]).find(e=>e.month===s.month);
+        if (_bpe && safe(_bpe.profit) < 0) {
+          _obs.push({ level:"WATCH", col:AMBER,
+            head:`${b.name}: operating loss recorded`,
+            body:`A loss of ${$p(Math.abs(safe(_bpe.profit)))} was recorded for ${monthLabel(s.month)}. Revenue was ${$p(safe(_bpe.revenue))} against expenses of ${$p(safe(_bpe.expenses))}. Review cost structure and revenue pipeline.` });
+        }
+      });
+      // P9: Opportunity — large idle RE equity
       const _bigEq = data.properties.filter(p=>propJMFEquity(p)>1000000);
       if (_bigEq.length > 0 && _obs.length < 5) {
         _obs.push({ level:"OPPORTUNITY", col:GREEN,
           head:"Significant unrealised equity available in real estate",
           body:`${_bigEq.map(p=>`${p.name} (${$p(propJMFEquity(p))} JMF equity)`).join(", ")}. Consider whether a HELOC or cash-out refinance could deploy this idle equity into additional income-producing assets without triggering a taxable event.` });
       }
-      // P9: Positive CF (info)
+      // P10: Positive CF (info)
       if (_cfNet > 0 && _obs.length < 5) {
         _obs.push({ level:"INFO", col:NAV,
           head:`Portfolio is cash-positive this period: ${$p(_cfNet)} surplus`,
@@ -5781,9 +5762,9 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           ["LTV",             safe(p.mortgage)>0 ? `${Math.round(propCurrentMortgageBalance(p, s.month)/getMarketValueCad(p)*100)}%` : "N/A"],
           ["Ownership",       `${Math.round(propOwnership(p)*100)}%`],
           ...(p.co_owner ? [["Co-Owner", p.co_owner]] : []),
-          ["Lender",          p.lender||"—"],           ["Rate",            p.rate||"—"],
+          ["Lender",          p.lender||"—"],           ["Rate",            pdfStr(p.rate)||"—"],
           ["Rate Type",       p.rateType||"—"],          ["Maturity",        p.maturity||"—"],
-          ["Monthly Pmt.",    $p(p.monthlyPayment)],    ["Monthly P+I",     $p(p.monthly_pi)],
+          ["Monthly Pmt.",    $p(p.monthlyPayment)],    ["Monthly P+I",     $p(safe(p.monthly_pi) || getMortgagePI(p))],
           ["Monthly Tax",     $p(p.monthlyTax)],        ["Tax Acc. Bal.",   $p(p.tax_account_balance)],
           ["Insurance/mo",    $p(p.monthly_insurance)], ["Mgmt Fee",        $p(p.management_fee_monthly)],
           ["Maint. Reserve",  $p(p.maintenance_reserve_monthly)], ["Utilities", $p(p.utilities_monthly)],
@@ -5791,7 +5772,21 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           ["Status",          p.status||"—"],
         ];
         for (let i = 0; i < ov.length; i += 2) pair(ov[i][0], ov[i][1], ov[i+1]?.[0], ov[i+1]?.[1]);
-        y += 3; pdfNote(p.notes);
+        // Highlighted NCF row
+        if (p.property_type !== "vacant_land") {
+          const _pNcf = propJMFEffectiveRent(p) - propJMFMonthlyOut(p);
+          checkY(8);
+          sfc([253,249,230]); sdc(GOLD); doc.setLineWidth(0.3);
+          doc.rect(ML, y-1, CW, 8, "FD");
+          doc.setFontSize(3); doc.rect(ML, y-1, 3, 8, "F");
+          sfc(GOLD); doc.rect(ML, y-1, 3, 8, "F");
+          doc.setFontSize(8); doc.setFont("helvetica","bold"); sc(MID);
+          doc.text("NET MONTHLY CASH FLOW (JMF share)", ML+6, y+4);
+          sc(_pNcf >= 0 ? GREEN : RED);
+          doc.text($p(_pNcf)+"/mo", PW-MR, y+4, {align:"right"});
+          y += 11;
+        }
+        y += 2; pdfNote(p.notes);
 
         // Mortgage schedule — next 12 months
         const ms = calculateMortgageSnapshot(p, s.month);
@@ -5804,7 +5799,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
               const int2 = mr2>0 ? bal2*mr2 : 0;
               const pri2 = (p.payment_structure==="interest_only"||p.payment_structure==="loc") ? 0 : Math.max(0,Math.min(bal2,ms.monthlyPI-int2));
               bal2 = Math.max(0, bal2-pri2);
-              return [monthLabel(mym), `$${ms.monthlyPI.toFixed(2)}`, `$${int2.toFixed(2)}`, `$${pri2.toFixed(2)}`, `$${bal2.toFixed(2)}`];
+              return [monthLabel(mym), $pfull(ms.monthlyPI), $pfull(int2), $pfull(pri2), $pfull(bal2)];
             }),
             [30,33,33,33,31]
           );
@@ -5856,7 +5851,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         else             pNotes.push(`Cash-negative: ${$p(Math.abs(pNetCF))}/mo deficit on a JMF ${pOwn}% share basis (${$p(pRent)} rent vs ${$p(pOut)} obligations). Carrying cost is subsidised by other income streams.`);
         if (pDSCR !== null) pNotes.push(`DSCR ${pDSCR.toFixed(2)}x — ${pDSCR < 1 ? "rent alone does not cover debt service" : pDSCR < 1.25 ? "tight debt coverage with little margin" : "adequate debt coverage"}.${pYield != null ? `  Gross yield: ${pYield.toFixed(2)}% p.a.` : ""}`);
         if (pLTV > 0.8) pNotes.push(`LTV ${(pLTV*100).toFixed(0)}% is elevated. Consider principal paydown or formal market revaluation to manage leverage.`);
-        pdfAnalysis(pNotes);
+        if (p.property_type !== "vacant_land") pdfAnalysis(pNotes);
         y += 2;
       });
 
@@ -5865,11 +5860,14 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       _spgs["ind"] = pageNum;
       data.individuals.forEach((ind, ii) => {
         const iSnap = (s.individualBreakdown||[]).find(x => x.id === ind.id) || ind;
+        const _iNet = iSnap.net != null ? iSnap.net : indN(iSnap);
+        const _iHasIncome = (ind.monthlyIncome||[]).some(e => e.month <= s.month);
+        if (_iNet === 0 && !_iHasIncome) return;
         if (ii > 0) checkY(30);
         doc.setFontSize(13); doc.setFont("helvetica","bold"); sc(NAV);
         doc.text(ind.name, ML, y); y += 2;
         sdc(GOLD); doc.setLineWidth(0.3); doc.line(ML, y, ML+45, y); y += 7;
-        const net2 = iSnap.net != null ? iSnap.net : indN(iSnap);
+        const net2 = _iNet;
         const bf = [
           ["Cash", $p(iSnap.cash)],           ["Accounts",        $p(iSnap.accounts)],
           ["Debt", $p(ind.debt)],              ["Securities",      $p(iSnap.securities)],
@@ -5890,12 +5888,14 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           y += 5;
         }
         y += 3;
-        const incLog = (ind.monthlyIncome||[]).filter(e => e.month <= s.month).slice().reverse();
+        const incLog = (ind.monthlyIncome||[]).filter(e => e.month <= s.month).slice().reverse().slice(0, 3);
         if (incLog.length > 0) {
           checkY(12); subHead("Monthly Income Log");
           tbl(["Month","Kratos Income","Other Income","Total","Notes"],
               incLog.map(e => [monthLabel(e.month),$p(e.kratosIncome),$p(e.otherIncome),$p(e.income),e.notes||""]),
               [30,32,32,30,36]);
+          doc.setFontSize(8); doc.setFont("helvetica","italic"); sc(DIM);
+          doc.text("Showing last 3 months. Full history available in the live dashboard.", ML, y); y += 5;
         }
         y += 5;
       });
@@ -5929,12 +5929,14 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           y += 5;
         }
         y += 2; pdfNote(biz.notes);
-        const plog = (biz.monthlyProfits||[]).filter(e => e.month <= s.month).slice().reverse();
+        const plog = (biz.monthlyProfits||[]).filter(e => e.month <= s.month).slice().reverse().slice(0, 3);
         if (plog.length > 0) {
           checkY(12); subHead("Monthly P&L Log");
           tbl(["Month","Revenue","Expenses","Profit"],
               plog.map(e => [monthLabel(e.month),$p(e.revenue),$p(e.expenses),$p(e.profit)]),
               [38,47,47,48]);
+          doc.setFontSize(8); doc.setFont("helvetica","italic"); sc(DIM);
+          doc.text("Showing last 3 months. Full history available in the live dashboard.", ML, y); y += 5;
         }
         // Business performance analysis
         const _bpAll = (biz.monthlyProfits||[]).filter(e => e.month <= s.month).slice().sort((a,b) => a.month.localeCompare(b.month));
@@ -5948,12 +5950,12 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           const _curEnt= (biz.monthlyProfits||[]).find(e => e.month === s.month);
           const bizNts = [];
           bizNts.push(`3-month avg profit: ${$p(_avg3)} · 6-month avg: ${$p(_avg6)}.`);
-          if (_trend > 500)        bizNts.push(`Trend: improving — profit up ${$p(_trend)} over the last 3 logged periods.`);
-          else if (_trend < -500)  bizNts.push(`Trend: declining — profit down ${$p(Math.abs(_trend))} over the last 3 logged periods. Monitor cost structure and revenue pipeline.`);
-          else                     bizNts.push("Trend: broadly flat over the last 3 logged periods.");
+          if (_trend > 500)        bizNts.push(`Recent 3-month trend: profit rose ${$p(_trend)} from ${monthLabel(_bp3[0].month)} to ${monthLabel(_bp3[_bp3.length-1].month)}.`);
+          else if (_trend < -500)  bizNts.push(`Recent 3-month trend: profit fell ${$p(Math.abs(_trend))} from ${monthLabel(_bp3[0].month)} to ${monthLabel(_bp3[_bp3.length-1].month)}. Review cost structure and revenue pipeline.`);
+          else                     bizNts.push("Recent 3-month trend: broadly flat across the last three logged periods.");
           if (_yoySrc && _curEnt) {
             const yoy = safe(_curEnt.profit) - safe(_yoySrc.profit);
-            bizNts.push(`Year-over-year (${monthLabel(s.month)} vs ${monthLabel(_yoySrc.month)}): ${yoy>=0?"+":""}${$p(yoy)} — ${yoy>=0?"positive":"negative"} YoY trajectory.`);
+            bizNts.push(`Year-over-year vs ${monthLabel(_yoySrc.month)}: ${yoy>=0?"+":""}${$p(yoy)} — profit ${yoy>=0?"grew":"declined"} since the same month last year.`);
           }
           pdfAnalysis(bizNts);
         }
@@ -6027,8 +6029,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const _maxAbsV = Math.max(1, ..._tVals.map(Math.abs));
       const _barSlot = CW / 6;
       const _barWid  = _barSlot * 0.6;
-      const _zeroY   = y + _chartH * 0.55;
       checkY(_chartH + 16);
+      const _zeroY   = y + _chartH * 0.55;
       sfc([249,250,252]); doc.rect(ML, y, CW, _chartH, "F");
       sdc([180,190,205]); doc.setLineWidth(0.3); doc.setLineDashPattern([2,2],0);
       doc.line(ML, _zeroY, ML+CW, _zeroY);
@@ -6082,7 +6084,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
           if (nd) {
             checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
             doc.text(`${p.name} · ${unit.label}`, ML+3, y);
-            sc(BLACK); doc.text(`${$p(nd.outstanding)} due ${nd.dueDate||nd.month}`, PW-MR, y, {align:"right"});
+            const _remRent = safe(ledger.lease.monthly_rent) || safe(nd.outstanding);
+            sc(BLACK); doc.text(`${$p(_remRent)}/mo due ${nd.dueDate||nd.month}`, PW-MR, y, {align:"right"});
             y += 5; hasRent = true;
           }
         });
@@ -8630,7 +8633,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             data={data}
             onSaveSnapshot={note => saveSnapshot(note)}
             onReportGenerated={entry => recordReportGeneration(entry)}
-            adminName={user?.profile?.display_name || "Admin"}
+            adminName={user?.profile?.display_name || user?.email || "Admin"}
           />
         )}
 
