@@ -5376,6 +5376,44 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         sdc(BORDER); doc.setLineWidth(0.2); doc.line(ML, y, ML+CW, y); y += 4;
       }
 
+      function pdfAnalysis(lines) {
+        if (!lines || lines.length === 0) return;
+        const lh = 4.5;
+        let textH = 0;
+        lines.forEach(line => { textH += doc.splitTextToSize(String(line), CW - 9).length * lh; });
+        const boxH = Math.max(14, 8 + textH + 5);
+        checkY(boxH + 4);
+        sfc([245,248,253]); sdc([210,220,238]); doc.setLineWidth(0.2);
+        doc.rect(ML, y-4, CW, boxH, "FD");
+        sfc(GOLD); doc.rect(ML, y-4, 3, boxH, "F");
+        doc.setFontSize(7); doc.setFont("helvetica","bold"); sc(GOLD);
+        doc.text("ANALYSIS", ML+5, y); y += 5;
+        doc.setFont("helvetica","normal"); sc(MID);
+        lines.forEach(line => {
+          doc.splitTextToSize(String(line), CW - 9).forEach(wl => { checkY(lh+1); doc.text(wl, ML+5, y); y += lh; });
+          y += 1;
+        });
+        y += 5;
+      }
+
+      // ── PRE-COMPUTED PERIOD FIGURES ────────────────────────────────────────
+      const _cfBizIn    = data.businesses.filter(b => b.type !== "nonprofit").reduce((acc, b) => {
+        const e = (b.monthlyProfits||[]).find(p => p.month === s.month); return acc + safe(e?.profit);
+      }, 0);
+      const _cfPayroll  = data.individuals.reduce((acc, ind) => {
+        const e = (ind.monthlyIncome||[]).find(p => p.month === s.month); return acc + safe(e?.income);
+      }, 0);
+      const _cfRentIn   = data.properties.reduce((acc, p) => acc + propJMFEffectiveRent(p), 0);
+      const _cfOtherIn  = (data.cashflow?.income||[]).reduce((acc, i) => acc + safe(i.amount), 0);
+      const _cfTotalIn  = _cfBizIn + _cfPayroll + _cfRentIn + _cfOtherIn;
+      const _cfPropOut  = data.properties.reduce((acc, p) => acc + propJMFMonthlyOut(p), 0);
+      const _cfVehOut   = (data.vehicles||[]).reduce((acc, v) => acc + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
+      const _cfOtherOut = (data.cashflow?.obligations||[]).reduce((acc, o) => acc + safe(o.amount), 0);
+      const _cfTotalOut = _cfPropOut + _cfVehOut + _cfOtherOut;
+      const _cfNet      = _cfTotalIn - _cfTotalOut;
+      const _prevSnap   = (data.snapshots||[]).slice().sort((a, b) => a.month.localeCompare(b.month)).filter(x => x.month < s.month).slice(-1)[0] || null;
+      const _nwChange   = _prevSnap ? (s.nw ?? 0) - (_prevSnap.nw ?? 0) : null;
+
       // ── 1. COVER ──────────────────────────────────────────────────────────
       sfc(GOLD); doc.rect(0, 0, PW, 3, "F");
       sfc(NAV);  doc.rect(0, 3, PW, 76, "F");
@@ -5409,21 +5447,78 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const reGrossEq= data.properties.reduce((acc, p) => acc + getMarketValueCad(p) - propCurrentMortgageBalance(p, s.month), 0);
       const totalLiq = s.individuals != null ? s.individuals : data.individuals.reduce((acc, f) => acc + indN(f), 0);
       const totalBizEq = s.businesses != null ? s.businesses : data.businesses.filter(b => b.type!=="nonprofit"&&b.type!=="tracked_only").reduce((acc, b) => acc+safe(b.cashAccounts)-safe(b.liabilities), 0);
-      const totalMortObl = data.properties.reduce((acc, p) => acc + getMortgageOperatingPayment(p), 0);
-      const totalOutflows = data.properties.reduce((acc, p) => acc + propMonthlyOut(p), 0) + (data.cashflow?.obligations||[]).reduce((acc,o) => acc+safe(o.amount), 0);
-      const totalIncLog = data.individuals.reduce((acc, ind) => { const e = (ind.monthlyIncome||[]).find(x => x.month === s.month); return acc+safe(e?.income); }, 0);
       const snapNW = s.nw != null ? s.nw : reNRE + totalLiq + totalBizEq;
 
+      // ── Hero summary boxes (NW + Net CF side by side) ──
+      checkY(30);
+      const heroW = CW / 2 - 3;
+      sfc([248,249,252]); sdc(BORDER); doc.setLineWidth(0.2);
+      doc.rect(ML, y, heroW, 26, "FD");
+      doc.rect(ML + heroW + 6, y, heroW, 26, "FD");
+      doc.setFontSize(7); doc.setFont("helvetica","bold"); sc(DIM);
+      doc.text("CONSOLIDATED NET WORTH", ML+4, y+7);
+      doc.setFontSize(17); doc.setFont("helvetica","bold"); sc(snapNW>=0?GREEN:RED);
+      doc.text($p(snapNW), ML+4, y+18);
+      if (_nwChange !== null) {
+        doc.setFontSize(8); doc.setFont("helvetica","normal"); sc(_nwChange>=0?GREEN:RED);
+        doc.text((_nwChange>=0?"+":"")+$p(_nwChange)+" vs "+monthLabel(_prevSnap.month), ML+4, y+24);
+      }
+      const cfX = ML + heroW + 6;
+      doc.setFontSize(7); doc.setFont("helvetica","bold"); sc(DIM);
+      doc.text("NET CASH FLOW — "+monthLabel(s.month).toUpperCase(), cfX+4, y+7);
+      doc.setFontSize(17); doc.setFont("helvetica","bold"); sc(_cfNet>=0?GREEN:RED);
+      doc.text($p(_cfNet), cfX+4, y+18);
+      doc.setFontSize(8); doc.setFont("helvetica","normal"); sc(MID);
+      doc.text($p(_cfTotalIn)+" in  ·  "+$p(_cfTotalOut)+" out", cfX+4, y+24);
+      y += 32;
+
+      // ── Portfolio breakdown table ──
       [
-        ["Consolidated Net Worth (Net Realisable)", $p(snapNW),       null ],
-        ["RE Gross Equity",                         $p(reGrossEq),    null ],
-        ["RE Net Realisable (after est. sale costs)",$p(reNRE),       null ],
-        ["Total Individual Liquid Assets",           $p(totalLiq),    null ],
-        ["Total Business Equity",                   $p(totalBizEq),   null ],
-        ["Total Monthly Mortgage Obligations",      $p(totalMortObl), RED  ],
-        ["Total Monthly Outflows",                  $p(totalOutflows),RED  ],
-        ["Total Income Logged (period)",            $p(totalIncLog),  GREEN],
+        ["RE Gross Equity",                          $p(reGrossEq),     null  ],
+        ["RE Net Realisable (after est. sale costs)", $p(reNRE),        null  ],
+        ["Total Individual Liquid Assets",            $p(totalLiq),     null  ],
+        ["Total Business Equity",                    $p(totalBizEq),    null  ],
+        ["RE Obligations — JMF share (monthly)",     $p(-_cfPropOut),   RED   ],
+        ["Vehicle Obligations (monthly)",            $p(-_cfVehOut),    RED   ],
+        ["Business Income (period)",                 $p(_cfBizIn),      GREEN ],
+        ["Individual Income (period)",               $p(_cfPayroll),    GREEN ],
+        ["Rental Income — JMF share (monthly)",      $p(_cfRentIn),     GREEN ],
       ].forEach(([lbl, val, col]) => row2(lbl, val, col));
+
+      // ── Exec-level analysis ──
+      const reFlowNet = _cfRentIn - _cfPropOut;
+      const execNotes = [];
+      if (_cfNet >= 0) {
+        execNotes.push(`${monthLabel(s.month)} produced a net cash surplus of ${$p(_cfNet)}. Total inflows of ${$p(_cfTotalIn)} exceeded total obligations of ${$p(_cfTotalOut)}.`);
+      } else {
+        execNotes.push(`${monthLabel(s.month)} produced a net cash deficit of ${$p(Math.abs(_cfNet))}. Total obligations of ${$p(_cfTotalOut)} exceeded inflows of ${$p(_cfTotalIn)} by ${$p(Math.abs(_cfNet))}.`);
+      }
+      if (reFlowNet < 0) {
+        execNotes.push(`Real estate runs at a monthly cash deficit of ${$p(Math.abs(reFlowNet))}: rental income of ${$p(_cfRentIn)} vs obligations of ${$p(_cfPropOut)}. Business profits of ${$p(_cfBizIn)} are the primary offset.`);
+      } else {
+        execNotes.push(`Real estate generates a net monthly cash surplus of ${$p(reFlowNet)} (${$p(_cfRentIn)} rental vs ${$p(_cfPropOut)} obligations).`);
+      }
+      if (_nwChange !== null) {
+        execNotes.push(`Consolidated net worth ${_nwChange >= 0 ? "increased" : "decreased"} by ${$p(Math.abs(_nwChange))} (${_nwChange >= 0 ? "+" : ""}${((_nwChange / Math.abs(_prevSnap.nw || 1)) * 100).toFixed(1)}%) compared to ${monthLabel(_prevSnap.month)}.`);
+      }
+      pdfAnalysis(execNotes);
+
+      // ── Net Worth History (up to last 12 snapshots) ──
+      const histSnaps = (data.snapshots||[]).slice().sort((a, b) => a.month.localeCompare(b.month)).filter(x => x.month <= s.month).slice(-12);
+      if (histSnaps.length > 1) {
+        subHead("Net Worth History");
+        tbl(["Month","Net Worth","MoM Change","RE Equity","Individuals","Businesses"],
+          histSnaps.map((hs, hi) => {
+            const prev = hi > 0 ? histSnaps[hi-1] : null;
+            const chg  = prev ? (hs.nw ?? 0) - (prev.nw ?? 0) : null;
+            return [
+              monthLabel(hs.month), $p(hs.nw),
+              chg !== null ? (chg>=0?"+":"")+$p(chg) : "—",
+              $p(hs.reEquity), $p(hs.individuals), $p(hs.businesses),
+            ];
+          }),
+          [27,33,28,28,28,28]);
+      }
       // footer drawn by secHeader("Real Estate Portfolio") via newPage()
 
       // ── 3. REAL ESTATE ────────────────────────────────────────────────────
@@ -5582,46 +5677,48 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       // ── 6. CASH FLOW ──────────────────────────────────────────────────────
       secHeader("Cash Flow");
       subHead(`Income — ${monthLabel(s.month)}`);
-      const cfBizIn   = data.businesses.filter(b => b.type !== "nonprofit").reduce((acc, b) => {
-        const e = (b.monthlyProfits||[]).find(p => p.month === s.month); return acc + safe(e?.profit);
-      }, 0);
-      const cfPayroll = data.individuals.reduce((acc, ind) => {
-        const e = (ind.monthlyIncome||[]).find(p => p.month === s.month); return acc + safe(e?.income);
-      }, 0);
-      const cfRentIn  = data.properties.reduce((acc, p) => acc + propJMFEffectiveRent(p), 0);
-      const cfOtherIn = (data.cashflow?.income||[]).reduce((acc, i) => acc + safe(i.amount), 0);
-      const cfIncItems = [
-        ...(cfBizIn  > 0 ? [{ label:"Business Profits",  amount: cfBizIn  }] : []),
-        ...(cfPayroll > 0 ? [{ label:"Individual Income", amount: cfPayroll }] : []),
-        { label:"Rental Income", amount: cfRentIn },
+      [
+        ...(_cfBizIn  > 0 ? [{ label:"Business Profits",        amount: _cfBizIn  }] : []),
+        ...(_cfPayroll > 0 ? [{ label:"Individual Income",       amount: _cfPayroll }] : []),
+        { label:"Rental Income (JMF share)", amount: _cfRentIn },
         ...(data.cashflow?.income||[]).filter(x => safe(x.amount) > 0),
-      ];
-      cfIncItems.forEach(x => {
+      ].forEach(x => {
         checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
         doc.text(x.label||"Other", ML+3, y); sc(GREEN); doc.text($p(x.amount), PW-MR, y, {align:"right"}); y += 5;
       });
-      const tIn = cfBizIn + cfPayroll + cfRentIn + cfOtherIn;
       checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(GREEN);
-      doc.text("Total Income", ML, y); doc.text($p(tIn), PW-MR, y, {align:"right"}); y += 9;
+      doc.text("Total Income", ML, y); doc.text($p(_cfTotalIn), PW-MR, y, {align:"right"}); y += 9;
 
       subHead("Obligations");
-      const cfVehicleOut = (data.vehicles||[]).reduce((acc, v) => acc + safe(v.monthlyPayment) + safe(v.insuranceMonthly), 0);
-      const cfObl2 = [
+      [
         ...data.properties.map(p => ({ label: p.name+" (mortgage+tax+ins.)", amount: propJMFMonthlyOut(p) })),
-        ...(cfVehicleOut > 0 ? [{ label:"Vehicles", amount: cfVehicleOut }] : []),
+        ...(_cfVehOut > 0 ? [{ label:"Vehicles", amount: _cfVehOut }] : []),
         ...(data.cashflow?.obligations||[]).filter(x => safe(x.amount) > 0),
-      ];
-      cfObl2.forEach(x => {
+      ].forEach(x => {
         checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(MID);
         doc.text(x.label||"Other", ML+3, y); sc(RED); doc.text($p(-safe(x.amount)), PW-MR, y, {align:"right"}); y += 5;
       });
-      const tOut = cfObl2.reduce((acc, x) => acc + safe(x.amount), 0);
       checkY(7); doc.setFontSize(10); doc.setFont("helvetica","bold"); sc(RED);
-      doc.text("Total Obligations", ML, y); doc.text($p(-tOut), PW-MR, y, {align:"right"}); y += 6;
+      doc.text("Total Obligations", ML, y); doc.text($p(-_cfTotalOut), PW-MR, y, {align:"right"}); y += 6;
       sdc(BORDER); doc.setLineWidth(0.3); doc.line(ML, y, ML+CW, y); y += 5;
-      const ncf = tIn - tOut;
-      checkY(9); doc.setFontSize(12); doc.setFont("helvetica","bold"); sc(ncf>=0?GREEN:RED);
-      doc.text(`Net Cash Flow — ${monthLabel(s.month)}`, ML, y); doc.text($p(ncf), PW-MR, y, {align:"right"}); y += 10;
+      checkY(9); doc.setFontSize(12); doc.setFont("helvetica","bold"); sc(_cfNet>=0?GREEN:RED);
+      doc.text(`Net Cash Flow — ${monthLabel(s.month)}`, ML, y); doc.text($p(_cfNet), PW-MR, y, {align:"right"}); y += 12;
+
+      // Cash flow analysis callout
+      const reFlowNet2 = _cfRentIn - _cfPropOut;
+      const cfNotes = [];
+      if (_cfNet >= 0) {
+        cfNotes.push(`${monthLabel(s.month)} is a cash-positive month. Total inflows of ${$p(_cfTotalIn)} exceed obligations of ${$p(_cfTotalOut)}, yielding a surplus of ${$p(_cfNet)}.`);
+      } else {
+        cfNotes.push(`${monthLabel(s.month)} is a cash-negative month. Obligations of ${$p(_cfTotalOut)} exceed inflows of ${$p(_cfTotalIn)} by ${$p(Math.abs(_cfNet))}. Monitor liquid reserves.`);
+      }
+      if (reFlowNet2 < 0) {
+        cfNotes.push(`Real estate alone runs at a ${$p(Math.abs(reFlowNet2))}/month deficit (${$p(_cfRentIn)} rental income vs ${$p(_cfPropOut)} in obligations). Business income of ${$p(_cfBizIn)} is the primary offset to this structural real estate cost.`);
+      } else {
+        cfNotes.push(`Real estate generates a net monthly surplus of ${$p(reFlowNet2)} (${$p(_cfRentIn)} rental vs ${$p(_cfPropOut)} obligations).`);
+      }
+      if (_cfVehOut > 0) cfNotes.push(`Vehicle obligations of ${$p(_cfVehOut)}/month are included in total outflows.`);
+      pdfAnalysis(cfNotes);
 
       subHead("Cash Flow Trend — Last 6 Months");
       tbl(["Month","Total In","Total Out","Net Cash Flow"],
@@ -5632,8 +5729,8 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
             const tPay = data.individuals.reduce((acc, ind) => {
               const e = (ind.monthlyIncome||[]).find(p => p.month === tYM); return acc + safe(e?.income);
             }, 0);
-            const tIn2 = tBiz + tPay + cfRentIn + cfOtherIn;
-            return [monthLabel(tYM), $p(tIn2), $p(-tOut), $p(tIn2 - tOut)];
+            const tIn2 = tBiz + tPay + _cfRentIn + _cfOtherIn;
+            return [monthLabel(tYM), $p(tIn2), $p(-_cfTotalOut), $p(tIn2 - _cfTotalOut)];
           }),
           [38,47,47,48]);
 
@@ -5674,6 +5771,31 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         y += 5; hasTax = true;
       });
       if (!hasTax) { checkY(5); doc.setFontSize(9); doc.setFont("helvetica","normal"); sc(DIM); doc.text("No outstanding tax notice installments.", ML, y); y += 5; }
+
+      // ── 8. GLOSSARY ────────────────────────────────────────────────────────
+      secHeader("Glossary & Definitions");
+      [
+        ["Consolidated Net Worth",    "Total family office net wealth: RE net realisable equity + individual liquid assets + business equity + vehicle equity. Real estate is valued at estimated net proceeds after selling costs (~3.5% commission + HST + $5K legal) and JMF ownership share."],
+        ["RE Gross Equity",           "Market value of all properties minus outstanding mortgage balances, before ownership adjustments or selling cost deductions."],
+        ["RE Net Realisable",         "Gross equity adjusted for estimated selling costs and JMF ownership fraction — the actual cash receivable on a full portfolio disposal."],
+        ["JMF Ownership Share",       "Where a property or obligation is co-owned, only the JMF-attributable percentage is counted in consolidated figures. Gross amounts are shown on the property detail pages."],
+        ["Net Cash Flow",             "Monthly income (business profits + individual income + rental income + other) minus monthly obligations (mortgage+tax+insurance + vehicles + other). A positive figure indicates a cash-surplus month."],
+        ["Business Equity",           "Cash accounts minus total liabilities for each operating business. Non-profits and tracked-only entities are excluded from consolidated net worth."],
+        ["LTV (Loan-to-Value)",       "Outstanding mortgage balance ÷ current market value, expressed as a percentage. A lower LTV signals less leverage and more equity cushion."],
+        ["Monthly P+I",               "Principal + Interest portion of the monthly mortgage payment. Excludes property tax, insurance, and maintenance components."],
+        ["Interest-Only / LOC",       "A payment structure where no principal is repaid each month. The mortgage balance remains flat (or grows) unless lump-sum payments are made."],
+        ["Outstanding Rent",          "Rent due for a given month that has not yet been received or credited via deposit drawdown."],
+        ["Deposit Applied to Rent",   "Where the lease allows it, any security deposit credit is applied to reduce the outstanding rent balance for the relevant month."],
+        ["Snapshot",                  "A point-in-time capture of all portfolio balances and values. All figures in this report reflect the state of the portfolio at the time the snapshot was taken, not the current live data."],
+        ["MoM Change",                "Month-over-month change: the difference in a metric (e.g. net worth) between the current report period and the immediately preceding snapshot."],
+      ].forEach(([term, def]) => {
+        checkY(16);
+        doc.setFontSize(9); doc.setFont("helvetica","bold"); sc(NAV);
+        doc.text(term, ML, y); y += 4;
+        doc.setFont("helvetica","normal"); sc(MID); doc.setFontSize(8);
+        doc.splitTextToSize(def, CW - 2).forEach(line => { checkY(5); doc.text(line, ML+4, y); y += 4; });
+        y += 4;
+      });
 
       addFooter();
 
