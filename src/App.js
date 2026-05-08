@@ -6374,7 +6374,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); _sc([100, 68, 0]);
       doc.text("CONFIDENTIAL — FOR INTERNAL USE ONLY", PW / 2, y + 7, { align: "center" });
       doc.setFont("helvetica", "normal"); doc.setFontSize(7); _sc([100, 68, 0]);
-      doc.text("Not for distribution outside the Jamet Group family.", PW / 2, y + 13, { align: "center" });
+      doc.text("Not for distribution outside the Jebrayilli Majidov Family.", PW / 2, y + 13, { align: "center" });
       _drawFooter();
 
       // ── PAGE 2 — OVERVIEW ─────────────────────────────────────────────────
@@ -6401,7 +6401,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       const _cardW = (CW - 6) / 2, _cardH = 68;
 
       // Breakdown data
-      const _reItems  = [...(s.reBreakdown || [])].sort((a, b) => Math.abs(safe(b.equity)) - Math.abs(safe(a.equity))).map(p => ({ label: p.name, val: safe(p.equity) }));
+      const _reItems  = [...(s.reBreakdown || [])].sort((a, b) => Math.abs(safe(b.liquid)) - Math.abs(safe(a.liquid))).map(p => ({ label: p.name, val: safe(p.liquid) }));
       const _indItems = (s.individualBreakdown || []).map(ind => ({ label: ind.name, val: safe(ind.net) }));
       const _bizItems = (s.businessBreakdown  || []).filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").map(b => ({ label: b.name, val: safe(b.eq) }));
       const _vehRaw   = (s.vehicleBreakdown && s.vehicleBreakdown.length > 0)
@@ -6409,7 +6409,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         : (data.vehicles || []).map(v => ({ name: v.name, equity: getVehicleMarketValue(v) - safe(v.loanBalance) }));
       const _vehItems = _vehRaw.map(v => ({ label: v.name || `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim() || "Vehicle", val: safe(v.equity) }));
 
-      function _drawKPICard(cx, cy, label, total, accentCol, items) {
+      function _drawKPICard(cx, cy, label, total, accentCol, items, subtitle) {
         _sfc([248, 249, 252]); _sdc(_BORDER); _sw(0.2);
         doc.rect(cx, cy, _cardW, _cardH, "FD");
         _sfc(accentCol); _sdc(accentCol);
@@ -6418,11 +6418,17 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
         doc.text(label.toUpperCase(), cx + 3, cy + 8);
         doc.setFont("helvetica", "bold"); doc.setFontSize(13); _sc(_GOLD);
         doc.text($F(total), cx + 3, cy + 15.5);
+        let _divY = cy + 19;
+        if (subtitle) {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); _sc(_DIM);
+          doc.text(subtitle, cx + 3, cy + 19.5);
+          _divY = cy + 23;
+        }
         _sdc(_BORDER); _sw(0.25);
-        doc.line(cx + 3, cy + 19, cx + _cardW - 3, cy + 19);
+        doc.line(cx + 3, _divY, cx + _cardW - 3, _divY);
         const _shown  = items.slice(0, 7);
         const _hidden = items.length - _shown.length;
-        let iy = cy + 24;
+        let iy = _divY + 5;
         _shown.forEach(it => {
           const lbl = it.label.length > 26 ? it.label.slice(0, 24) + "..." : it.label;
           doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); _sc([55, 65, 80]);
@@ -6438,14 +6444,14 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       }
 
       const _kpiGrid = [
-        { label: "Real Estate Equity", total: s.reEquity,       accentCol: _BLUE,   items: _reItems  },
-        { label: "Individual Assets",  total: s.individuals,    accentCol: _GREEN,  items: _indItems },
-        { label: "Business Equity",    total: s.businesses,     accentCol: _PURPLE, items: _bizItems },
-        { label: "Vehicles",           total: safe(s.vehicles), accentCol: _AMBER,  items: _vehItems },
+        { label: "Liquid RE Value",    total: s.reLiquid,       accentCol: _BLUE,   items: _reItems,  subtitle: "After selling costs · JMF share" },
+        { label: "Individual Assets",  total: s.individuals,    accentCol: _GREEN,  items: _indItems, subtitle: null },
+        { label: "Business Equity",    total: s.businesses,     accentCol: _PURPLE, items: _bizItems, subtitle: null },
+        { label: "Vehicles",           total: safe(s.vehicles), accentCol: _AMBER,  items: _vehItems, subtitle: null },
       ];
       _kpiGrid.forEach((card, i) => {
         const col = i % 2, row = Math.floor(i / 2);
-        _drawKPICard(ML + col * (_cardW + 6), y + row * (_cardH + 4), card.label, card.total, card.accentCol, card.items);
+        _drawKPICard(ML + col * (_cardW + 6), y + row * (_cardH + 4), card.label, card.total, card.accentCol, card.items, card.subtitle);
       });
       y += 2 * (_cardH + 4);
       _drawFooter();
@@ -6601,26 +6607,55 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       doc.text(`CASH FLOW — ${_cfPeriodLabel.toUpperCase()} (LAST CLOSED PERIOD)`, ML, y); y += 5;
       doc.setFont("helvetica", "italic"); doc.setFontSize(6.5); _sc(_DIM);
       doc.text(_cfIsCurrentPeriod ? `${periodLabel} is in progress; figures reflect the last fully closed month.` : `Figures reflect ${_cfPeriodLabel} (prior closed month).`, ML, y); y += 7;
-      const _cfRows = [
-        { label:"Rental Income",        val: cfRentIn,       pos:true  },
-        { label:"Business Income",       val: finBizIn,       pos:true  },
-        { label:"Other Income",          val: cfOtherIncome,  pos:true  },
-        { label:"Property Obligations",  val: cfPropOut,      pos:false },
-        { label:"Other Obligations",     val: cfOtherOut,     pos:false },
+      // Income group
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); _sc(_DIM);
+      doc.text("INCOME", ML, y); y += 5;
+      const _incRows = [
+        { label: "Business Income",           val: finBizIn      },
+        { label: "Rental Income (JMF share)", val: cfRentIn      },
+        { label: "Individual Income",         val: finPayroll    },
       ];
-      _cfRows.forEach((row, ri) => {
-        if (ri % 2 === 1) { _sfc([248, 249, 252]); doc.rect(ML, y - 3.5, CW, 6, "F"); }
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8); _sc(_BLACK);
+      if (cfOtherIncome > 0) _incRows.push({ label: "Other Income", val: cfOtherIncome });
+      _incRows.forEach((row, ri) => {
+        if (ri % 2 === 0) { _sfc([248, 249, 252]); doc.rect(ML, y - 3.5, CW, 5.5, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); _sc(_BLACK);
         doc.text(row.label, ML + 2, y);
-        const shown = row.pos ? row.val : -row.val;
-        _sc(shown >= 0 ? _GREEN : _RED); doc.setFont("helvetica", "bold");
-        doc.text($F(shown), PW - MR - 1, y, { align: "right" }); y += 6;
+        _sc(_GREEN); doc.setFont("helvetica", "bold");
+        doc.text(`+${$F(row.val)}`, PW - MR - 1, y, { align: "right" }); y += 5.5;
       });
-      _sdc(_BLACK); _sw(0.3); doc.line(ML, y, PW - MR, y); y += 4;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9); _sc(_BLACK);
-      doc.text("Net Cash Flow", ML + 2, y);
+      _sdc(_BORDER); _sw(0.2); doc.line(ML, y, PW - MR, y); y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); _sc([55, 65, 80]);
+      doc.text("Total Inflows", ML + 2, y);
+      _sc(_GREEN); doc.text(`+${$F(finTotalIn)}`, PW - MR - 1, y, { align: "right" }); y += 8;
+
+      // Obligations group
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); _sc(_DIM);
+      doc.text("OBLIGATIONS", ML, y); y += 5;
+      const _oblRows = [
+        { label: "Real Estate (JMF share)", val: cfPropOut     },
+        { label: "Vehicles",                val: finVehicleOut },
+        { label: "Other",                   val: cfOtherOut    },
+      ];
+      _oblRows.forEach((row, ri) => {
+        if (ri % 2 === 0) { _sfc([248, 249, 252]); doc.rect(ML, y - 3.5, CW, 5.5, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); _sc(_BLACK);
+        doc.text(row.label, ML + 2, y);
+        _sc(_RED); doc.setFont("helvetica", "bold");
+        doc.text(`-${$F(row.val)}`, PW - MR - 1, y, { align: "right" }); y += 5.5;
+      });
+      _sdc(_BORDER); _sw(0.2); doc.line(ML, y, PW - MR, y); y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); _sc([55, 65, 80]);
+      doc.text("Total Outflows", ML + 2, y);
+      _sc(_RED); doc.text(`-${$F(finTotalOut)}`, PW - MR - 1, y, { align: "right" }); y += 8;
+
+      // NET CASH FLOW — double rule
+      _sdc([55, 65, 80]); _sw(0.35); doc.line(ML, y, PW - MR, y); y += 1.5;
+      doc.line(ML, y, PW - MR, y); y += 5;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); _sc(_BLACK);
+      doc.text("NET CASH FLOW", ML + 2, y);
       _sc(finGap >= 0 ? _GREEN : _RED);
-      doc.text($F(finGap), PW - MR - 1, y, { align: "right" });
+      doc.text(`${finGap >= 0 ? "+" : ""}${$F(finGap)}`, PW - MR - 1, y, { align: "right" });
+      console.log("[JMF Report CF]", { bizIn: finBizIn, rentIn: cfRentIn, indIncome: finPayroll, otherIn: cfOtherIncome, propOut: cfPropOut, vehOut: finVehicleOut, otherOut: cfOtherOut, totalIn: finTotalIn, totalOut: finTotalOut, net: finGap });
       _drawFooter();
 
       // ── PAGE 4 — COMMENTARY ───────────────────────────────────────────────
@@ -6661,7 +6696,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
 
       y += 12; _divider(y); y += 8;
       doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); _sc(_DIM);
-      doc.splitTextToSize("This report is generated automatically from live dashboard data. All figures are in Canadian Dollars (CAD). This document is confidential and intended solely for Jamet Group family office administration.", CW)
+      doc.splitTextToSize("This report is generated automatically from live dashboard data. All figures are in Canadian Dollars (CAD). This document is confidential and intended solely for the Jebrayilli Majidov Family office administration.", CW)
         .forEach(wl => { doc.text(wl, ML, y); y += 5; });
       _drawFooter();
 
