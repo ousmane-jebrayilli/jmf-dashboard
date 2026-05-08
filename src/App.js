@@ -645,6 +645,35 @@ async function seedToDB(key, value) {
   }
 }
 
+// ─── MANUAL SNAPSHOT (admin recovery point) ──────────────────────────────────
+// Writes the current DB value of each core key into dashboard_data_history.
+// Called by: "Snapshot now" button, closePeriod, reopenPeriod.
+async function manualSnapshot(reason = 'manual') {
+  const keys = ['properties', 'individuals', 'businesses', 'cashflow', 'vehicles'];
+  const results = [];
+  for (const k of keys) {
+    try {
+      const { data: row } = await supabase
+        .from('dashboard_data')
+        .select('value')
+        .eq('key', k)
+        .single();
+      if (row) {
+        await supabase.from('dashboard_data_history').insert({
+          key: k,
+          value: row.value,
+          archived_reason: `manual: ${reason}`,
+        });
+        results.push({ key: k, ok: true });
+      }
+    } catch (e) {
+      console.error(`[manualSnapshot] failed for ${k}`, e);
+      results.push({ key: k, ok: false, error: e.message });
+    }
+  }
+  return results;
+}
+
 // ─── PHASE 4: RELATIONAL WRITE HELPERS ───────────────────────────────────────
 async function ensurePeriodExists(monthKey) {
   await supabase.from("monthly_periods").upsert(
@@ -6272,6 +6301,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [collapsedCountries, setCollapsedCountries] = useState({});
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
+  const [snapshotConfirmOpen, setSnapshotConfirmOpen] = useState(false);
+  const [snapshotToast, setSnapshotToast]             = useState(""); // "" | "saving" | "saved" | "error"
+  const [lastSnapshotAt, setLastSnapshotAt]           = useState(null);
+  const [historyOpen, setHistoryOpen]                 = useState(false);
+  const [historyRows, setHistoryRows]                 = useState([]);
+  const [historyLoading, setHistoryLoading]           = useState(false);
+  const [historyPreview, setHistoryPreview]           = useState(null); // archived row object
+  const [historyRestoreTarget, setHistoryRestoreTarget] = useState(null); // archived row to restore
+  const [historyRestoreInput, setHistoryRestoreInput] = useState("");
 
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
@@ -6314,6 +6352,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   // ── Period status ──
   useEffect(() => { refreshPeriodStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    supabase.from("dashboard_data_history")
+      .select("archived_at")
+      .order("archived_at", { ascending: false })
+      .limit(1)
+      .then(({ data: rows }) => { if (rows && rows[0]) setLastSnapshotAt(rows[0].archived_at); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function refreshPeriodStatus() {
     const { data: ps } = await supabase.rpc("get_period_status", { p_month_key: currentYM() });
     if (ps) setPeriodStatus({ ...ps, loading: false });
@@ -6339,6 +6385,45 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     await supabase.rpc("relock_after_override", { p_month_key: currentYM(), p_admin_id: user.id });
     await refreshPeriodStatus();
     setPeriodLoading(false);
+  }
+  async function handleSnapshotNow() {
+    setSnapshotConfirmOpen(false);
+    setSnapshotToast("saving");
+    const results = await manualSnapshot("admin button");
+    const failed = results.filter(r => !r.ok);
+    if (failed.length === 0) {
+      const now = new Date().toISOString();
+      setLastSnapshotAt(now);
+      setSnapshotToast("saved");
+    } else {
+      setSnapshotToast("error");
+    }
+    setTimeout(() => setSnapshotToast(""), 3500);
+  }
+  async function loadHistoryRows() {
+    setHistoryLoading(true);
+    const { data: rows } = await supabase
+      .from("dashboard_data_history")
+      .select("id, key, archived_at, archived_reason, value")
+      .order("archived_at", { ascending: false })
+      .limit(25);
+    setHistoryRows(rows || []);
+    setHistoryLoading(false);
+  }
+  async function handleRestoreRow(row) {
+    await manualSnapshot(`pre-restore ${row.key}`);
+    await supabase.from("dashboard_data")
+      .update({ value: row.value, updated_at: new Date().toISOString() })
+      .eq("key", row.key);
+    const freshDb = await loadFromDB();
+    if (freshDb && !freshDb._error) {
+      setData(d => ({ ...d, [row.key]: freshDb[row.key] ?? d[row.key] }));
+    }
+    setHistoryRestoreTarget(null);
+    setHistoryRestoreInput("");
+    const ts = new Date(row.archived_at).toLocaleString("en-CA", { dateStyle: "short", timeStyle: "short" });
+    setSnapshotToast(`Restored ${row.key} from ${ts}`);
+    setTimeout(() => setSnapshotToast(""), 4000);
   }
 
   // ── Derived totals (ASWC excluded from business equity) ──
@@ -6962,6 +7047,44 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         );
       })()}
 
+      {/* SNAPSHOT NOW BAR */}
+      <div style={{ background: C.nav, borderBottom: `1px solid ${C.navBorder}`, padding: isMobile ? "7px 14px" : "8px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:10, color:C.textDim, letterSpacing:"0.06em", textTransform:"uppercase" }}>Recovery Point</span>
+          {lastSnapshotAt && (
+            <span style={{ fontSize:10, color:C.textDim, fontStyle:"italic" }}>
+              Last: {new Date(lastSnapshotAt).toLocaleString("en-CA", { dateStyle:"short", timeStyle:"short" })}
+            </span>
+          )}
+          {snapshotToast === "saving" && <span style={{ fontSize:10, color:C.amber }}>Saving…</span>}
+          {snapshotToast === "saved"  && <span style={{ fontSize:10, color:C.green }}>✓ Snapshot saved (5 keys archived)</span>}
+          {snapshotToast === "error"  && <span style={{ fontSize:10, color:C.red }}>Snapshot failed — see console</span>}
+          {snapshotToast.startsWith("Restored") && <span style={{ fontSize:10, color:C.green }}>✓ {snapshotToast}</span>}
+        </div>
+        <button
+          onClick={() => setSnapshotConfirmOpen(true)}
+          disabled={snapshotToast === "saving"}
+          style={{ fontSize:10, background:"transparent", border:`1px solid ${C.gold}`, borderRadius:6, color:C.goldText, padding:"4px 12px", cursor:"pointer", fontWeight:600, whiteSpace:"nowrap", opacity: snapshotToast === "saving" ? 0.5 : 1 }}>
+          Snapshot now
+        </button>
+      </div>
+
+      {/* SNAPSHOT CONFIRM MODAL */}
+      {snapshotConfirmOpen && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9000, padding:24 }}>
+          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:28, maxWidth:400, width:"100%" }}>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:12 }}>Create a recovery point?</div>
+            <div style={{ fontSize:13, color:C.textMid, lineHeight:1.6, marginBottom:20 }}>
+              This archives the current state of all dashboard data (properties, individuals, businesses, cashflow, vehicles) into the history table. You can restore any key from the Data History section below.
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={handleSnapshotNow} style={{ flex:1, padding:"10px 16px", background:C.gold, border:"none", borderRadius:8, color:"#1A1508", fontWeight:700, fontSize:13, cursor:"pointer" }}>Confirm</button>
+              <button onClick={() => setSnapshotConfirmOpen(false)} style={{ flex:1, padding:"10px 16px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:13, cursor:"pointer" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TABS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", scrollbarWidth:"none", msOverflowStyle:"none" }}>
@@ -7133,6 +7256,111 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
             {/* Cash flow graph */}
             <CashFlowGraph data={data} />
+
+            {/* DATA HISTORY — collapsible recovery section */}
+            <Card style={{ marginTop: 24 }}>
+              <button
+                onClick={() => { setHistoryOpen(o => !o); if (!historyOpen) loadHistoryRows(); }}
+                style={{ width:"100%", background:"none", border:"none", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", padding:0 }}>
+                <span style={{ fontSize:13, fontWeight:700, color:C.text }}>Data History</span>
+                <span style={{ fontSize:11, color:C.textDim }}>{historyOpen ? "▴ collapse" : "▾ expand"}</span>
+              </button>
+              {historyOpen && (
+                <div style={{ marginTop:16 }}>
+                  {historyLoading && <div style={{ fontSize:12, color:C.textDim }}>Loading…</div>}
+                  {!historyLoading && historyRows.length === 0 && (
+                    <div style={{ fontSize:12, color:C.textDim }}>No history rows yet. Click "Snapshot now" above to create the first recovery point.</div>
+                  )}
+                  {!historyLoading && historyRows.length > 0 && (
+                    <div style={{ overflowX:"auto" }}>
+                      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                        <thead>
+                          <tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                            {["Archived at","Key","Reason","",""].map((h,i) => (
+                              <th key={i} style={{ padding:"6px 10px", textAlign:"left", fontSize:10, color:C.textDim, letterSpacing:"0.07em", textTransform:"uppercase", whiteSpace:"nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historyRows.map(row => (
+                            <tr key={row.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                              <td style={{ padding:"7px 10px", color:C.textMid, whiteSpace:"nowrap" }}>{new Date(row.archived_at).toLocaleString("en-CA", { dateStyle:"short", timeStyle:"short" })}</td>
+                              <td style={{ padding:"7px 10px", fontFamily:C.mono, color:C.gold }}>{row.key}</td>
+                              <td style={{ padding:"7px 10px", color:C.textDim, fontSize:10 }}>{row.archived_reason || "—"}</td>
+                              <td style={{ padding:"7px 10px" }}>
+                                <button onClick={() => setHistoryPreview(row)}
+                                  style={{ fontSize:10, background:"transparent", border:`1px solid ${C.border}`, borderRadius:5, color:C.textMid, padding:"3px 10px", cursor:"pointer" }}>
+                                  Preview
+                                </button>
+                              </td>
+                              <td style={{ padding:"7px 10px" }}>
+                                <button onClick={() => { setHistoryRestoreTarget(row); setHistoryRestoreInput(""); }}
+                                  style={{ fontSize:10, background:"transparent", border:`1px solid ${C.amber}`, borderRadius:5, color:C.amber, padding:"3px 10px", cursor:"pointer" }}>
+                                  Restore
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+
+            {/* HISTORY PREVIEW MODAL */}
+            {historyPreview && (
+              <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"flex-start", justifyContent:"center", zIndex:9100, overflowY:"auto", padding:"24px 16px" }}>
+                <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:24, maxWidth:600, width:"100%", marginTop:16 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:C.text }}>
+                      Preview — <span style={{ fontFamily:C.mono, color:C.gold }}>{historyPreview.key}</span>
+                      <span style={{ fontSize:11, color:C.textDim, marginLeft:10, fontWeight:400 }}>
+                        {new Date(historyPreview.archived_at).toLocaleString("en-CA", { dateStyle:"short", timeStyle:"short" })}
+                      </span>
+                    </div>
+                    <button onClick={() => setHistoryPreview(null)} style={{ background:"none", border:"none", color:C.textDim, fontSize:18, cursor:"pointer", lineHeight:1 }}>✕</button>
+                  </div>
+                  <pre style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:14, fontSize:10, color:C.textMid, overflowX:"auto", maxHeight:400, overflowY:"auto", lineHeight:1.5 }}>
+                    {JSON.stringify(historyPreview.value, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* HISTORY RESTORE CONFIRM MODAL */}
+            {historyRestoreTarget && (
+              <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9200, padding:24 }}>
+                <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:28, maxWidth:440, width:"100%" }}>
+                  <div style={{ fontSize:15, fontWeight:700, color:C.red, marginBottom:10 }}>Restore data?</div>
+                  <div style={{ fontSize:12, color:C.textMid, lineHeight:1.7, marginBottom:16 }}>
+                    This will overwrite the live <span style={{ fontFamily:C.mono, color:C.gold }}>{historyRestoreTarget.key}</span> with the archived value from{" "}
+                    <strong style={{ color:C.text }}>{new Date(historyRestoreTarget.archived_at).toLocaleString("en-CA", { dateStyle:"short", timeStyle:"short" })}</strong>.
+                    <br />The current state will be archived first as a safety copy.
+                    <br /><br />Type <strong style={{ color:C.amber }}>RESTORE</strong> to confirm.
+                  </div>
+                  <input
+                    value={historyRestoreInput}
+                    onChange={e => setHistoryRestoreInput(e.target.value)}
+                    placeholder="Type RESTORE"
+                    style={{ width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:7, color:C.text, fontSize:13, fontFamily:C.mono, outline:"none", boxSizing:"border-box", marginBottom:14 }}
+                  />
+                  <div style={{ display:"flex", gap:10 }}>
+                    <button
+                      onClick={() => handleRestoreRow(historyRestoreTarget)}
+                      disabled={historyRestoreInput.trim() !== "RESTORE"}
+                      style={{ flex:1, padding:"10px 16px", background: historyRestoreInput.trim() === "RESTORE" ? C.red : C.border, border:"none", borderRadius:8, color:"#FFF", fontWeight:700, fontSize:13, cursor: historyRestoreInput.trim() === "RESTORE" ? "pointer" : "not-allowed", transition:"background 0.2s" }}>
+                      Confirm Restore
+                    </button>
+                    <button onClick={() => { setHistoryRestoreTarget(null); setHistoryRestoreInput(""); }}
+                      style={{ flex:1, padding:"10px 16px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:13, cursor:"pointer" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -303,3 +303,30 @@ Examples:
 - `JMF — individuals: add securities breakdown field`
 
 One commit per logical task. Never bundle unrelated changes.
+
+---
+
+## 15. Pre-Session Protocol
+
+Before any code-modifying session, the admin clicks
+"Snapshot now" from the Overview tab. This creates
+a recovery point in dashboard_data_history that can
+be restored from the Data History UI if anything
+goes wrong. Mandatory for any session that may
+touch saveToDB or DEFAULT data.
+
+---
+
+## 16. Recovery Procedure
+
+1. Open the Overview tab as admin.
+2. Expand the "Data History" section at the bottom.
+3. Find the row for the affected key + timestamp
+   just before the data loss.
+4. Click "Preview" to verify the archived value
+   contains what you expect.
+5. Click "Restore", type RESTORE in the confirmation
+   box, click Confirm.
+6. The restored data appears immediately. The
+   pre-restore state is also archived in case the
+   restore itself was a mistake.
