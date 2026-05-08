@@ -5305,6 +5305,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
+  // eslint-disable-next-line no-unused-vars
   async function handleDownloadPdfLegacy() {
     if (downloading) return;
     setDownloading(true);
