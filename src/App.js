@@ -5305,7 +5305,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
-  async function handleDownloadPdf() {
+  async function handleDownloadPdfLegacy() {
     if (downloading) return;
     setDownloading(true);
     setDownloadError("");
@@ -6265,6 +6265,362 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       });
       doc.setPage(_lastPage);
 
+      const generatedAtISO = new Date().toISOString();
+      doc.save(reportFileName(s.month));
+      onGenerated?.({ snapshotMonth: s.month, snapshotCapturedAt: s.capturedAt, generatedAt: generatedAtISO });
+    } catch (error) {
+      console.error("Report PDF download failed", error);
+      setDownloadError("PDF download failed. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  // ── Simplified 3-page report: Cover · Overview · Commentary ───────────────
+  async function handleDownloadPdf() {
+    if (downloading) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const { jsPDF } = await loadPdfTools();
+      const doc = new jsPDF("p", "mm", "a4");
+      const PW = 210, PH = 297, ML = 18, MR = 18;
+      const CW = PW - ML - MR;
+      const FOOTER_Y = PH - 12;
+      let pageNum = 1;
+      const genTS = new Date().toLocaleString("en-CA", { year:"numeric", month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
+
+      const _NAV    = [11,  24,  41 ];
+      const _GOLD   = [184, 150, 46 ];
+      const _WHITE  = [255, 255, 255];
+      const _DIM    = [138, 150, 168];
+      const _BLACK  = [15,  25,  35 ];
+      const _BORDER = [223, 228, 237];
+      const _GREEN  = [30,  132, 73 ];
+      const _BLUE   = [26,  63,  107];
+      const _AMBER  = [183, 119, 13 ];
+      const _PURPLE = [90,  60,  140];
+      const _GREY   = [180, 180, 180];
+      const _RED    = [192, 57,  43 ];
+
+      const _sc  = rgb => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+      const _sdc = rgb => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+      const _sfc = rgb => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      const _sw  = w   => doc.setLineWidth(w);
+
+      const periodLabel = (() => {
+        const [yr, mo] = (s.month || "").split("-");
+        const MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        return `${MO[(parseInt(mo)||1)-1]} ${yr}`;
+      })();
+
+      function _drawPageHeader(subtitle) {
+        _sfc(_NAV); _sdc(_NAV);
+        doc.rect(0, 0, PW, 10, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
+        _sc(_GOLD); doc.text("JMF FAMILY OFFICE", ML, 6.5);
+        doc.setFont("helvetica", "normal"); _sc(_DIM);
+        doc.text(subtitle, PW - MR, 6.5, { align: "right" });
+      }
+
+      function _drawFooter() {
+        _sdc(_BORDER); _sw(0.2);
+        doc.line(ML, FOOTER_Y - 3, PW - MR, FOOTER_Y - 3);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7); _sc(_DIM);
+        doc.text("JMF Family Office — Confidential", ML, FOOTER_Y);
+        doc.text(`Page ${pageNum}`, PW - MR, FOOTER_Y, { align: "right" });
+      }
+
+      function _divider(yy) {
+        _sdc(_BORDER); _sw(0.2);
+        doc.line(ML, yy, PW - MR, yy);
+      }
+
+      function _secLabel(x, yy, txt) {
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7); _sc(_DIM);
+        doc.text(txt.toUpperCase(), x, yy);
+      }
+
+      // ── PAGE 1 — COVER ────────────────────────────────────────────────────
+      _sfc(_GOLD); _sdc(_GOLD); doc.rect(0, 0, PW, 3, "F");
+      _sfc(_NAV);  _sdc(_NAV);  doc.rect(0, 3, PW, 74, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); _sc(_GOLD);
+      doc.text("JMF FAMILY OFFICE", PW / 2, 27, { align: "center" });
+      doc.setFont("helvetica", "bold"); doc.setFontSize(20); _sc(_WHITE);
+      doc.text("Financial Command Center", PW / 2, 43, { align: "center" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(12); _sc([200, 210, 220]);
+      doc.text(`${periodLabel} — Monthly Report`, PW / 2, 57, { align: "center" });
+
+      let y = 102;
+      const coverMeta = [["Period", periodLabel], ["Generated", genTS], ["Prepared by", adminName || "Admin"]];
+      if (s.capturedAt) coverMeta.push(["Snapshot captured", new Date(s.capturedAt).toLocaleDateString("en-CA", { year:"numeric", month:"long", day:"numeric" })]);
+      coverMeta.forEach(([lbl, val]) => {
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); _sc(_DIM);
+        doc.text(lbl + ":", PW / 2 - 6, y, { align: "right" });
+        doc.setFont("helvetica", "normal"); _sc(_BLACK);
+        doc.text(val, PW / 2 + 6, y); y += 8;
+      });
+      y += 8; _divider(y); y += 10;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); _sc(_BLACK);
+      ["This report presents a consolidated financial snapshot for the",
+       "JMF Family Office, covering real estate, individual assets,",
+       "business equity, and cash flow for the period noted above."].forEach(line => {
+        doc.text(line, PW / 2, y, { align: "center" }); y += 6;
+      });
+      y += 8;
+      _sfc([255, 249, 230]); _sdc(_GOLD); _sw(0.4);
+      doc.rect(ML + 25, y, CW - 50, 16, "FD");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); _sc([100, 68, 0]);
+      doc.text("CONFIDENTIAL — FOR INTERNAL USE ONLY", PW / 2, y + 7, { align: "center" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); _sc([100, 68, 0]);
+      doc.text("Not for distribution outside the Jamet Group family.", PW / 2, y + 13, { align: "center" });
+      _drawFooter();
+
+      // ── PAGE 2 — OVERVIEW ─────────────────────────────────────────────────
+      doc.addPage(); pageNum++;
+      _drawPageHeader(`${periodLabel} — Overview`);
+      y = 20;
+
+      // NW Headline
+      _secLabel(ML, y, "Consolidated Net Worth"); y += 5;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(20); _sc(_BLACK);
+      doc.text($F(s.nw), ML, y);
+      if (momNW != null) {
+        const nwW = doc.getTextWidth($F(s.nw));
+        doc.setFontSize(9);
+        const momStr = `${momNW >= 0 ? "+" : ""}${$F(momNW)} MoM`;
+        _sc(momNW >= 0 ? _GREEN : _RED);
+        doc.text(momStr, ML + nwW + 4, y);
+        if (momNWPct != null) {
+          doc.setFontSize(7.5); _sc(_DIM);
+          doc.text(`(${momNWPct >= 0 ? "+" : ""}${momNWPct.toFixed(1)}%)`, ML + nwW + 4 + doc.getTextWidth(momStr) + 2, y);
+        }
+      }
+      y += 10;
+
+      // KPI cards
+      const _kpiCards = [
+        { label: "Real Estate Equity", value: $F(s.reEquity),       accent: _BLUE   },
+        { label: "Individual Assets",  value: $F(s.individuals),    accent: _GREEN  },
+        { label: "Business Equity",    value: $F(s.businesses),     accent: _PURPLE },
+        { label: "Vehicles",           value: $F(safe(s.vehicles)), accent: _AMBER  },
+      ];
+      const _cW = (CW - 9) / 4, _cH = 17;
+      _kpiCards.forEach((k, i) => {
+        const cx = ML + i * (_cW + 3);
+        _sfc([248, 249, 252]); _sdc(_BORDER); _sw(0.2);
+        doc.rect(cx, y, _cW, _cH, "FD");
+        _sfc(k.accent); _sdc(k.accent);
+        doc.rect(cx, y, _cW, 2, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6); _sc(_DIM);
+        doc.text(k.label.toUpperCase(), cx + 2.5, y + 7);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8); _sc(_BLACK);
+        doc.text(k.value, cx + 2.5, y + 13);
+      });
+      y += _cH + 8;
+      _divider(y); y += 7;
+
+      // NW Trajectory chart
+      _secLabel(ML, y, "Net Worth Trajectory"); y += 5;
+      const _cX = ML, _cY = y, _cW2 = CW, _cH2 = 28;
+      if (trajSnaps.length >= 2) {
+        const _allV = trajSnaps.flatMap(sn => [safe(sn.nw), safe(sn.reEquity), safe(sn.individuals), safe(sn.businesses), safe(sn.vehicles)]);
+        const _minV = Math.min(0, ..._allV), _maxV = Math.max(1, ..._allV);
+        const _rng  = _maxV - _minV || 1;
+        const _px = i => _cX + (i / (trajSnaps.length - 1)) * _cW2;
+        const _py = v => _cY + _cH2 - ((safe(v) - _minV) / _rng) * _cH2;
+        _sfc([252, 253, 254]); _sdc(_BORDER); _sw(0.15);
+        doc.rect(_cX, _cY, _cW2, _cH2, "FD");
+        [0, 0.5, 1].forEach(f => {
+          const gv = _minV + f * _rng, gy = _cY + _cH2 - f * _cH2;
+          _sdc([230, 234, 240]); _sw(0.12); doc.line(_cX, gy, _cX + _cW2, gy);
+          doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); _sc(_DIM);
+          doc.text($K(gv), _cX - 1, gy + 1.5, { align: "right" });
+        });
+        const _series = [
+          { key:"nw",          col:_GOLD,   thick:0.65, lbl:"Total NW"    },
+          { key:"reEquity",    col:_BLUE,   thick:0.3,  lbl:"Real Estate" },
+          { key:"individuals", col:_GREEN,  thick:0.3,  lbl:"Individuals" },
+          { key:"businesses",  col:_PURPLE, thick:0.3,  lbl:"Business"    },
+          { key:"vehicles",    col:_AMBER,  thick:0.3,  lbl:"Vehicles"    },
+        ];
+        _series.forEach(ser => {
+          _sdc(ser.col); _sw(ser.thick);
+          for (let i = 1; i < trajSnaps.length; i++) {
+            doc.line(_px(i-1), _py(trajSnaps[i-1][ser.key]), _px(i), _py(trajSnaps[i][ser.key]));
+          }
+        });
+        doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
+        trajSnaps.forEach((sn, i) => {
+          _sc(_DIM); doc.text(shortMo(sn.month), _px(i), _cY + _cH2 + 4, { align: "center" });
+        });
+        let _lx = _cX;
+        const _ly = _cY + _cH2 + 10;
+        _series.forEach(ser => {
+          _sfc(ser.col); _sdc(ser.col); doc.rect(_lx, _ly - 2, 4.5, 2.5, "F");
+          doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); _sc(_DIM);
+          doc.text(ser.lbl, _lx + 6, _ly);
+          _lx += doc.getTextWidth(ser.lbl) + 16;
+        });
+        y = _cY + _cH2 + 16;
+      } else {
+        _sfc([252, 253, 254]); _sdc(_BORDER); _sw(0.15);
+        doc.rect(_cX, _cY, _cW2, _cH2, "FD");
+        doc.setFont("helvetica", "italic"); doc.setFontSize(8); _sc(_DIM);
+        doc.text("Insufficient history data for trajectory chart.", _cX + _cW2 / 2, _cY + _cH2 / 2, { align: "center" });
+        y = _cY + _cH2 + 6;
+      }
+      _divider(y); y += 7;
+
+      // Asset allocation donut + liquidity bar (side by side)
+      const _halfW = (CW - 8) / 2;
+      _secLabel(ML, y, "Asset Allocation");
+      _secLabel(ML + _halfW + 8, y, "Liquidity Profile");
+      y += 6;
+
+      // Donut
+      const _donCX = ML + _halfW / 2, _donCY = y + 19;
+      const _outerR = 16, _innerR = 9.5;
+      const _rawSlices = [
+        { label:"Real Estate", value:Math.max(0, safe(s.reEquity)),    color:_BLUE   },
+        { label:"Individuals", value:Math.max(0, safe(s.individuals)), color:_GREEN  },
+        { label:"Business",    value:Math.max(0, safe(s.businesses)),  color:_PURPLE },
+        { label:"Vehicles",    value:Math.max(0, safe(s.vehicles)),    color:_AMBER  },
+      ].filter(sl => sl.value > 0);
+      const _sliceTotal = _rawSlices.reduce((sum, sl) => sum + sl.value, 0) || 1;
+      let _startAng = -Math.PI / 2;
+      _rawSlices.forEach(sl => {
+        const sweep = (sl.value / _sliceTotal) * 2 * Math.PI;
+        const steps = Math.max(12, Math.ceil(sweep * _outerR * 1.5));
+        const pts = [];
+        for (let i = 0; i <= steps; i++) {
+          const a = _startAng + (i / steps) * sweep;
+          pts.push([_donCX + _outerR * Math.cos(a), _donCY + _outerR * Math.sin(a)]);
+        }
+        for (let i = steps; i >= 0; i--) {
+          const a = _startAng + (i / steps) * sweep;
+          pts.push([_donCX + _innerR * Math.cos(a), _donCY + _innerR * Math.sin(a)]);
+        }
+        const rel = pts.slice(1).map((pt, idx) => [pt[0] - pts[idx][0], pt[1] - pts[idx][1]]);
+        _sfc(sl.color); _sdc(sl.color); _sw(0.05);
+        doc.lines(rel, pts[0][0], pts[0][1], [1, 1], "FD", true);
+        _startAng += sweep;
+      });
+      // White center hole
+      _sfc(_WHITE); _sdc(_WHITE); _sw(0);
+      doc.ellipse(_donCX, _donCY, _innerR, _innerR, "F");
+
+      // Donut legend
+      let _dLegX = ML, _dLegY = _donCY + _outerR + 5;
+      _rawSlices.forEach(sl => {
+        const pct = ((sl.value / _sliceTotal) * 100).toFixed(0);
+        const tag = `${sl.label} ${pct}%`;
+        if (_dLegX + doc.getTextWidth(tag) + 8 > ML + _halfW) { _dLegX = ML; _dLegY += 5.5; }
+        _sfc(sl.color); _sdc(sl.color); doc.rect(_dLegX, _dLegY - 2.2, 3, 3, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); _sc(_DIM);
+        doc.text(tag, _dLegX + 4.5, _dLegY);
+        _dLegX += doc.getTextWidth(tag) + 9;
+      });
+      const _donBottom = _dLegY + 6;
+
+      // Liquidity bar
+      const _liqX = ML + _halfW + 8, _liqBY = y + 5, _liqBH = 8, _liqBW = _halfW;
+      const _liqSegs = [
+        { label:"Liquid",      value:Math.max(0, safe(s.individuals)),                                                              color:_GREEN },
+        { label:"Semi-liquid", value:Math.max(0, safe(s.reLiquid)),                                                                 color:_AMBER },
+        { label:"Illiquid",    value:Math.max(0, safe(s.reEquity) - safe(s.reLiquid) + safe(s.businesses) + safe(s.vehicles)),      color:_GREY  },
+      ];
+      const _liqTotal = Math.max(1, _liqSegs.reduce((sum, sg) => sum + sg.value, 0));
+      let _segX = _liqX;
+      _liqSegs.forEach(seg => {
+        const segW = (seg.value / _liqTotal) * _liqBW;
+        if (segW < 0.5) return;
+        _sfc(seg.color); _sdc(seg.color); _sw(0);
+        doc.rect(_segX, _liqBY, segW, _liqBH, "F");
+        _segX += segW;
+      });
+      _sdc(_BORDER); _sw(0.2); doc.rect(_liqX, _liqBY, _liqBW, _liqBH, "D");
+      _segX = _liqX;
+      _liqSegs.forEach(seg => {
+        const segW = (seg.value / _liqTotal) * _liqBW;
+        if (segW < 0.5) { _segX += segW; return; }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
+        if (segW > 10) { _sc(_WHITE); doc.text(seg.label, _segX + segW / 2, _liqBY + 5.5, { align: "center" }); }
+        _sc(_DIM); doc.text(seg.label, _segX + segW / 2, _liqBY + _liqBH + 4, { align: "center" });
+        doc.setFont("helvetica", "bold"); doc.setFontSize(5.5); _sc(_BLACK);
+        doc.text($F(seg.value), _segX + segW / 2, _liqBY + _liqBH + 9, { align: "center" });
+        _segX += segW;
+      });
+      y = Math.max(_donBottom, _liqBY + _liqBH + 14) + 4;
+      _divider(y); y += 7;
+
+      // Cash flow summary
+      _secLabel(ML, y, "Cash Flow Summary"); y += 6;
+      const _cfRows = [
+        { label:"Rental Income",        val: cfRentIn,       pos:true  },
+        { label:"Business Income",       val: finBizIn,       pos:true  },
+        { label:"Other Income",          val: cfOtherIncome,  pos:true  },
+        { label:"Property Obligations",  val: cfPropOut,      pos:false },
+        { label:"Other Obligations",     val: cfOtherOut,     pos:false },
+      ];
+      _cfRows.forEach((row, ri) => {
+        if (ri % 2 === 1) { _sfc([248, 249, 252]); doc.rect(ML, y - 3.5, CW, 6, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); _sc(_BLACK);
+        doc.text(row.label, ML + 2, y);
+        const shown = row.pos ? row.val : -row.val;
+        _sc(shown >= 0 ? _GREEN : _RED); doc.setFont("helvetica", "bold");
+        doc.text($F(shown), PW - MR - 1, y, { align: "right" }); y += 6;
+      });
+      _sdc(_BLACK); _sw(0.3); doc.line(ML, y, PW - MR, y); y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); _sc(_BLACK);
+      doc.text("Net Cash Flow", ML + 2, y);
+      _sc(finGap >= 0 ? _GREEN : _RED);
+      doc.text($F(finGap), PW - MR - 1, y, { align: "right" });
+      _drawFooter();
+
+      // ── PAGE 3 — COMMENTARY ───────────────────────────────────────────────
+      doc.addPage(); pageNum++;
+      _drawPageHeader(`${periodLabel} — Commentary`);
+      y = 24;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); _sc(_BLACK);
+      doc.text("Monthly Commentary", ML, y); y += 3;
+      _sdc(_GOLD); _sw(0.6); doc.line(ML, y, ML + 55, y); y += 10;
+
+      if (riskFlags.length === 0) {
+        const _okLines = [
+          `The JMF Family Office portfolio for ${periodLabel} shows no material risk flags.`,
+          `Consolidated net worth stands at ${$F(s.nw)}${momNW != null ? `, a ${momNW >= 0 ? "gain" : "decline"} of ${$F(Math.abs(momNW))} from the prior month` : ""}.`,
+          "All key metrics are within normal bounds.",
+        ];
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); _sc(_BLACK);
+        _okLines.forEach(line => {
+          doc.splitTextToSize(line, CW).forEach(wl => { doc.text(wl, ML, y); y += 5.5; });
+        });
+      } else {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); _sc(_BLACK);
+        doc.splitTextToSize(`The following observations have been flagged for the ${periodLabel} reporting period:`, CW)
+          .forEach(wl => { doc.text(wl, ML, y); y += 5.5; });
+        y += 4;
+        riskFlags.forEach((flag, i) => {
+          doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); _sc(_BLACK);
+          doc.text(`${i + 1}.`, ML, y);
+          doc.setFont("helvetica", "normal");
+          doc.splitTextToSize(flag, CW - 8).forEach(wl => { doc.text(wl, ML + 7, y); y += 5.5; });
+          y += 1;
+        });
+        y += 6;
+        const _closing = `Consolidated net worth is ${$F(s.nw)}${momNW != null ? ` (${momNW >= 0 ? "+" : ""}${$F(momNW)} MoM${momNWPct != null ? ", " + (momNWPct >= 0 ? "+" : "") + momNWPct.toFixed(1) + "%" : ""})` : ""}. Addressable items should be reviewed with the portfolio administrator.`;
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); _sc(_BLACK);
+        doc.splitTextToSize(_closing, CW).forEach(wl => { doc.text(wl, ML, y); y += 5.5; });
+      }
+
+      y += 12; _divider(y); y += 8;
+      doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); _sc(_DIM);
+      doc.splitTextToSize("This report is generated automatically from live dashboard data. All figures are in Canadian Dollars (CAD). This document is confidential and intended solely for Jamet Group family office administration.", CW)
+        .forEach(wl => { doc.text(wl, ML, y); y += 5; });
+      _drawFooter();
+
+      // Save
       const generatedAtISO = new Date().toISOString();
       doc.save(reportFileName(s.month));
       onGenerated?.({ snapshotMonth: s.month, snapshotCapturedAt: s.capturedAt, generatedAt: generatedAtISO });
