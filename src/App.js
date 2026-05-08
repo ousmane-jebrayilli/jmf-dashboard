@@ -6382,44 +6382,78 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       _drawPageHeader(`${periodLabel} — Overview`);
       y = 20;
 
-      // NW Headline
-      _secLabel(ML, y, "Consolidated Net Worth"); y += 5;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(20); _sc(_BLACK);
-      doc.text($F(s.nw), ML, y);
+      // NW Headline — stacked: label / bold gold value / delta on own line
+      _secLabel(ML, y, "Consolidated Net Worth"); y += 7;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(22); _sc(_GOLD);
+      doc.text($F(s.nw), ML, y); y += 9;
       if (momNW != null) {
-        const nwW = doc.getTextWidth($F(s.nw));
-        doc.setFontSize(9);
-        const momStr = `${momNW >= 0 ? "+" : ""}${$F(momNW)} MoM`;
+        const _momSign = momNW >= 0 ? "+" : "";
+        const _pctStr  = momNWPct != null ? ` (${momNWPct >= 0 ? "+" : ""}${momNWPct.toFixed(1)}%)` : "";
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10);
         _sc(momNW >= 0 ? _GREEN : _RED);
-        doc.text(momStr, ML + nwW + 4, y);
-        if (momNWPct != null) {
-          doc.setFontSize(7.5); _sc(_DIM);
-          doc.text(`(${momNWPct >= 0 ? "+" : ""}${momNWPct.toFixed(1)}%)`, ML + nwW + 4 + doc.getTextWidth(momStr) + 2, y);
+        doc.text(`${_momSign}${$F(momNW)} MoM${_pctStr}`, ML, y); y += 9;
+      } else {
+        y += 4;
+      }
+      y += 5;
+
+      // 2x2 KPI cards with per-entity breakdown lines
+      const _cardW = (CW - 6) / 2, _cardH = 68;
+
+      // Breakdown data
+      const _reItems  = [...(s.reBreakdown || [])].sort((a, b) => Math.abs(safe(b.equity)) - Math.abs(safe(a.equity))).map(p => ({ label: p.name, val: safe(p.equity) }));
+      const _indItems = (s.individualBreakdown || []).map(ind => ({ label: ind.name, val: safe(ind.net) }));
+      const _bizItems = (s.businessBreakdown  || []).filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").map(b => ({ label: b.name, val: safe(b.eq) }));
+      const _vehRaw   = (s.vehicleBreakdown && s.vehicleBreakdown.length > 0)
+        ? s.vehicleBreakdown
+        : (data.vehicles || []).map(v => ({ name: v.name, equity: getVehicleMarketValue(v) - safe(v.loanBalance) }));
+      const _vehItems = _vehRaw.map(v => ({ label: v.name || `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim() || "Vehicle", val: safe(v.equity) }));
+
+      function _drawKPICard(cx, cy, label, total, accentCol, items) {
+        _sfc([248, 249, 252]); _sdc(_BORDER); _sw(0.2);
+        doc.rect(cx, cy, _cardW, _cardH, "FD");
+        _sfc(accentCol); _sdc(accentCol);
+        doc.rect(cx, cy, _cardW, 2.5, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); _sc(_DIM);
+        doc.text(label.toUpperCase(), cx + 3, cy + 8);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(13); _sc(_GOLD);
+        doc.text($F(total), cx + 3, cy + 15.5);
+        _sdc(_BORDER); _sw(0.25);
+        doc.line(cx + 3, cy + 19, cx + _cardW - 3, cy + 19);
+        const _shown  = items.slice(0, 7);
+        const _hidden = items.length - _shown.length;
+        let iy = cy + 24;
+        _shown.forEach(it => {
+          const lbl = it.label.length > 26 ? it.label.slice(0, 24) + "..." : it.label;
+          doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); _sc([55, 65, 80]);
+          doc.text(lbl, cx + 3, iy);
+          doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); _sc(_BLACK);
+          doc.text($F(it.val), cx + _cardW - 3, iy, { align: "right" });
+          iy += 4.2;
+        });
+        if (_hidden > 0) {
+          doc.setFont("helvetica", "italic"); doc.setFontSize(6); _sc(_DIM);
+          doc.text(`+${_hidden} other`, cx + 3, iy);
         }
       }
-      y += 10;
 
-      // KPI cards
-      const _kpiCards = [
-        { label: "Real Estate Equity", value: $F(s.reEquity),       accent: _BLUE   },
-        { label: "Individual Assets",  value: $F(s.individuals),    accent: _GREEN  },
-        { label: "Business Equity",    value: $F(s.businesses),     accent: _PURPLE },
-        { label: "Vehicles",           value: $F(safe(s.vehicles)), accent: _AMBER  },
+      const _kpiGrid = [
+        { label: "Real Estate Equity", total: s.reEquity,       accentCol: _BLUE,   items: _reItems  },
+        { label: "Individual Assets",  total: s.individuals,    accentCol: _GREEN,  items: _indItems },
+        { label: "Business Equity",    total: s.businesses,     accentCol: _PURPLE, items: _bizItems },
+        { label: "Vehicles",           total: safe(s.vehicles), accentCol: _AMBER,  items: _vehItems },
       ];
-      const _cW = (CW - 9) / 4, _cH = 17;
-      _kpiCards.forEach((k, i) => {
-        const cx = ML + i * (_cW + 3);
-        _sfc([248, 249, 252]); _sdc(_BORDER); _sw(0.2);
-        doc.rect(cx, y, _cW, _cH, "FD");
-        _sfc(k.accent); _sdc(k.accent);
-        doc.rect(cx, y, _cW, 2, "F");
-        doc.setFont("helvetica", "normal"); doc.setFontSize(6); _sc(_DIM);
-        doc.text(k.label.toUpperCase(), cx + 2.5, y + 7);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(8); _sc(_BLACK);
-        doc.text(k.value, cx + 2.5, y + 13);
+      _kpiGrid.forEach((card, i) => {
+        const col = i % 2, row = Math.floor(i / 2);
+        _drawKPICard(ML + col * (_cardW + 6), y + row * (_cardH + 4), card.label, card.total, card.accentCol, card.items);
       });
-      y += _cH + 8;
-      _divider(y); y += 7;
+      y += 2 * (_cardH + 4);
+      _drawFooter();
+
+      // ── PAGE 3 — CHARTS & CASH FLOW ────────────────────────────────────────
+      doc.addPage(); pageNum++;
+      _drawPageHeader(`${periodLabel} — Charts & Cash Flow`);
+      y = 20;
 
       // NW Trajectory chart
       _secLabel(ML, y, "Net Worth Trajectory"); y += 5;
@@ -6555,8 +6589,18 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       y = Math.max(_donBottom, _liqBY + _liqBH + 14) + 4;
       _divider(y); y += 7;
 
-      // Cash flow summary
-      _secLabel(ML, y, "Cash Flow Summary"); y += 6;
+      // Cash flow — last closed period
+      const _cfPeriodYM = shiftYM(s.month, -1);
+      const _cfPeriodLabel = (() => {
+        const [_cfYr, _cfMo] = (_cfPeriodYM || "").split("-");
+        const _MO2 = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        return `${_MO2[(parseInt(_cfMo)||1)-1]} ${_cfYr}`;
+      })();
+      const _cfIsCurrentPeriod = s.month === currentYM();
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); _sc(_DIM);
+      doc.text(`CASH FLOW — ${_cfPeriodLabel.toUpperCase()} (LAST CLOSED PERIOD)`, ML, y); y += 5;
+      doc.setFont("helvetica", "italic"); doc.setFontSize(6.5); _sc(_DIM);
+      doc.text(_cfIsCurrentPeriod ? `${periodLabel} is in progress; figures reflect the last fully closed month.` : `Figures reflect ${_cfPeriodLabel} (prior closed month).`, ML, y); y += 7;
       const _cfRows = [
         { label:"Rental Income",        val: cfRentIn,       pos:true  },
         { label:"Business Income",       val: finBizIn,       pos:true  },
@@ -6579,7 +6623,7 @@ function ReportModal({ snapshot: s, data, onClose, onGenerated, adminName }) {
       doc.text($F(finGap), PW - MR - 1, y, { align: "right" });
       _drawFooter();
 
-      // ── PAGE 3 — COMMENTARY ───────────────────────────────────────────────
+      // ── PAGE 4 — COMMENTARY ───────────────────────────────────────────────
       doc.addPage(); pageNum++;
       _drawPageHeader(`${periodLabel} — Commentary`);
       y = 24;
@@ -9329,7 +9373,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             data={data}
             onSaveSnapshot={note => saveSnapshot(note)}
             onReportGenerated={entry => recordReportGeneration(entry)}
-            adminName={user?.profile?.display_name || (user?.email ? user.email.split('@')[0].split(/[._-]/).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ') : "Admin")}
+            adminName={(user?.profile?.role === 'admin') ? 'Ahmed Jebrayilli' : (user?.profile?.display_name || (user?.email ? user.email.split('@')[0].split(/[._-]/).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ') : "Admin"))}
           />
         )}
 
