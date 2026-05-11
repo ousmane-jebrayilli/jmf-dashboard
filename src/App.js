@@ -587,7 +587,7 @@ const DEFAULT = {
 //   { ...rows }     → normal → use data
 async function loadFromDB() {
   try {
-    const { data, error } = await supabase.from("dashboard_data").select("*");
+    const { data, error } = await supabase.from("dashboard_data").select("*").order("updated_at", { ascending: true });
     if (error) { console.error("[loadFromDB] Supabase error:", error); return { _error: true }; }
     if (!data || data.length === 0) return null; // true first run
     const result = {};
@@ -620,21 +620,37 @@ async function saveToDB(key, value) {
   // Guard: never write an empty array when we previously had data
   if (Array.isArray(value) && value.length === 0 && (_dbRowSizes[key] || 0) > 0) {
     console.warn(`[saveToDB] BLOCKED write of empty array for key="${key}" (had ${_dbRowSizes[key]} data points). Possible silent wipe prevented.`);
-    return;
+    return false;
   }
   // Guard: refuse writes that are dramatically smaller (>80% reduction in data points)
   const incoming = _countDataPoints(value);
   const existing = _dbRowSizes[key] || 0;
   if (existing > 10 && incoming < existing * 0.2) {
     console.warn(`[saveToDB] BLOCKED suspicious shrink for key="${key}": ${existing} → ${incoming} data points (>80% reduction). Possible silent wipe prevented.`);
-    return;
+    return false;
   }
   try {
-    await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
+    const { error } = await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
+    if (error) {
+      console.error(`[saveToDB] DB save failed for key="${key}"`, error);
+      return false;
+    }
     _dbRowSizes[key] = incoming; // track after successful write
+    return true;
   } catch (e) {
     console.error("[saveToDB] DB save failed", e);
+    return false;
   }
+}
+async function loadLatestDashboardValue(key) {
+  const { data, error } = await supabase
+    .from("dashboard_data")
+    .select("value, updated_at")
+    .eq("key", key)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0]?.value;
 }
 // Seed ONLY if the key is genuinely absent. Never overwrite an existing key.
 async function seedToDB(key, value) {
@@ -1973,8 +1989,23 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
   const [received, setReceived] = useState(safe(current?.amount));
   const [note, setNote] = useState(current?.note || "");
   const [date, setDate] = useState(current?.date || `${month}-01`);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const isMobile = useIsMobile();
   const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:14, fontFamily:C.mono, outline:"none", boxSizing:"border-box", marginBottom:14 };
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(safe(received), note, date);
+      onClose();
+    } catch (e) {
+      console.error("Rent payment save failed", e);
+      setError("Rent payment could not be saved. Please try again.");
+      setSaving(false);
+    }
+  };
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding: isMobile ? 12 : 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -1988,16 +2019,17 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
         </div>
         <Label>Amount received (CAD)</Label>
         <input type="number" autoFocus value={received} onChange={e => setReceived(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { onSave(safe(received), note, date); onClose(); } if (e.key === "Escape") onClose(); }}
+          onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onClose(); }}
           style={inp} />
         <Label>Payment date</Label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inp, fontFamily:C.sans, fontSize:13 }} />
         <Label>Note (optional)</Label>
         <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. e-transfer received April 15"
           style={{ ...inp, fontFamily:C.sans, fontSize:13 }} />
+        {error && <div style={{ color:C.redText, background:C.redLight, border:`1px solid rgba(224,85,85,0.28)`, borderRadius:8, padding:"8px 10px", fontSize:12, marginBottom:12 }}>{error}</div>}
         <div style={{ display:"flex", gap:10 }}>
-          <button onClick={() => { onSave(safe(received), note, date); onClose(); }}
-            style={{ flex:1, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer" }}>Save</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ flex:1, padding:12, background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:14, fontWeight:700, cursor:saving ? "default" : "pointer", opacity:saving ? 0.7 : 1 }}>{saving ? "Saving…" : "Save"}</button>
           <button onClick={onClose}
             style={{ flex:1, padding:12, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:14, cursor:"pointer" }}>Cancel</button>
         </div>
@@ -2014,12 +2046,14 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
   const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(item => [`${item.prop.id}-${item.unit.id}`, ""])));
   const [profitVals, setProfitVals] = useState(() => Object.fromEntries(missingProfits.map(b => [b.id, ""])));
   const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState("");
   const isMobile = useIsMobile();
 
   if (missingRent.length === 0 && missingProfits.length === 0) return null;
 
   const handleSave = async () => {
     setSaving(true);
+    setError("");
     const saves = [];
     const savedFor = [];
     missingRent.forEach(item => {
@@ -2035,8 +2069,15 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
         if (!savedFor.includes("profit")) savedFor.push("profit");
       }
     });
-    await Promise.all(saves);
-    await onSaveAndClose(savedFor);
+    try {
+      await Promise.all(saves);
+      const ok = await onSaveAndClose(savedFor);
+      if (ok === false) throw new Error("Reminder state save failed");
+    } catch (e) {
+      console.error("Monthly reminder save failed", e);
+      setError("Save failed. Please try again before refreshing.");
+      setSaving(false);
+    }
   };
 
   const inp = {
@@ -2115,6 +2156,7 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
               Dismiss
             </button>
           </div>
+          {error && <div style={{ fontSize:12, color:C.redText, background:C.redLight, border:`1px solid rgba(224,85,85,0.28)`, borderRadius:8, padding:"8px 10px", marginTop:12 }}>{error}</div>}
           <div style={{ fontSize:11, color:C.textDim, marginTop:12, textAlign:"center" }}>
             This prompt will reappear each session until all fields are filled.
           </div>
@@ -3284,7 +3326,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
           expected={loggingRent.row.amount}
           creditApplied={loggingRent.row.creditApplied}
           current={loggingRent.current}
-          onSave={(amount, note, date) => {
+          onSave={(amount, note, date) => (
             onSaveRentPayment({
               propertyId: prop.id,
               unitId: loggingRent.unit.id,
@@ -3293,8 +3335,8 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
               amount,
               note,
               date,
-            });
-          }}
+            })
+          )}
           onClose={() => setLoggingRent(null)}
         />
       )}
@@ -8081,8 +8123,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     setData(d => ({ ...d, reportHistory: updated }));
     showSaved();
   }
-  function updBizProfit(bizId, month, profit) {
-    const arr = data.businesses.map(b => {
+  async function updBizProfit(bizId, month, profit) {
+    const latestBusinesses = await loadLatestDashboardValue("businesses");
+    const baseBusinesses = Array.isArray(latestBusinesses) ? latestBusinesses : data.businesses;
+    const arr = baseBusinesses.map(b => {
       if (b.id !== bizId) return b;
       const existing = b.monthlyProfits || [];
       const has = existing.find(p => p.month === month);
@@ -8091,13 +8135,28 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         : [...existing, { month, profit: safe(profit) }];
       return { ...b, monthlyProfits: updated };
     });
-    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
-    ensurePeriodExists(month).then(() =>
-      supabase.from("monthly_business_logs").upsert(
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) throw new Error("businesses save failed");
+    setData(prev => ({ ...prev, businesses: (prev.businesses || []).map(b => {
+      if (b.id !== bizId) return b;
+      const existing = b.monthlyProfits || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has
+        ? existing.map(p => p.month === month ? { ...p, profit: safe(profit) } : p)
+        : [...existing, { month, profit: safe(profit) }];
+      return { ...b, monthlyProfits: updated };
+    }) }));
+    showSaved();
+    try {
+      await ensurePeriodExists(month);
+      const { error } = await supabase.from("monthly_business_logs").upsert(
         { month_key: month, business_id: bizId, profit: safe(profit), updated_at: new Date().toISOString() },
         { onConflict: "month_key,business_id" }
-      )
-    ).catch(() => {});
+      );
+      if (error) throw error;
+    } catch (e) {
+      console.error("monthly_business_logs save failed", e);
+    }
   }
   function updBizProfitField(bizId, month, field, value) {
     let capturedEntry = null;
@@ -8145,132 +8204,72 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
-  function updRentPayment(payloadOrPropertyId, month, received, note) {
-    const payload = typeof payloadOrPropertyId === "object"
-      ? payloadOrPropertyId
-      : { propertyId: payloadOrPropertyId, month, amount: received, note };
-    const existing = (data.rentPayments || []).map(normalizeRentPayment);
-    const idx = existing.findIndex(r =>
-      r.propertyId === payload.propertyId &&
-      r.unitId === (payload.unitId || "") &&
-      r.leaseId === (payload.leaseId || "") &&
-      r.month === payload.month &&
+  function mergeRentPaymentEntry(entries, entry) {
+    const normalized = (entries || []).map(normalizeRentPayment);
+    const idx = normalized.findIndex(r =>
+      r.propertyId === entry.propertyId &&
+      r.unitId === (entry.unitId || "") &&
+      r.leaseId === (entry.leaseId || "") &&
+      r.month === entry.month &&
       r.type === "payment"
     );
+    return idx >= 0
+      ? normalized.map((r, i) => i === idx ? entry : r)
+      : [...normalized, entry];
+  }
+  async function writeRentLogRow(entry) {
+    try {
+      await ensurePeriodExists(entry.month);
+      const { data: existing_row, error: lookupError } = await supabase
+        .from("monthly_rent_logs")
+        .select("id")
+        .eq("month_key",    entry.month)
+        .eq("property_id",  entry.propertyId)
+        .eq("unit_id",      String(entry.unitId || ""))
+        .eq("payment_type", "payment")
+        .maybeSingle();
+      if (lookupError) throw lookupError;
+      const dbRow = {
+        month_key:    entry.month,
+        property_id:  entry.propertyId,
+        unit_id:      String(entry.unitId || ""),
+        lease_id:     entry.leaseId || null,
+        amount:       safe(entry.amount),
+        payment_date: entry.date || `${entry.month}-01`,
+        payment_type: "payment",
+        note:         entry.note || null,
+        updated_at:   new Date().toISOString(),
+      };
+      const result = existing_row?.id
+        ? await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id)
+        : await supabase.from("monthly_rent_logs").insert(dbRow);
+      if (result.error) throw result.error;
+    } catch (e) {
+      console.error("monthly_rent_logs save failed", e);
+    }
+  }
+  async function saveRentPaymentEntry(payload) {
     const entry = normalizeRentPayment({
       ...payload,
       type: "payment",
       amount: safe(payload.amount),
       date: payload.date || `${payload.month}-01`,
     });
-    const updated = idx >= 0
-      ? existing.map((r, i) => i === idx ? entry : r)
-      : [...existing, entry];
-    saveToDB("rentPayments", updated); setData(d => ({ ...d, rentPayments: updated })); showSaved();
-    (async () => {
-      try {
-        await ensurePeriodExists(payload.month);
-        const { data: existing_row } = await supabase
-          .from("monthly_rent_logs")
-          .select("id")
-          .eq("month_key",    payload.month)
-          .eq("property_id",  payload.propertyId)
-          .eq("unit_id",      String(payload.unitId || ""))
-          .eq("payment_type", "payment")
-          .maybeSingle();
-        const dbRow = {
-          month_key:    payload.month,
-          property_id:  payload.propertyId,
-          unit_id:      String(payload.unitId || ""),
-          lease_id:     payload.leaseId || null,
-          amount:       safe(payload.amount),
-          payment_date: payload.date || `${payload.month}-01`,
-          payment_type: "payment",
-          note:         payload.note || null,
-          updated_at:   new Date().toISOString(),
-        };
-        if (existing_row?.id) {
-          await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id);
-        } else {
-          await supabase.from("monthly_rent_logs").insert(dbRow);
-        }
-      } catch {}
-    })();
-  }
-  function saveReminderRentPayment(item, received, note) {
-    const ym = currentYM();
-    const entry = normalizeRentPayment({
-      propertyId: item.prop.id,
-      unitId:     item.unit.id,
-      leaseId:    item.lease.id,
-      month:      ym,
-      amount:     safe(received),
-      date:       `${ym}-01`,
-      type:       "payment",
-      note:       note || "Logged via monthly update modal",
-    });
-    let rentPaymentsSave = Promise.resolve();
-    setData(prev => {
-      const next = [...((prev.rentPayments || []).map(normalizeRentPayment)), entry];
-      rentPaymentsSave = saveToDB("rentPayments", next);
-      return { ...prev, rentPayments: next };
-    });
-    const rentLogSave = (async () => {
-      try {
-        await ensurePeriodExists(ym);
-        const { data: existing_row } = await supabase
-          .from("monthly_rent_logs")
-          .select("id")
-          .eq("month_key",    ym)
-          .eq("property_id",  item.prop.id)
-          .eq("unit_id",      String(item.unit.id || ""))
-          .eq("payment_type", "payment")
-          .maybeSingle();
-        const dbRow = {
-          month_key:    ym,
-          property_id:  item.prop.id,
-          unit_id:      String(item.unit.id || ""),
-          lease_id:     item.lease.id || null,
-          amount:       safe(received),
-          payment_date: `${ym}-01`,
-          payment_type: "payment",
-          note:         note || "Logged via monthly update modal",
-          updated_at:   new Date().toISOString(),
-        };
-        if (existing_row?.id) {
-          await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id);
-        } else {
-          await supabase.from("monthly_rent_logs").insert(dbRow);
-        }
-      } catch {}
-    })();
+    const latestRentPayments = await loadLatestDashboardValue("rentPayments");
+    const base = Array.isArray(latestRentPayments) ? latestRentPayments : (data.rentPayments || []);
+    const updated = mergeRentPaymentEntry(base, entry);
+    const ok = await saveToDB("rentPayments", updated);
+    if (!ok) throw new Error("rentPayments save failed");
+    await writeRentLogRow(entry);
+    setData(prev => ({ ...prev, rentPayments: mergeRentPaymentEntry(prev.rentPayments || [], entry) }));
     showSaved();
-    return Promise.all([rentPaymentsSave, rentLogSave]);
+    return entry;
   }
-  function saveReminderBizProfit(bizId, profit) {
-    const month = shiftYM(currentYM(), -1);
-    let businessesSave = Promise.resolve();
-    setData(prev => {
-      const arr = (prev.businesses || []).map(b => {
-        if (b.id !== bizId) return b;
-        const existing = b.monthlyProfits || [];
-        const has = existing.find(p => p.month === month);
-        const updated = has
-          ? existing.map(p => p.month === month ? { ...p, profit: safe(profit) } : p)
-          : [...existing, { month, profit: safe(profit) }];
-        return { ...b, monthlyProfits: updated };
-      });
-      businessesSave = saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
-    });
-    const businessLogSave = ensurePeriodExists(month).then(() =>
-      supabase.from("monthly_business_logs").upsert(
-        { month_key: month, business_id: bizId, profit: safe(profit), updated_at: new Date().toISOString() },
-        { onConflict: "month_key,business_id" }
-      )
-    ).catch(() => {});
-    showSaved();
-    return Promise.all([businessesSave, businessLogSave]);
+  function updRentPayment(payloadOrPropertyId, month, received, note) {
+    const payload = typeof payloadOrPropertyId === "object"
+      ? payloadOrPropertyId
+      : { propertyId: payloadOrPropertyId, month, amount: received, note };
+    return saveRentPaymentEntry(payload);
   }
   function writeCashflowLog(cf) {
     const mk  = currentYM();
@@ -8395,12 +8394,21 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         <ReminderModal
           missingRent={reminderData.missingRent}
           missingProfits={reminderData.missingProfits}
-          onSaveRent={saveReminderRentPayment}
-          onSaveProfit={saveReminderBizProfit}
+          onSaveRent={(item, received, note) => updRentPayment({
+            propertyId: item.prop.id,
+            unitId:     item.unit.id,
+            leaseId:    item.lease.id,
+            month:      currentYM(),
+            amount:     received,
+            note:       note || "Logged via monthly update modal",
+            date:       `${currentYM()}-01`,
+          })}
+          onSaveProfit={(bizId, profit) => updBizProfit(bizId, shiftYM(currentYM(), -1), profit)}
           onDismiss={() => setShowReminder(false)}
-          onSaveAndClose={(savedFor) => {
-            setShowReminder(false);
-            return saveToDB("reminder_state", { last_dismissed_month: currentYM(), dismissed_for: savedFor });
+          onSaveAndClose={async (savedFor) => {
+            const ok = await saveToDB("reminder_state", { last_dismissed_month: currentYM(), dismissed_for: savedFor });
+            if (ok) setShowReminder(false);
+            return ok;
           }}
         />
       )}
