@@ -3302,7 +3302,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const displayLiquid = isPartial ? jmfLiquid : liquidValue;
   const displayLiquidColor = displayLiquid > 0 ? C.green : C.red;
   const ledgers = propertyLeaseLedgers(prop, rentPayments);
-  const nextExpected = propertyOutstandingForMonth(prop, rentPayments, currentYM());
+  const expectedRent = propertyExpectedRentForMonth(prop, currentYM()) || effectiveRent;
 
   // Build amortization schedule for Payment Schedule tab (past + current + future)
   const curYM = currentYM();
@@ -3446,7 +3446,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                     { label:"Market Value", value:hasForeignCurrency ? formatNativeMoney(marketLocal, marketCurrency) : $F(market), color:C.text },
                     { label:"Current Debt", value:$F(balance), color:C.red },
                     { label:"Gross Equity", value:$F(rawEquity), color:rawEquity >= 0 ? C.gold : C.red },
-                    { label:"Expected Rent", value:$F(nextExpected || effectiveRent), color:C.green },
+                    { label:"Expected Rent", value:$F(expectedRent), color:C.green },
                     { label:"Monthly Cash Flow", value:`${monthlyNCF >= 0 ? "+" : ""}${$F(monthlyNCF)}`, color:monthlyNCF >= 0 ? C.green : C.red },
                   ].map(item => (
                     <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px" }}>
