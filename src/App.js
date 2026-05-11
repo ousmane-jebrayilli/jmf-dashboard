@@ -1780,7 +1780,7 @@ function CashFlowGraph({ data }) {
   );
 }
 
-function PersonalPLPanel({ individual, onSaveIncome, onSaveExpense, lockedMonth, compact = false, mode = "all" }) {
+function PersonalPLPanel({ individual, onSaveIncome, onSaveExpense, lockedMonth, compact = false, mode = "all", simple = false }) {
   const curYM = currentYM();
   // histMonth drives the History mode selector — always a past month
   const [histMonth, setHistMonth] = useState(shiftYM(curYM, -1));
@@ -1836,12 +1836,87 @@ function PersonalPLPanel({ individual, onSaveIncome, onSaveExpense, lockedMonth,
 
   const showHistory = mode !== "current"; // chart + table visible in "history" and "all" modes
 
+  if (simple) {
+    const setTotalIncome = value => updateIncome({ kratosIncome: safe(value) - safe(incomeEntry.otherIncome) });
+    const setTotalExpenses = value => updateExpense({ personal: safe(value) - safe(expense.jmf) - safe(expense.profession) - safe(expense.education) });
+
+    return (
+      <div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:C.text }}>P &amp; L</div>
+            <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>
+              {mode === "history" ? "Past monthly income, expenses, and cash flow." : "Enter this month's total income and total expenses."}
+            </div>
+          </div>
+          <span style={{ fontSize:12, fontWeight:600, color:C.textMid, background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 12px" }}>
+            {mode === "history" ? "Past" : monthLabel(curYM)}
+          </span>
+        </div>
+
+        {mode !== "history" ? (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:10, marginBottom:14 }}>
+              {[
+                { label:"Total Income",   value: income,        color:C.green },
+                { label:"Total Expenses", value: totalExpenses, color:C.red },
+                { label:"Cash Flow",      value: netFlow,       color:netFlow >= 0 ? C.green : C.red },
+              ].map(item => (
+                <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{item.label}</div>
+                  <div style={{ fontFamily:C.mono, fontSize:18, fontWeight:800, color:item.color }}>{item.label === "Cash Flow" && item.value >= 0 ? "+" : ""}{$F(item.value)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:12 }}>
+              <Row label="Total Income" last={false}>
+                <EditNum value={income} onChange={setTotalIncome} locked={isLocked} />
+              </Row>
+              <Row label="Total Expenses" last={false}>
+                <EditNum value={totalExpenses} onChange={setTotalExpenses} locked={isLocked} />
+              </Row>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:12, marginTop:4, borderTop:`2px solid ${C.border}` }}>
+                <span style={{ fontSize:13, color:C.textMid, fontWeight:700 }}>Cash Flow</span>
+                <span style={{ fontFamily:C.mono, fontSize:18, fontWeight:800, color:netFlow >= 0 ? C.green : C.red }}>{netFlow >= 0 ? "+" : ""}{$F(netFlow)}</span>
+              </div>
+              {isLocked && <div style={{ fontSize:10, color:C.red, marginTop:8 }}>{monthLabel(activeMonth)} is locked.</div>}
+            </div>
+          </>
+        ) : (
+          <div>
+            {history.length === 0 ? (
+              <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>No P &amp; L entries yet.</div>
+            ) : (
+              <div style={{ overflowX:"auto" }}>
+                <div style={{ minWidth:460 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr 1fr", gap:10, padding:"8px 0", borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                    {["Month","Income","Expenses","Cash Flow"].map((h, i) => (
+                      <span key={h} style={{ textAlign:i === 0 ? "left" : "right" }}>{h}</span>
+                    ))}
+                  </div>
+                  {history.map((row, i) => (
+                    <div key={row.month} style={{ display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr 1fr", gap:10, alignItems:"center", padding:"10px 0", borderBottom:i < history.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                      <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(row.month)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.green, textAlign:"right" }}>{$F(row.income)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:12, color:C.red, textAlign:"right" }}>{$F(row.expenses)}</span>
+                      <span style={{ fontFamily:C.mono, fontSize:13, fontWeight:800, color:row.net >= 0 ? C.green : C.red, textAlign:"right" }}>{row.net >= 0 ? "+" : ""}{$F(row.net)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Header */}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom: compact ? 12 : 18 }}>
         <div>
-          <div style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:C.text }}>Personal P&amp;L</div>
+          <div style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:C.text }}>P &amp; L</div>
           <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>
             {mode === "history" ? "Select a past month to view or edit income and expenses." : "Kratos and other income minus JMF, personal, profession, and education spend."}
           </div>
@@ -2680,7 +2755,9 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
   const [showSubModal, setShowSubModal] = useState(false);
   const [currentSub, setCurrentSub]     = useState(undefined); // undefined=loading
   const [missingPeriod, setMissingPeriod] = useState(null);   // { period_date, label }
-  const [memberTab, setMemberTab]       = useState("snapshot");
+  const [memberTab, setMemberTab]       = useState("balance");
+  const [memberBalanceTab, setMemberBalanceTab] = useState("current");
+  const [memberPLTab, setMemberPLTab]   = useState("current");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
@@ -2847,7 +2924,7 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
       {/* Member tab bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display:"flex", padding:"0 16px" }}>
-          {[["snapshot","My Snapshot"],["personalpl","Personal P&L"],["history","My History"]].map(([id, label]) => (
+          {[["balance","Balance Sheet"],["pl","P & L"],["jmf","JMF"]].map(([id, label]) => (
             <button key={id} onClick={() => setMemberTab(id)}
               style={{ padding:"11px 16px", fontSize:12, fontWeight:600, border:"none", cursor:"pointer", background:"transparent", fontFamily:C.sans,
                 color: memberTab === id ? C.gold : C.textDim,
@@ -2858,39 +2935,14 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
         </div>
       </div>
 
-      {/* My History tab */}
-      {memberTab === "history" && (
+      {/* JMF tab */}
+      {memberTab === "jmf" && (
         <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 540, margin: "0 auto" }}>
           {(() => {
-            const myLog = [...(f.accountsLog || [])].reverse();
             const snapshots = [...(data.snapshots || [])].reverse();
             return (
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Monthly History</div>
-                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Your full financial position recorded each month.</div>
-                {myLog.length === 0
-                  ? <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 24 }}>No entries yet.</div>
-                  : myLog.map((e, i) => {
-                    const entryNet = e.net != null ? e.net : safe(e.value);
-                    return (
-                      <div key={i} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                          <span style={{ fontSize: 13, color: C.textMid, fontWeight: 600 }}>{monthLabel(e.month)}</span>
-                          <span style={{ fontFamily: C.mono, fontSize: 15, color: entryNet >= 0 ? C.gold : C.red, fontWeight: 700 }}>{$F(entryNet)}</span>
-                        </div>
-                        {e.net != null && (
-                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                            {[["Cash", e.cash], ["Accounts", e.accounts], ["Securities", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([l, v]) => v != null && v !== 0 ? (
-                              <span key={l} style={{ fontSize: 11, color: C.textDim }}>{l}: {$K(v)}</span>
-                            ) : null)}
-                          </div>
-                        )}
-                        {e.note && <div style={{ fontSize: 11, color: C.textDim, marginTop: 3 }}>{e.note}</div>}
-                      </div>
-                    );
-                  })
-                }
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 28, marginBottom: 4 }}>JMF Snapshots</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>JMF Snapshots</div>
                 <div style={{ fontSize: 12, color: C.textDim, marginBottom: 14 }}>Portfolio-wide net worth snapshots.</div>
                 {snapshots.length === 0
                   ? <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic" }}>No snapshots captured yet.</div>
@@ -2913,204 +2965,187 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
         </div>
       )}
 
-      {/* Personal P&L tab */}
-      {memberTab === "personalpl" && (
+      {/* P & L tab */}
+      {memberTab === "pl" && (
         <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 640, margin: "0 auto" }}>
           <Card>
-            <PersonalPLPanel individual={f} onSaveIncome={onSaveIncome} onSaveExpense={onSaveExpense} />
+            <div style={{ display:"flex", gap:6, marginBottom:16, overflowX:"auto" }}>
+              {[["current","Current"],["past","Past"]].map(([id, label]) => (
+                <button key={id} onClick={() => setMemberPLTab(id)}
+                  style={{ padding:"6px 12px", fontSize:11, fontWeight:700, border:`1px solid ${memberPLTab === id ? C.green : C.border}`, borderRadius:6, background:memberPLTab === id ? C.greenLight : C.bg, color:memberPLTab === id ? C.greenText : C.textDim, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <PersonalPLPanel
+              individual={f}
+              onSaveIncome={onSaveIncome}
+              onSaveExpense={onSaveExpense}
+              mode={memberPLTab === "past" ? "history" : "current"}
+              simple={true}
+            />
           </Card>
         </div>
       )}
 
-      {/* Content */}
-      {memberTab === "snapshot" && (
-      <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 540, margin: "0 auto" }}>
-        {(() => {
-          const curYM = currentYM();
-          const logEntries = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""));
-          const currentLog = logEntries.find(e => e.month === curYM) || null;
-          const incomeEntry = getIndividualIncomeEntry(f, curYM);
-          const reportedFields = [
-            ["Accounts", safe(currentLog?.accounts ?? f.accounts)],
-            ["Cash", safe(currentLog?.cash ?? f.cash)],
-            ["Securities", safe(currentLog?.securities ?? f.securities)],
-            ["Crypto", safe(currentLog?.crypto ?? f.crypto)],
-            ["Physical Assets", safe(currentLog?.physicalAssets ?? f.physicalAssets)],
-          ];
-          const reportedNet = reportedFields.reduce((sum, [, value]) => sum + safe(value), 0);
-          return (
-            <>
-        <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
-          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 8 }}>Net Worth</div>
-          <div style={{ fontSize: 48, fontWeight: 800, fontFamily: C.mono, color: isPositive ? C.gold : C.red, letterSpacing: -1 }}>{$F(net)}</div>
-          <div style={{ fontSize: 12, color: C.textDim, marginTop: 6 }}>{data.lastUpdated}</div>
+      {/* Balance Sheet tab */}
+      {memberTab === "balance" && (
+        <div style={{ padding: isMobile ? "14px" : 20, maxWidth: 540, margin: "0 auto" }}>
+          {(() => {
+            const curYM = currentYM();
+            const logEntries = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+            const currentLog = logEntries.find(e => e.month === curYM) || null;
+            const loggedFields = [
+              ["Accounts", safe(currentLog?.accounts)],
+              ["Cash", safe(currentLog?.cash)],
+              ["Securities", safe(currentLog?.securities)],
+              ["Crypto", safe(currentLog?.crypto)],
+              ["Physical Assets", safe(currentLog?.physicalAssets)],
+            ];
+            const loggedNet = currentLog ? loggedFields.reduce((sum, [, value]) => sum + safe(value), 0) : 0;
+            const fieldRows = [
+              { l: "Accounts",        fi: "accounts",       desc: "Net bank balance" },
+              { l: "Cash",            fi: "cash",           desc: "Physical cash" },
+              { l: "Securities",      fi: "securities",     desc: "TFSA, investments, mutual funds" },
+              { l: "Crypto",          fi: "crypto",         desc: "Market value" },
+              { l: "Physical Assets", fi: "physicalAssets", desc: "Gold, silver, etc." },
+            ];
+            const saveCurrentBalance = () => {
+              if (!onSaveAccountsLog) return;
+              onSaveAccountsLog(f.id, {
+                month: curYM,
+                cash: safe(f.cash),
+                accounts: safe(f.accounts),
+                securities: safe(f.securities),
+                crypto: safe(f.crypto),
+                physicalAssets: safe(f.physicalAssets),
+                net,
+                note: "Member balance sheet",
+              });
+            };
+            return (
+              <>
+                <div style={{ textAlign: "center", padding: "28px 0 20px" }}>
+                  <div style={{ fontSize: 10, color: C.textDim, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 8 }}>Net Worth</div>
+                  <div style={{ fontSize: 48, fontWeight: 800, fontFamily: C.mono, color: isPositive ? C.gold : C.red, letterSpacing: -1 }}>{$F(net)}</div>
+                  <div style={{ fontSize: 12, color: C.textDim, marginTop: 6 }}>{monthLabel(curYM)}</div>
+                </div>
+
+                <div style={{ display:"flex", gap:6, marginBottom:14, overflowX:"auto" }}>
+                  {[["current","Current"],["past","Past"]].map(([id, label]) => (
+                    <button key={id} onClick={() => setMemberBalanceTab(id)}
+                      style={{ padding:"6px 12px", fontSize:11, fontWeight:700, border:`1px solid ${memberBalanceTab === id ? C.gold : C.border}`, borderRadius:6, background:memberBalanceTab === id ? C.goldLight : C.bg, color:memberBalanceTab === id ? C.goldText : C.textDim, cursor:"pointer", whiteSpace:"nowrap" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {currentSub?.status && memberBalanceTab === "current" && (
+                  <div style={{
+                    background: currentSub.status === "approved" ? C.greenLight : currentSub.status === "rejected" ? C.redLight : C.blueLight,
+                    border: `1px solid ${currentSub.status === "approved" ? "rgba(39,174,96,0.30)" : currentSub.status === "rejected" ? "rgba(224,85,85,0.30)" : "rgba(59,130,246,0.30)"}`,
+                    borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: C.textMid, lineHeight: 1.6,
+                  }}>
+                    <strong style={{ color: C.text }}>
+                      {missingPeriod?.label || (currentSub.period ? new Date(currentSub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" }) : "")} submission
+                    </strong>
+                    {" - "}
+                    {currentSub.status === "pending"  && "Awaiting admin review."}
+                    {currentSub.status === "approved" && "Approved and applied to the dashboard."}
+                    {currentSub.status === "rejected" && `Rejected. ${currentSub.admin_note || "Please resubmit."}`}
+                  </div>
+                )}
+
+                {memberBalanceTab === "current" ? (
+                  <>
+                    <Card style={{ marginBottom: 14 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+                        <div>
+                          <Label>Current Month</Label>
+                          <div style={{ fontSize:18, fontWeight:700, color:C.text }}>{monthLabel(curYM)}</div>
+                          <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>
+                            {currentLog ? "Logged Balance Sheet figures for this month." : "No Balance Sheet log saved for this month yet."}
+                          </div>
+                        </div>
+                        <button onClick={saveCurrentBalance}
+                          style={{ padding:"8px 14px", background:C.gold, border:"none", borderRadius:8, color:"#1A1508", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                          {currentLog ? `Update ${monthLabel(curYM)}` : `Save ${monthLabel(curYM)}`}
+                        </button>
+                      </div>
+                      {currentLog ? (
+                        <>
+                          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:8 }}>
+                            {loggedFields.map(([label, value]) => (
+                              <div key={label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px" }}>
+                                <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{label}</div>
+                                <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(value)}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:14, paddingTop:12, borderTop:`2px solid ${C.border}` }}>
+                            <span style={{ fontSize:13, color:C.textMid, fontWeight:700 }}>Logged Net Worth</span>
+                            <span style={{ fontSize:20, fontFamily:C.mono, fontWeight:800, color:loggedNet >= 0 ? C.gold : C.red }}>{$F(loggedNet)}</span>
+                          </div>
+                          {(currentLog.updatedAt || currentLog.capturedAt || currentLog.timestamp) && (
+                            <div style={{ fontSize:10, color:C.textDim, marginTop:5 }}>
+                              Last saved {new Date(currentLog.updatedAt || currentLog.capturedAt || currentLog.timestamp).toLocaleDateString()}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ fontSize:12, color:C.textDim }}>Update the values below, then save this month.</div>
+                      )}
+                    </Card>
+
+                    <Card>
+                      <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:4 }}>{f.name}</div>
+                      <div style={{ fontSize:12, color:C.textDim, marginBottom:16 }}>Click any value to update. Save the month after the numbers look right.</div>
+                      {fieldRows.map((row, i, arr) => (
+                        <div key={row.fi} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div>
+                            <div style={{ fontSize:13, color:C.text, fontWeight:500 }}>{row.l}</div>
+                            <div style={{ fontSize:11, color:C.textDim, marginTop:1 }}>{row.desc}</div>
+                          </div>
+                          <EditNum value={safe(f[row.fi])} onChange={v => handleUpdate(f.id, row.fi, v)} />
+                        </div>
+                      ))}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:14, marginTop:4, borderTop:`2px solid ${C.border}` }}>
+                        <span style={{ fontSize:14, fontWeight:700, color:C.textMid }}>Live Net Worth</span>
+                        <span style={{ fontSize:22, fontFamily:C.mono, fontWeight:800, color:isPositive ? C.gold : C.red }}>{$F(net)}</span>
+                      </div>
+                    </Card>
+                  </>
+                ) : (
+                  <Card>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                      <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Past Balance Sheets</div>
+                      <span style={{ fontSize:10, color:C.textDim }}>{logEntries.length} entr{logEntries.length === 1 ? "y" : "ies"}</span>
+                    </div>
+                    {logEntries.length === 0 ? (
+                      <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>No Balance Sheet logs saved yet.</div>
+                    ) : logEntries.map((e, i) => {
+                      const entryNet = e.net != null ? e.net : safe(e.value);
+                      return (
+                        <div key={`${e.month}-${i}`} style={{ padding:"10px 0", borderBottom:i < logEntries.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                            <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(e.month)}</span>
+                            <span style={{ fontFamily:C.mono, fontSize:14, color:entryNet >= 0 ? C.gold : C.red, fontWeight:700 }}>{$F(entryNet)}</span>
+                          </div>
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                            {[["Cash", e.cash], ["Accounts", e.accounts], ["Securities", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([label, value]) => (
+                              value != null && value !== 0 ? <span key={label} style={{ fontSize:10, color:C.textDim }}>{label}: {$K(value)}</span> : null
+                            ))}
+                          </div>
+                          {e.updatedAt && <div style={{ fontSize:10, color:C.amber, marginTop:3 }}>Updated {new Date(e.updatedAt).toLocaleDateString()}</div>}
+                        </div>
+                      );
+                    })}
+                  </Card>
+                )}
+              </>
+            );
+          })()}
         </div>
-
-        {/* Submission status banner */}
-        {currentSub?.status && (
-          <div style={{
-            background: currentSub.status === "approved" ? C.greenLight : currentSub.status === "rejected" ? C.redLight : C.blueLight,
-            border: `1px solid ${currentSub.status === "approved" ? "rgba(39,174,96,0.30)" : currentSub.status === "rejected" ? "rgba(224,85,85,0.30)" : "rgba(59,130,246,0.30)"}`,
-            borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: C.textMid, lineHeight: 1.6,
-          }}>
-            <strong style={{ color: C.text }}>
-              {missingPeriod?.label || (currentSub.period ? new Date(currentSub.period + "T12:00:00").toLocaleDateString("en-CA", { month: "long", year: "numeric" }) : "")} submission
-            </strong>
-            {" — "}
-            {currentSub.status === "pending"  && "Awaiting admin review."}
-            {currentSub.status === "approved" && "✓ Approved and applied to the dashboard."}
-            {currentSub.status === "rejected" && `Rejected. ${currentSub.admin_note || "Please resubmit."}`}
-          </div>
-        )}
-
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:16, flexWrap:"wrap" }}>
-            <div>
-              <Label>Current Reporting Snapshot</Label>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{monthLabel(curYM)}</div>
-              <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>
-                Your reporting view is scoped only to your account.
-              </div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>Current Month Status</div>
-              <div style={{ fontSize:13, fontWeight:700, color: currentSub?.status === "approved" ? C.green : currentSub?.status === "pending" ? C.blue : currentLog ? C.gold : C.amber }}>
-                {currentSub?.status === "approved" ? "Submitted and approved"
-                  : currentSub?.status === "pending" ? "Submitted and awaiting review"
-                  : currentLog ? "Snapshot logged for this month"
-                  : "Submission needed"}
-              </div>
-            </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:10 }}>
-            {[
-              { label: "Live Net Worth", value: $F(net), color: isPositive ? C.gold : C.red },
-              { label: "Reported Net Worth", value: $F(reportedNet), color: reportedNet >= 0 ? C.gold : C.red },
-              { label: "Income", value: $F(incomeEntry?.income), color: C.green },
-            ].map(item => (
-              <div key={item.label} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px" }}>
-                <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6 }}>{item.label}</div>
-                <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:700, color:item.color }}>{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        {/* Editable snapshot */}
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>{f.name}</div>
-          <div style={{ fontSize: 12, color: C.textDim, marginBottom: 16 }}>Click any value to update — saves automatically</div>
-          {[
-            { l: "Accounts",        fi: "accounts",       desc: "Net bank balance" },
-            { l: "Cash (vault)",    fi: "cash",           desc: "Physical cash" },
-            { l: "Securities",      fi: "securities",     desc: "TFSA, investments, mutual funds" },
-            { l: "Crypto",          fi: "crypto",         desc: "Market value" },
-            { l: "Physical Assets", fi: "physicalAssets", desc: "Gold, silver, etc." },
-          ].map((row, i, arr) => (
-            <div key={row.fi} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div>
-                <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{row.l}</div>
-                <div style={{ fontSize: 11, color: C.textDim, marginTop: 1 }}>{row.desc}</div>
-              </div>
-              <EditNum value={safe(f[row.fi])} onChange={v => handleUpdate(f.id, row.fi, v)} />
-            </div>
-          ))}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 14, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: C.textMid }}>Net Worth</span>
-            <span style={{ fontSize: 22, fontFamily: C.mono, fontWeight: 800, color: isPositive ? C.gold : C.red }}>{$F(net)}</span>
-          </div>
-        </Card>
-
-        {/* Monthly reporting */}
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4, gap:12, flexWrap:"wrap" }}>
-            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly Reporting</div>
-            <span style={{ fontSize:10, color:C.textDim }}>{monthLabel(currentYM())}</span>
-          </div>
-          <div style={{ fontSize:12, color:C.textDim, marginBottom:16 }}>
-            Keep your current month values clean and record a proper monthly snapshot for your own account.
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
-            <span style={{ fontSize:13, color:C.text }}>Income this month</span>
-            <EditNum value={safe(incomeEntry?.income)} onChange={v => {
-              if (onSaveIncome) onSaveIncome(f.id, curYM, safe(v));
-            }} />
-          </div>
-          <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:14, marginTop:16 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:12 }}>
-              <div>
-                <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>Monthly Snapshot Log</div>
-                <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>
-                  Save this month’s current values as your official snapshot.
-                </div>
-              </div>
-              <button onClick={() => {
-                if (!onSaveAccountsLog) return;
-                onSaveAccountsLog(f.id, {
-                  month: curYM,
-                  cash: safe(f.cash),
-                  accounts: safe(f.accounts),
-                  securities: safe(f.securities),
-                  crypto: safe(f.crypto),
-                  physicalAssets: safe(f.physicalAssets),
-                  net,
-                  note: "Member snapshot",
-                });
-              }} style={{ padding:"8px 14px", background:C.gold, border:"none", borderRadius:8, color:"#FFF", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                {currentLog ? "Update This Month" : "Save This Month"}
-              </button>
-            </div>
-            {currentLog ? (
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:8 }}>
-                {reportedFields.map(([label, value]) => (
-                  <div key={label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px" }}>
-                    <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:5 }}>{label}</div>
-                    <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(value)}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize:12, color:C.textDim }}>No saved snapshot for this month yet.</div>
-            )}
-          </div>
-        </Card>
-
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Monthly History</div>
-            <span style={{ fontSize:10, color:C.textDim }}>{logEntries.length} entr{logEntries.length === 1 ? "y" : "ies"}</span>
-          </div>
-          {logEntries.length === 0
-            ? <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>No monthly snapshots saved yet.</div>
-            : logEntries.slice(0, 6).map((e, i) => {
-              const entryNet = e.net != null ? e.net : safe(e.value);
-              return (
-                <div key={`${e.month}-${i}`} style={{ padding:"10px 0", borderBottom: i < Math.min(logEntries.length, 6) - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                    <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>{monthLabel(e.month)}</span>
-                    <span style={{ fontFamily:C.mono, fontSize:14, color:entryNet >= 0 ? C.gold : C.red, fontWeight:700 }}>{$F(entryNet)}</span>
-                  </div>
-                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                    {[["Cash", e.cash], ["Accounts", e.accounts], ["Securities", e.securities], ["Crypto", e.crypto], ["Assets", e.physicalAssets]].map(([label, value]) => (
-                      value != null && value !== 0 ? <span key={label} style={{ fontSize:10, color:C.textDim }}>{label}: {$K(value)}</span> : null
-                    ))}
-                  </div>
-                  {e.updatedAt && <div style={{ fontSize:10, color:C.amber, marginTop:3 }}>Updated {new Date(e.updatedAt).toLocaleDateString()}</div>}
-                </div>
-              );
-            })}
-        </Card>
-
-        <Card>
-          <Label>JMF Group — Summary</Label>
-          <div style={{ fontSize: 12, color: C.textDim, marginBottom: 12 }}>Contact Ahmed for full details.</div>
-          <Row label="Properties"        last={false}><span style={{ color: C.text, fontFamily: C.mono }}>{data.properties.length} holdings</span></Row>
-          <Row label="Business entities" last={true}><span style={{ color: C.text, fontFamily: C.mono }}>{data.businesses.length} companies</span></Row>
-        </Card>
-            </>
-          );
-        })()}
-      </div>
       )}
     </div>
   );
