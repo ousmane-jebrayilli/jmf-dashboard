@@ -2020,12 +2020,23 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
 
   const handleSave = async () => {
     setSaving(true);
+    const saves = [];
+    const savedFor = [];
     missingRent.forEach(item => {
       const key = `${item.prop.id}-${item.unit.id}`;
-      if (rentVals[key] !== "") onSaveRent(item, safe(rentVals[key]), "");
+      if (rentVals[key] !== "") {
+        saves.push(onSaveRent(item, safe(rentVals[key]), ""));
+        if (!savedFor.includes("rent")) savedFor.push("rent");
+      }
     });
-    missingProfits.forEach(b => { if (profitVals[b.id] !== "") onSaveProfit(b.id, safe(profitVals[b.id])); });
-    onSaveAndClose();
+    missingProfits.forEach(b => {
+      if (profitVals[b.id] !== "") {
+        saves.push(onSaveProfit(b.id, safe(profitVals[b.id])));
+        if (!savedFor.includes("profit")) savedFor.push("profit");
+      }
+    });
+    await Promise.all(saves);
+    await onSaveAndClose(savedFor);
   };
 
   const inp = {
@@ -8186,6 +8197,81 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       } catch {}
     })();
   }
+  function saveReminderRentPayment(item, received, note) {
+    const ym = currentYM();
+    const entry = normalizeRentPayment({
+      propertyId: item.prop.id,
+      unitId:     item.unit.id,
+      leaseId:    item.lease.id,
+      month:      ym,
+      amount:     safe(received),
+      date:       `${ym}-01`,
+      type:       "payment",
+      note:       note || "Logged via monthly update modal",
+    });
+    let rentPaymentsSave = Promise.resolve();
+    setData(prev => {
+      const next = [...((prev.rentPayments || []).map(normalizeRentPayment)), entry];
+      rentPaymentsSave = saveToDB("rentPayments", next);
+      return { ...prev, rentPayments: next };
+    });
+    const rentLogSave = (async () => {
+      try {
+        await ensurePeriodExists(ym);
+        const { data: existing_row } = await supabase
+          .from("monthly_rent_logs")
+          .select("id")
+          .eq("month_key",    ym)
+          .eq("property_id",  item.prop.id)
+          .eq("unit_id",      String(item.unit.id || ""))
+          .eq("payment_type", "payment")
+          .maybeSingle();
+        const dbRow = {
+          month_key:    ym,
+          property_id:  item.prop.id,
+          unit_id:      String(item.unit.id || ""),
+          lease_id:     item.lease.id || null,
+          amount:       safe(received),
+          payment_date: `${ym}-01`,
+          payment_type: "payment",
+          note:         note || "Logged via monthly update modal",
+          updated_at:   new Date().toISOString(),
+        };
+        if (existing_row?.id) {
+          await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id);
+        } else {
+          await supabase.from("monthly_rent_logs").insert(dbRow);
+        }
+      } catch {}
+    })();
+    showSaved();
+    return Promise.all([rentPaymentsSave, rentLogSave]);
+  }
+  function saveReminderBizProfit(bizId, profit) {
+    const month = shiftYM(currentYM(), -1);
+    let businessesSave = Promise.resolve();
+    setData(prev => {
+      const arr = (prev.businesses || []).map(b => {
+        if (b.id !== bizId) return b;
+        const existing = b.monthlyProfits || [];
+        const has = existing.find(p => p.month === month);
+        const updated = has
+          ? existing.map(p => p.month === month ? { ...p, profit: safe(profit) } : p)
+          : [...existing, { month, profit: safe(profit) }];
+        return { ...b, monthlyProfits: updated };
+      });
+      businessesSave = saveToDB("businesses", arr);
+      return { ...prev, businesses: arr };
+    });
+    const businessLogSave = ensurePeriodExists(month).then(() =>
+      supabase.from("monthly_business_logs").upsert(
+        { month_key: month, business_id: bizId, profit: safe(profit), updated_at: new Date().toISOString() },
+        { onConflict: "month_key,business_id" }
+      )
+    ).catch(() => {});
+    showSaved();
+    return Promise.all([businessesSave, businessLogSave]);
+  }
   function writeCashflowLog(cf) {
     const mk  = currentYM();
     const inc = cf.income      || [];
@@ -8309,20 +8395,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         <ReminderModal
           missingRent={reminderData.missingRent}
           missingProfits={reminderData.missingProfits}
-          onSaveRent={(item, received, note) => updRentPayment({
-            propertyId: item.prop.id,
-            unitId:     item.unit.id,
-            leaseId:    item.lease.id,
-            month:      currentYM(),
-            amount:     received,
-            note:       note || "Logged via monthly update modal",
-            date:       `${currentYM()}-01`,
-          })}
-          onSaveProfit={(bizId, profit) => updBizProfit(bizId, shiftYM(currentYM(), -1), profit)}
+          onSaveRent={saveReminderRentPayment}
+          onSaveProfit={saveReminderBizProfit}
           onDismiss={() => setShowReminder(false)}
-          onSaveAndClose={() => {
+          onSaveAndClose={(savedFor) => {
             setShowReminder(false);
-            saveToDB("reminder_state", { last_dismissed_month: currentYM() });
+            return saveToDB("reminder_state", { last_dismissed_month: currentYM(), dismissed_for: savedFor });
           }}
         />
       )}
