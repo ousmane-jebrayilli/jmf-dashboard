@@ -1233,6 +1233,7 @@ function propGrossEquity(prop) { return getMarketValueCad(prop) - propCurrentMor
 // JMF-attributable equity (gross × ownership share)
 function propJMFEquity(prop) { return propGrossEquity(prop) * propOwnership(prop); }
 // Expected monthly rent for ledger (shows agreed rent even pre-possession)
+// eslint-disable-next-line no-unused-vars
 function propLedgerExpected(prop) {
   return propertyExpectedRentForMonth(prop, currentYM()) || propEffectiveRent(prop) || safe(prop.rentalIncome);
 }
@@ -2006,10 +2007,11 @@ function RentLogModal({ propertyName, unitLabel, lease, month, expected, creditA
 }
 
 // ─── REMINDER MODAL ───────────────────────────────────────────────────────────
-function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, onDismiss }) {
+function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, onDismiss, onSaveAndClose }) {
   const ym = currentYM();
   const prevYM = shiftYM(ym, -1);
-  const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(p => [p.id, ""])));
+  // missingRent items are {prop, unit, lease} — key by prop+unit to support multi-unit properties
+  const [rentVals,   setRentVals]   = useState(() => Object.fromEntries(missingRent.map(item => [`${item.prop.id}-${item.unit.id}`, ""])));
   const [profitVals, setProfitVals] = useState(() => Object.fromEntries(missingProfits.map(b => [b.id, ""])));
   const [saving, setSaving]         = useState(false);
   const isMobile = useIsMobile();
@@ -2018,9 +2020,12 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
 
   const handleSave = async () => {
     setSaving(true);
-    missingRent.forEach(p => { if (rentVals[p.id] !== "") onSaveRent(p.id, safe(rentVals[p.id]), ""); });
+    missingRent.forEach(item => {
+      const key = `${item.prop.id}-${item.unit.id}`;
+      if (rentVals[key] !== "") onSaveRent(item, safe(rentVals[key]), "");
+    });
     missingProfits.forEach(b => { if (profitVals[b.id] !== "") onSaveProfit(b.id, safe(profitVals[b.id])); });
-    onDismiss();
+    onSaveAndClose();
   };
 
   const inp = {
@@ -2052,17 +2057,20 @@ function ReminderModal({ missingRent, missingProfits, onSaveRent, onSaveProfit, 
                 <div style={{ width:3, height:14, background:C.gold, borderRadius:2 }} />
                 <div style={{ fontSize:11, fontWeight:700, color:C.textMid, letterSpacing:"0.08em", textTransform:"uppercase" }}>Rent Collected</div>
               </div>
-              {missingRent.map(p => (
-                <div key={p.id} style={{ marginBottom:12 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
-                    <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{p.name}</span>
-                    <span style={{ fontSize:11, color:C.textDim }}>Expected: {$F(propLedgerExpected(p))}/mo</span>
+              {missingRent.map(item => {
+                const key = `${item.prop.id}-${item.unit.id}`;
+                return (
+                  <div key={key} style={{ marginBottom:12 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{item.prop.name}{item.unit.label ? ` · ${item.unit.label}` : ""}</span>
+                      <span style={{ fontSize:11, color:C.textDim }}>Expected: {$F(item.lease.monthly_rent)}/mo</span>
+                    </div>
+                    <input type="number" placeholder="Amount received (CAD)"
+                      value={rentVals[key]} onChange={e => setRentVals(v => ({ ...v, [key]: e.target.value }))}
+                      style={inp} onFocus={e => e.target.style.borderColor = C.gold} onBlur={e => e.target.style.borderColor = C.border} />
                   </div>
-                  <input type="number" placeholder="Amount received (CAD)"
-                    value={rentVals[p.id]} onChange={e => setRentVals(v => ({ ...v, [p.id]: e.target.value }))}
-                    style={inp} onFocus={e => e.target.style.borderColor = C.gold} onBlur={e => e.target.style.borderColor = C.border} />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -7704,31 +7712,48 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
   // ── One-time reminder check on mount ──
   useEffect(() => {
-    const ym = currentYM();
-    const prevYM = shiftYM(ym, -1);
-    const dayOfMonth = new Date().getDate();
-    const missingRent = data.properties.filter(p =>
-      getPropertyUnits(p).some(unit => {
-        const lease = getActiveLease(unit);
-        if (!lease) return false;
-        const dueDay = safe(lease.rent_due_day) || 1;
-        if (dayOfMonth < dueDay + 3) return false;
-        const ledger = buildLeaseLedger(unit, p, data.rentPayments || []);
-        const row = ledger?.rows.find(r => r.month === ym);
-        return row ? row.outstanding > 0 : false;
-      })
-    );
-    // P&L for previous month is only due on/after the 5th (mirrors notification logic)
-    const missingProfits = dayOfMonth >= 5
-      ? data.businesses
-          .filter(b => b.type !== "nonprofit")
-          .filter(b => !(b.monthlyProfits || []).find(p => p.month === prevYM)
-                    && !(b.historicalData  || []).find(e => e.month === prevYM))
-      : [];
-    if (missingRent.length > 0 || missingProfits.length > 0) {
-      setReminderData({ missingRent, missingProfits });
-      setShowReminder(true);
+    async function checkReminder() {
+      const ym = currentYM();
+      const prevYM = shiftYM(ym, -1);
+      const dayOfMonth = new Date().getDate();
+
+      // Skip if already saved & dismissed for this month
+      try {
+        const { data: stateRow } = await supabase
+          .from("dashboard_data")
+          .select("value")
+          .eq("key", "reminder_state")
+          .maybeSingle();
+        if ((stateRow?.value || {}).last_dismissed_month === ym) return;
+      } catch {}
+
+      // Build per-unit missing rent list so each unit's unitId and leaseId are captured
+      const missingRent = [];
+      for (const p of data.properties) {
+        for (const unit of getPropertyUnits(p)) {
+          const lease = getActiveLease(unit);
+          if (!lease) continue;
+          const dueDay = safe(lease.rent_due_day) || 1;
+          if (dayOfMonth < dueDay + 3) continue;
+          const ledger = buildLeaseLedger(unit, p, data.rentPayments || []);
+          const row = ledger?.rows.find(r => r.month === ym);
+          if (row && row.outstanding > 0) missingRent.push({ prop: p, unit, lease });
+        }
+      }
+
+      // P&L for previous month is only due on/after the 5th (mirrors notification logic)
+      const missingProfits = dayOfMonth >= 5
+        ? data.businesses
+            .filter(b => b.type !== "nonprofit")
+            .filter(b => !(b.monthlyProfits || []).find(p => p.month === prevYM)
+                      && !(b.historicalData  || []).find(e => e.month === prevYM))
+        : [];
+      if (missingRent.length > 0 || missingProfits.length > 0) {
+        setReminderData({ missingRent, missingProfits });
+        setShowReminder(true);
+      }
     }
+    checkReminder();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Period status ──
@@ -8284,9 +8309,21 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         <ReminderModal
           missingRent={reminderData.missingRent}
           missingProfits={reminderData.missingProfits}
-          onSaveRent={(propertyId, received, note) => updRentPayment(propertyId, currentYM(), received, note)}
+          onSaveRent={(item, received, note) => updRentPayment({
+            propertyId: item.prop.id,
+            unitId:     item.unit.id,
+            leaseId:    item.lease.id,
+            month:      currentYM(),
+            amount:     received,
+            note:       note || "Logged via monthly update modal",
+            date:       `${currentYM()}-01`,
+          })}
           onSaveProfit={(bizId, profit) => updBizProfit(bizId, shiftYM(currentYM(), -1), profit)}
           onDismiss={() => setShowReminder(false)}
+          onSaveAndClose={() => {
+            setShowReminder(false);
+            saveToDB("reminder_state", { last_dismissed_month: currentYM() });
+          }}
         />
       )}
       {/* NAV */}
