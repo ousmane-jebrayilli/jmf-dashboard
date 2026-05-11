@@ -630,9 +630,21 @@ async function saveToDB(key, value) {
     return false;
   }
   try {
-    const { error } = await supabase.from("dashboard_data").upsert({ key, value, updated_at: new Date().toISOString() });
-    if (error) {
-      console.error(`[saveToDB] DB save failed for key="${key}"`, error);
+    const updated_at = new Date().toISOString();
+    const { data: existingRows, error: lookupError } = await supabase
+      .from("dashboard_data")
+      .select("key")
+      .eq("key", key)
+      .limit(1);
+    if (lookupError) {
+      console.error(`[saveToDB] DB lookup failed for key="${key}"`, lookupError);
+      return false;
+    }
+    const result = existingRows?.length
+      ? await supabase.from("dashboard_data").update({ value, updated_at }).eq("key", key)
+      : await supabase.from("dashboard_data").insert({ key, value, updated_at });
+    if (result.error) {
+      console.error(`[saveToDB] DB save failed for key="${key}"`, result.error);
       return false;
     }
     _dbRowSizes[key] = incoming; // track after successful write
@@ -1191,6 +1203,22 @@ function propertyLeaseLedgers(prop, rentPayments) {
     .map(unit => ({ unit, ledger: buildLeaseLedger(unit, prop, rentPayments) }))
     .filter(item => item.ledger);
 }
+function rentPaymentKey(entry) {
+  const p = normalizeRentPayment(entry);
+  return [p.propertyId, p.unitId || "", p.leaseId || "", p.month, p.type || "payment"].join("|");
+}
+function mergeRentPaymentLists(...lists) {
+  const map = new Map();
+  lists.flat().filter(Boolean).forEach(entry => {
+    const clean = normalizeRentPayment(entry);
+    map.set(rentPaymentKey(clean), clean);
+  });
+  return [...map.values()].sort((a, b) =>
+    (a.month || "").localeCompare(b.month || "") ||
+    String(a.propertyId || "").localeCompare(String(b.propertyId || "")) ||
+    String(a.unitId || "").localeCompare(String(b.unitId || ""))
+  );
+}
 function propertyExpectedRentForMonth(prop, month) {
   return propertyLeaseLedgers(prop, []).reduce((sum, item) => {
     const row = item.ledger.rows.find(r => r.month === month);
@@ -1368,6 +1396,30 @@ async function saveBudgetTarget(userId, month, category, amount) {
       .upsert({ user_id: userId, month, category, amount }, { onConflict: "user_id,month,category" });
     return !error;
   } catch { return false; }
+}
+async function loadMonthlyRentLogPayments() {
+  try {
+    const { data, error } = await supabase
+      .from("monthly_rent_logs")
+      .select("id, month_key, property_id, unit_id, lease_id, amount, payment_date, payment_type, note")
+      .eq("payment_type", "payment")
+      .order("month_key", { ascending: true });
+    if (error) throw error;
+    return (data || []).map(row => normalizeRentPayment({
+      id:         row.id,
+      propertyId: row.property_id,
+      unitId:     row.unit_id || "",
+      leaseId:    row.lease_id || "",
+      month:      row.month_key,
+      amount:     safe(row.amount),
+      date:       row.payment_date || `${row.month_key}-01`,
+      type:       row.payment_type || "payment",
+      note:       row.note || "",
+    }));
+  } catch (e) {
+    console.error("loadMonthlyRentLogPayments failed", e);
+    return [];
+  }
 }
 
 // ─── UI PRIMITIVES ────────────────────────────────────────────────────────────
@@ -8204,31 +8256,19 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
   }
-  function mergeRentPaymentEntry(entries, entry) {
-    const normalized = (entries || []).map(normalizeRentPayment);
-    const idx = normalized.findIndex(r =>
-      r.propertyId === entry.propertyId &&
-      r.unitId === (entry.unitId || "") &&
-      r.leaseId === (entry.leaseId || "") &&
-      r.month === entry.month &&
-      r.type === "payment"
-    );
-    return idx >= 0
-      ? normalized.map((r, i) => i === idx ? entry : r)
-      : [...normalized, entry];
-  }
   async function writeRentLogRow(entry) {
     try {
       await ensurePeriodExists(entry.month);
-      const { data: existing_row, error: lookupError } = await supabase
+      const { data: existingRows, error: lookupError } = await supabase
         .from("monthly_rent_logs")
         .select("id")
         .eq("month_key",    entry.month)
         .eq("property_id",  entry.propertyId)
         .eq("unit_id",      String(entry.unitId || ""))
         .eq("payment_type", "payment")
-        .maybeSingle();
+        .limit(1);
       if (lookupError) throw lookupError;
+      const existing_row = existingRows?.[0];
       const dbRow = {
         month_key:    entry.month,
         property_id:  entry.propertyId,
@@ -8244,8 +8284,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         ? await supabase.from("monthly_rent_logs").update(dbRow).eq("id", existing_row.id)
         : await supabase.from("monthly_rent_logs").insert(dbRow);
       if (result.error) throw result.error;
+      return true;
     } catch (e) {
       console.error("monthly_rent_logs save failed", e);
+      return false;
     }
   }
   async function saveRentPaymentEntry(payload) {
@@ -8255,13 +8297,17 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       amount: safe(payload.amount),
       date: payload.date || `${payload.month}-01`,
     });
-    const latestRentPayments = await loadLatestDashboardValue("rentPayments");
-    const base = Array.isArray(latestRentPayments) ? latestRentPayments : (data.rentPayments || []);
-    const updated = mergeRentPaymentEntry(base, entry);
-    const ok = await saveToDB("rentPayments", updated);
-    if (!ok) throw new Error("rentPayments save failed");
-    await writeRentLogRow(entry);
-    setData(prev => ({ ...prev, rentPayments: mergeRentPaymentEntry(prev.rentPayments || [], entry) }));
+    const rentLogOk = await writeRentLogRow(entry);
+    let blobOk = false;
+    try {
+      const latestRentPayments = await loadLatestDashboardValue("rentPayments");
+      const base = Array.isArray(latestRentPayments) ? latestRentPayments : (data.rentPayments || []);
+      blobOk = await saveToDB("rentPayments", mergeRentPaymentLists(base, [entry]));
+    } catch (e) {
+      console.error("rentPayments blob save failed", e);
+    }
+    if (!rentLogOk && !blobOk) throw new Error("rent payment save failed");
+    setData(prev => ({ ...prev, rentPayments: mergeRentPaymentLists(prev.rentPayments || [], [entry]) }));
     showSaved();
     return entry;
   }
@@ -9698,7 +9744,8 @@ export default function App() {
         // ── End Migration V2 ──────────────────────────────────────────────────────
 
         const mergedProperties   = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
-        const mergedRentPayments = (dbData.rentPayments || []).map(normalizeRentPayment);
+        const monthlyRentLogs    = await loadMonthlyRentLogPayments();
+        const mergedRentPayments = mergeRentPaymentLists(dbData.rentPayments || [], monthlyRentLogs);
 
         // Apply in-memory-only property corrections (Fix C: no longer written back to DB).
         // These keep the UI correct for known stale values without silently overwriting Supabase.
