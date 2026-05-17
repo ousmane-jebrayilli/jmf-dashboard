@@ -7764,6 +7764,97 @@ function HistoryTab({ data, onSaveSnapshot, onReportGenerated, adminName }) {
   );
 }
 
+// ─── DEBT ANALYTICS (admin-only, pure, no side effects) ───────────────────────
+function aggregateDebts(data) {
+  const out = [];
+  for (const p of (data.properties || [])) {
+    const bal = propCurrentMortgageBalance(p);
+    if (bal <= 0) continue;
+    out.push({
+      id: `re-${p.id}`, name: p.name, borrower: p.name,
+      category: "RE", balance: bal,
+      rate: safe(p.interest_rate),
+      maturity: p.maturity || "—",
+      lender: p.lender || "—",
+      monthlyPI: getMortgageOperatingPayment(p),
+      ownership: propOwnership(p),
+      type: p.payment_structure || "amortizing",
+    });
+  }
+  for (const b of (data.businesses || [])) {
+    if (b.type === "nonprofit") continue;
+    if (safe(b.taxPayable) > 0) out.push({
+      id: `biz-tax-${b.id}`, name: `${b.name} – CRA Payable`, borrower: b.name,
+      category: "Corporate", balance: safe(b.taxPayable),
+      rate: 0, maturity: "Demand", lender: "CRA", monthlyPI: 0, ownership: 1, type: "payable",
+    });
+    if (safe(b.creditCards) > 0) out.push({
+      id: `biz-cc-${b.id}`, name: `${b.name} – Credit Cards`, borrower: b.name,
+      category: "Corporate", balance: safe(b.creditCards),
+      rate: 19.99, maturity: "Revolving", lender: "Credit Card", monthlyPI: 0, ownership: 1, type: "revolving",
+    });
+  }
+  for (const ind of (data.individuals || [])) {
+    if (safe(ind.debt) > 0) out.push({
+      id: `ind-debt-${ind.id}`, name: `${ind.name} – Debt`, borrower: ind.name,
+      category: "Personal", balance: safe(ind.debt),
+      rate: 0, maturity: "—", lender: "—", monthlyPI: 0, ownership: 1, type: "personal",
+    });
+    if (safe(ind.accounts) < 0) out.push({
+      id: `ind-ovd-${ind.id}`, name: `${ind.name} – Overdraft`, borrower: ind.name,
+      category: "Personal", balance: Math.abs(safe(ind.accounts)),
+      rate: 0, maturity: "Demand", lender: "Bank", monthlyPI: 0, ownership: 1, type: "overdraft",
+    });
+  }
+  return out;
+}
+function _debtTotal(debts) { return debts.reduce((s, d) => s + d.balance, 0); }
+function _debtWeightedRate(debts) {
+  const id = debts.filter(d => d.rate > 0);
+  const bal = id.reduce((s, d) => s + d.balance, 0);
+  if (!bal) return 0;
+  return id.reduce((s, d) => s + d.balance * d.rate, 0) / bal;
+}
+function _debtAnnualInterest(debts) { return debts.reduce((s, d) => s + d.balance * (d.rate / 100), 0); }
+function _debtByCategory(debts) {
+  const cats = { RE: 0, Corporate: 0, Personal: 0 };
+  debts.forEach(d => { cats[d.category] = (cats[d.category] || 0) + d.balance; });
+  return cats;
+}
+function _debtMatYr(maturity) {
+  if (!maturity || ["N/A", "Mortgage-free", "—"].includes(maturity)) return null;
+  if (["Demand", "Revolving", "TBC", "Renewal pending"].includes(maturity)) return "Open";
+  const m = (maturity || "").match(/\d{4}/);
+  return m ? parseInt(m[0]) : "Open";
+}
+function _debtByYear(debts) {
+  const out = {};
+  debts.forEach(d => {
+    const yr = _debtMatYr(d.maturity);
+    if (yr === null) return;
+    out[yr] = (out[yr] || 0) + d.balance;
+  });
+  return out;
+}
+function _debtFlags(debts, totalAssets) {
+  const flags = [];
+  const total = _debtTotal(debts);
+  const dta = totalAssets > 0 ? total / totalAssets : 0;
+  const hRate = debts.filter(d => d.rate >= 15);
+  if (hRate.length > 0) flags.push({ level: "RISK", title: "High-rate revolving debt", detail: `${hRate.length} item${hRate.length > 1 ? "s" : ""} at ≥15% (${$K(hRate.reduce((s, d) => s + d.balance, 0))})` });
+  const cra = debts.filter(d => d.type === "payable" && d.lender === "CRA");
+  if (cra.length > 0) { const ct = cra.reduce((s, d) => s + d.balance, 0); flags.push({ level: ct > 100000 ? "RISK" : "WATCH", title: "CRA payable outstanding", detail: `${$K(ct)} owed to CRA — penalty risk if unresolved` }); }
+  const curY = new Date().getFullYear();
+  const near = debts.filter(d => { const yr = _debtMatYr(d.maturity); return typeof yr === "number" && yr <= curY + 1; });
+  if (near.length > 0) flags.push({ level: "WATCH", title: `${near.length} mortgage${near.length > 1 ? "s" : ""} maturing within 12 months`, detail: `${$K(near.reduce((s, d) => s + d.balance, 0))} renewing — rate risk at renewal` });
+  debts.forEach(d => { if (total > 0 && d.balance / total > 0.5) flags.push({ level: "INFO", title: "High concentration", detail: `${d.name} = ${(d.balance / total * 100).toFixed(0)}% of total debt (${$K(d.balance)})` }); });
+  if (dta > 0.85) flags.push({ level: "RISK", title: "Elevated debt-to-asset ratio", detail: `${(dta * 100).toFixed(0)}% — portfolio is highly leveraged` });
+  else if (dta > 0.70) flags.push({ level: "WATCH", title: "Moderate leverage", detail: `${(dta * 100).toFixed(0)}% debt-to-asset ratio` });
+  const ovd = debts.filter(d => d.type === "overdraft");
+  if (ovd.length > 0) flags.push({ level: "INFO", title: "Negative personal accounts", detail: `${ovd.map(d => d.borrower).join(", ")} — ${$K(ovd.reduce((s, d) => s + d.balance, 0))} overdraft` });
+  return flags;
+}
+
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 // user.id = admin auth UUID  |  user.profile.role === "admin"
 function AdminDashboard({ user, data, setData, onLogout }) {
@@ -7793,6 +7884,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [collapsedCountries, setCollapsedCountries] = useState({});
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
+  const [debtSort, setDebtSort] = useState({ field: "balance", dir: -1 });
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
     Promise.all([getPendingSubmissions(), fetchAllProfiles()]).then(([subs, profs]) => {
@@ -8340,7 +8432,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (ok) setPendingSubs(s => s.filter(x => x.id !== subId));
   }
 
-  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Vehicles", "Cash Flow", "Reports"];
+  const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Vehicles", "Cash Flow", "Debt", "Reports"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
   return (
@@ -9373,6 +9465,294 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                   </div>
                 );
               })()}
+            </div>
+          );
+        })()}
+
+        {/* ── DEBT ── */}
+        {tab === "debt" && (() => {
+          const debts    = aggregateDebts(data);
+          const dTotal   = _debtTotal(debts);
+          const dRate    = _debtWeightedRate(debts);
+          const dInterest = _debtAnnualInterest(debts);
+          const dByCat   = _debtByCategory(debts);
+          const dYrMap   = _debtByYear(debts);
+          const dCurY    = new Date().getFullYear();
+          const dMatYrs  = Array.from({ length: 10 }, (_, i) => dCurY + i);
+          const dBizCash = data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + safe(b.cashAccounts), 0);
+          const dIndGross = data.individuals.reduce((s, f) => s + safe(f.cash) + Math.max(0, safe(f.accounts)) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets), 0);
+          const dVehGross = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v), 0);
+          const dTotalAssets = totalREVal + dBizCash + dIndGross + dVehGross;
+          const dDTA     = dTotalAssets > 0 ? dTotal / dTotalAssets : 0;
+          const dFlags   = _debtFlags(debts, dTotalAssets);
+          const dSorted  = [...debts].sort((a, b) => {
+            const { field, dir } = debtSort;
+            if (field === "balance")  return (b.balance - a.balance) * dir;
+            if (field === "rate")     return (b.rate - a.rate) * dir;
+            if (field === "maturity") return ((a.maturity || "").localeCompare(b.maturity || "")) * dir;
+            if (field === "borrower") return ((a.borrower || "").localeCompare(b.borrower || "")) * dir;
+            return 0;
+          });
+          const dCatColor = { RE: C.blue, Corporate: C.amber, Personal: C.green };
+          return (
+            <div>
+              {/* ── Section A: KPI Strip ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(178px, 1fr))", gap:12, marginBottom:24 }}>
+                {[
+                  { label:"Total Debt",          val: $K(dTotal),                                           sub:"All categories combined",               color: C.red,   bg: C.redLight   },
+                  { label:"Weighted Avg Rate",    val: dRate > 0 ? `${dRate.toFixed(2)}%` : "0%",           sub:"Interest-bearing positions only",        color: C.amber, bg: C.amberLight },
+                  { label:"Annual Interest",      val: $K(dInterest),                                        sub: `${$K(dInterest / 12)}/mo implied`,      color: C.amber, bg: C.amberLight },
+                  { label:"Debt / Assets",        val: `${(dDTA * 100).toFixed(1)}%`,                        sub: `${$K(dTotal)} ÷ ${$K(dTotalAssets)}`, color: dDTA > 0.85 ? C.red : dDTA > 0.70 ? C.amber : C.green, bg: dDTA > 0.85 ? C.redLight : dDTA > 0.70 ? C.amberLight : C.greenLight },
+                ].map((k, i) => (
+                  <div key={i} style={{ background: k.bg, borderRadius:14, padding:"18px 20px", borderTop:`3px solid ${k.color}`, boxShadow: C.shadow }}>
+                    <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>{k.label}</div>
+                    <div style={{ fontSize:26, fontFamily:C.mono, fontWeight:800, color:k.color }}>{k.val}</div>
+                    <div style={{ fontSize:10, color:C.textDim, marginTop:6 }}>{k.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Section B: Rate Waterfall Bar ── */}
+              {dTotal > 0 && (() => {
+                const W = 600, BH = 48;
+                const barSegs = [...debts].sort((a, b) => b.rate - a.rate);
+                let cx = 0;
+                const segs = barSegs.map(d => {
+                  const w = Math.max(1, (d.balance / dTotal) * W);
+                  const seg = { ...d, x: cx, w };
+                  cx += w;
+                  return seg;
+                });
+                return (
+                  <Card style={{ marginBottom:20, paddingTop:20 }}>
+                    <Label>Debt Portfolio — Rate Waterfall</Label>
+                    <div style={{ fontSize:11, color:C.textDim, marginBottom:12 }}>Sorted high-rate left · width = balance · color = category</div>
+                    <svg viewBox={`0 0 ${W} ${BH + 28}`} style={{ width:"100%", display:"block" }}>
+                      {segs.map((seg, i) => (
+                        <g key={seg.id}>
+                          <rect x={seg.x} y={0} width={seg.w} height={BH} fill={dCatColor[seg.category] || C.textDim} opacity={0.82} rx={3} />
+                          {seg.w > 52 && (
+                            <text x={seg.x + seg.w / 2} y={BH / 2 - 4} textAnchor="middle" fontSize={9} fill="#FFF" fontWeight={700} fontFamily={C.mono}>
+                              {seg.rate > 0 ? `${seg.rate.toFixed(1)}%` : "0%"}
+                            </text>
+                          )}
+                          {seg.w > 52 && (
+                            <text x={seg.x + seg.w / 2} y={BH / 2 + 9} textAnchor="middle" fontSize={8} fill="rgba(255,255,255,0.72)" fontFamily={C.sans}>
+                              {$K(seg.balance)}
+                            </text>
+                          )}
+                          {seg.w > 82 && (
+                            <text x={seg.x + seg.w / 2} y={BH + 19} textAnchor="middle" fontSize={8} fill={C.textDim} fontFamily={C.sans}>
+                              {seg.name.length > 16 ? seg.name.slice(0, 14) + "…" : seg.name}
+                            </text>
+                          )}
+                        </g>
+                      ))}
+                    </svg>
+                    <div style={{ display:"flex", gap:16, marginTop:10, flexWrap:"wrap" }}>
+                      {Object.entries(dCatColor).map(([cat, col]) => (
+                        <div key={cat} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <div style={{ width:10, height:10, borderRadius:2, background:col, opacity:0.82 }} />
+                          <span style={{ fontSize:10, color:C.textDim }}>{cat}</span>
+                          <span style={{ fontSize:10, fontFamily:C.mono, color:C.text, fontWeight:600 }}>{$K(dByCat[cat] || 0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* ── Section C: Maturity Wall ── */}
+              {dTotal > 0 && (() => {
+                const SLOTS = [...dMatYrs, "Open"];
+                const BSLOT = 52, BAR_W = 38, PL = 46, PR = 10, PT = 10, PB = 28, CH = 130;
+                const SVG_W = PL + SLOTS.length * BSLOT + PR;
+                const SVG_H = PT + CH + PB;
+                const matMax = Math.max(1, ...SLOTS.map(s => dYrMap[typeof s === "number" ? s : "Open"] || 0));
+                const peakEntry = Object.entries(dYrMap).filter(([k]) => k !== "Open").sort((a, b) => b[1] - a[1])[0];
+                const caption = peakEntry
+                  ? `Largest renewal: ${peakEntry[0]} — ${$K(peakEntry[1])}`
+                  : dYrMap["Open"] ? `${$K(dYrMap["Open"])} in open / demand facilities`
+                  : "";
+                return (
+                  <Card style={{ marginBottom:20, paddingTop:20 }}>
+                    <Label>Maturity Wall</Label>
+                    <div style={{ fontSize:11, color:C.textDim, marginBottom:8 }}>Balance maturing by year · Open = Demand, Revolving, or TBC</div>
+                    <div style={{ overflowX:"auto" }}>
+                      <svg width={SVG_W} height={SVG_H} style={{ display:"block" }}>
+                        {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
+                          const y = PT + CH * (1 - frac);
+                          return (
+                            <g key={i}>
+                              <line x1={PL} y1={y} x2={SVG_W - PR} y2={y} stroke={C.border} strokeWidth={0.6} strokeDasharray={i === 0 ? "none" : "3,4"} />
+                              <text x={PL - 4} y={y + 3.5} textAnchor="end" fontSize={8} fill={C.textDim} fontFamily="monospace">{$K(matMax * frac)}</text>
+                            </g>
+                          );
+                        })}
+                        {SLOTS.map((yr, i) => {
+                          const key = typeof yr === "number" ? yr : "Open";
+                          const val = dYrMap[key] || 0;
+                          const hPx = val > 0 ? Math.max(3, (val / matMax) * CH) : 0;
+                          const cx = PL + i * BSLOT + BSLOT / 2;
+                          const bX = cx - BAR_W / 2;
+                          const bY = PT + CH - hPx;
+                          const relevant = debts.filter(d => String(_debtMatYr(d.maturity)) === String(key));
+                          const domCat = relevant.length > 0
+                            ? Object.entries(relevant.reduce((acc, d) => { acc[d.category] = (acc[d.category] || 0) + d.balance; return acc; }, {})).sort((a, b) => b[1] - a[1])[0][0]
+                            : "RE";
+                          return (
+                            <g key={i}>
+                              {val > 0 && <rect x={bX} y={bY} width={BAR_W} height={hPx} rx={4} fill={dCatColor[domCat] || C.blue} opacity={0.82} />}
+                              {val > 0 && hPx > 22 && <text x={cx} y={bY + hPx / 2 + 4} textAnchor="middle" fontSize={8} fill="#FFF" fontWeight={700} fontFamily={C.mono}>{$K(val)}</text>}
+                              {val > 0 && hPx <= 22 && <text x={cx} y={bY - 5} textAnchor="middle" fontSize={8} fill={dCatColor[domCat] || C.blue} fontFamily={C.mono}>{$K(val)}</text>}
+                              <text x={cx} y={SVG_H - 6} textAnchor="middle" fontSize={9} fill={val > 0 ? C.textMid : C.textDim} fontFamily={C.sans}>
+                                {typeof yr === "number" ? `'${String(yr).slice(2)}` : yr}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                    {caption && <div style={{ fontSize:11, color:C.textDim, marginTop:8 }}>{caption}</div>}
+                  </Card>
+                );
+              })()}
+
+              {/* ── Section D: Debt Register ── */}
+              <Card style={{ marginBottom:20, paddingTop:20 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:10 }}>
+                  <Label>Debt Register</Label>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:11, color:C.textDim }}>Sort:</span>
+                    <select value={`${debtSort.field}:${debtSort.dir}`}
+                      onChange={e => { const [f, d] = e.target.value.split(":"); setDebtSort({ field: f, dir: parseInt(d) }); }}
+                      style={{ padding:"5px 10px", border:`1px solid ${C.border}`, borderRadius:7, background:C.surface, color:C.text, fontSize:12, fontFamily:C.sans, cursor:"pointer", outline:"none" }}>
+                      <option value="balance:-1">Balance ↓</option>
+                      <option value="balance:1">Balance ↑</option>
+                      <option value="rate:-1">Rate ↓</option>
+                      <option value="rate:1">Rate ↑</option>
+                      <option value="maturity:1">Maturity (near)</option>
+                      <option value="maturity:-1">Maturity (far)</option>
+                      <option value="borrower:1">Borrower A→Z</option>
+                      <option value="borrower:-1">Borrower Z→A</option>
+                    </select>
+                  </div>
+                </div>
+                {debts.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:"24px 0", fontSize:12, color:C.textDim, fontStyle:"italic" }}>No debt on record.</div>
+                ) : (
+                  <div style={{ overflowX:"auto" }}>
+                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:600 }}>
+                      <thead>
+                        <tr>
+                          {["Debt Item", "Category", "Balance", "Rate", "Lender", "Maturity", "Mo. P+I"].map(h => (
+                            <th key={h} style={{ textAlign: ["Balance","Rate","Mo. P+I"].includes(h) ? "right" : "left", padding:"6px 10px", fontSize:9, color:C.textDim, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dSorted.map(d => (
+                          <tr key={d.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                            <td style={{ padding:"9px 10px", color:C.text, fontWeight:600, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.name}</td>
+                            <td style={{ padding:"9px 10px" }}>
+                              <span style={{ background:`${dCatColor[d.category] || C.textDim}20`, color:dCatColor[d.category] || C.textDim, borderRadius:6, fontSize:10, fontWeight:700, padding:"2px 8px" }}>{d.category}</span>
+                            </td>
+                            <td style={{ padding:"9px 10px", textAlign:"right", fontFamily:C.mono, fontWeight:700, color:C.red }}>{$K(d.balance)}</td>
+                            <td style={{ padding:"9px 10px", textAlign:"right", fontFamily:C.mono, color: d.rate >= 15 ? C.red : d.rate > 0 ? C.amber : C.textDim }}>{d.rate > 0 ? `${d.rate.toFixed(2)}%` : "0%"}</td>
+                            <td style={{ padding:"9px 10px", color:C.textMid, maxWidth:110, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.lender}</td>
+                            <td style={{ padding:"9px 10px", color:C.textMid, whiteSpace:"nowrap" }}>{d.maturity}</td>
+                            <td style={{ padding:"9px 10px", textAlign:"right", fontFamily:C.mono, color: d.monthlyPI > 0 ? C.text : C.textDim }}>{d.monthlyPI > 0 ? $F(d.monthlyPI) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop:`2px solid ${C.border}` }}>
+                          <td colSpan={2} style={{ padding:"10px 10px", fontSize:12, fontWeight:700, color:C.textMid }}>Total</td>
+                          <td style={{ padding:"10px 10px", textAlign:"right", fontFamily:C.mono, fontWeight:800, fontSize:14, color:C.red }}>{$K(dTotal)}</td>
+                          <td style={{ padding:"10px 10px", textAlign:"right", fontSize:11, color:C.textDim, fontFamily:C.mono }}>{dRate > 0 ? `~${dRate.toFixed(2)}%` : ""}</td>
+                          <td colSpan={2} />
+                          <td style={{ padding:"10px 10px", textAlign:"right", fontFamily:C.mono, fontWeight:700, color:C.text }}>{$F(debts.reduce((s, d) => s + d.monthlyPI, 0))}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </Card>
+
+              {/* ── Section E: Leverage by Category ── */}
+              {dTotal > 0 && (() => {
+                const reDebt   = dByCat.RE || 0;
+                const reLTV    = totalREVal > 0 ? reDebt / totalREVal : null;
+                const corpDebt = dByCat.Corporate || 0;
+                const corpCash = data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => s + safe(b.cashAccounts), 0);
+                const corpDC   = corpCash > 0 ? corpDebt / corpCash : null;
+                const persDebt = dByCat.Personal || 0;
+                const persAss  = data.individuals.reduce((s, f) => s + safe(f.cash) + Math.max(0, safe(f.accounts)) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets), 0);
+                const persDPA  = persAss > 0 ? persDebt / persAss : null;
+                return (
+                  <Card style={{ marginBottom:20, paddingTop:20 }}>
+                    <Label>Leverage by Category</Label>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(175px, 1fr))", gap:12, marginTop:10 }}>
+                      {[
+                        { cat:"Real Estate", debt:reDebt, ratio:reLTV,   rLabel:"LTV",          aLabel:`${$K(totalREVal)} market value`,   color:C.blue  },
+                        { cat:"Corporate",   debt:corpDebt, ratio:corpDC, rLabel:"Debt / Cash",  aLabel:`${$K(corpCash)} corp cash`,        color:C.amber },
+                        { cat:"Personal",    debt:persDebt, ratio:persDPA,rLabel:"Debt / Assets",aLabel:`${$K(persAss)} personal assets`,   color:C.green },
+                      ].map(item => (
+                        <div key={item.cat} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px" }}>
+                          <div style={{ fontSize:9, color:item.color, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>{item.cat}</div>
+                          <div style={{ fontSize:18, fontFamily:C.mono, fontWeight:800, color: item.debt > 0 ? C.red : C.textDim, marginBottom:4 }}>{$K(item.debt)}</div>
+                          <div style={{ fontSize:10, color:C.textDim, marginBottom:8 }}>total {item.cat.toLowerCase()} debt</div>
+                          {item.ratio !== null && (
+                            <div style={{ fontSize:13, fontFamily:C.mono, fontWeight:700, color: item.ratio > 0.9 ? C.red : item.ratio > 0.7 ? C.amber : C.green }}>
+                              {item.rLabel}: {(item.ratio * 100).toFixed(0)}%
+                            </div>
+                          )}
+                          <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{item.aLabel}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* ── Section F: Concentration Flags ── */}
+              {dFlags.length > 0 && (
+                <Card style={{ marginBottom:20, paddingTop:20 }}>
+                  <Label>Concentration Flags</Label>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginTop:10 }}>
+                    {dFlags.map((flag, i) => {
+                      const fc = flag.level === "RISK" ? C.red : flag.level === "WATCH" ? C.amber : C.blue;
+                      const fb = flag.level === "RISK" ? C.redLight : flag.level === "WATCH" ? C.amberLight : C.blueLight;
+                      return (
+                        <div key={i} style={{ background:fb, border:`1px solid ${fc}30`, borderRadius:10, padding:"11px 14px", display:"flex", alignItems:"flex-start", gap:12 }}>
+                          <span style={{ fontSize:9, fontWeight:800, color:fc, background:`${fc}25`, borderRadius:4, padding:"2px 7px", letterSpacing:"0.08em", flexShrink:0, marginTop:1 }}>{flag.level}</span>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>{flag.title}</div>
+                            <div style={{ fontSize:11, color:C.textDim }}>{flag.detail}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
+
+              {/* ── Cash Flow Obligations (flow, not stock) ── */}
+              {data.cashflow.obligations.length > 0 && (
+                <Card style={{ marginBottom:20, paddingTop:20 }}>
+                  <Label>Monthly Obligations (Cash Flow)</Label>
+                  <div style={{ fontSize:11, color:C.textDim, marginBottom:12 }}>Recurring monthly payments — cash flow obligations, not balance-sheet debt positions.</div>
+                  {data.cashflow.obligations.map((item, i) => (
+                    <Row key={i} label={item.label} last={i === data.cashflow.obligations.length - 1}>
+                      <span style={{ fontFamily:C.mono, fontSize:13, color:C.red }}>{$F(safe(item.amount))}</span>
+                    </Row>
+                  ))}
+                  <div style={{ paddingTop:10, marginTop:4, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:12, color:C.textMid, fontWeight:600 }}>Total monthly</span>
+                    <span style={{ fontFamily:C.mono, fontSize:14, fontWeight:700, color:C.red }}>{$F(data.cashflow.obligations.reduce((s, o) => s + safe(o.amount), 0))}</span>
+                  </div>
+                </Card>
+              )}
             </div>
           );
         })()}
