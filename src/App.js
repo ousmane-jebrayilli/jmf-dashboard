@@ -4171,8 +4171,8 @@ function BizHistoricalTab({ biz, histStart, onSave }) {
       <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14, fontWeight:700 }}>
         Historical Data Entry — {biz.name}
       </div>
-      <div style={{ background:C.amberLight, border:`1px solid rgba(230,168,23,0.35)`, borderRadius:8, padding:"10px 14px", marginBottom:18, fontSize:12, color:C.amber }}>
-        Isolated from live reports. Data here does not affect consolidated snapshots, cash flow, or notifications.
+      <div style={{ background:"rgba(34,197,94,0.08)", border:`1px solid rgba(34,197,94,0.35)`, borderRadius:8, padding:"10px 14px", marginBottom:18, fontSize:12, color:"#15803d" }}>
+        Saving here also updates the P&L History table above. Revenue, expenses, and profit sync automatically.
       </div>
 
       {/* Month selector */}
@@ -8314,10 +8314,21 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     setData(prev => {
       const arr = prev.businesses.map(b => {
         if (b.id !== bizId) return b;
+        // Update historicalData
         const existing = b.historicalData || [];
         const has = existing.find(e => e.month === entry.month);
-        const next = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
-        return { ...b, historicalData: next };
+        const nextHist = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
+        // Sync revenue/expenses/profit into monthlyProfits so P&L History table stays in sync
+        const existingProfits = b.monthlyProfits || [];
+        const hasProfit = existingProfits.find(p => p.month === entry.month);
+        const hasPLData = entry.revenue != null || entry.expenses != null || entry.profit != null;
+        const profitEntry = { month: entry.month, revenue: safe(entry.revenue), expenses: safe(entry.expenses), profit: safe(entry.profit) };
+        const nextProfits = hasPLData
+          ? (hasProfit
+            ? existingProfits.map(p => p.month === entry.month ? { ...p, ...profitEntry } : p)
+            : [...existingProfits, profitEntry])
+          : existingProfits;
+        return { ...b, historicalData: nextHist, monthlyProfits: nextProfits };
       });
       saveToDB("businesses", arr);
       return { ...prev, businesses: arr };
