@@ -8053,22 +8053,34 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     updPropPatch(id, { [f]: val });
   }
   function updInd(id, f, v) {
-    const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
-    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    setData(prev => {
+      const arr = prev.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
+      saveToDB("individuals", arr);
+      return { ...prev, individuals: arr };
+    });
+    showSaved();
   }
   function updBiz(id, f, v) {
-    const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
-    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    setData(prev => {
+      const arr = prev.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
+      saveToDB("businesses", arr);
+      return { ...prev, businesses: arr };
+    });
+    showSaved();
   }
   function updBizPatch(id, patch) {
     // Atomic multi-field update — used when several fields must stay in sync (e.g. creditCards + liabilities)
-    const arr = data.businesses.map(b => {
-      if (b.id !== id) return b;
-      const next = { ...b };
-      for (const [k, v] of Object.entries(patch)) next[k] = typeof v === "number" ? v : safe(v);
-      return next;
+    setData(prev => {
+      const arr = prev.businesses.map(b => {
+        if (b.id !== id) return b;
+        const next = { ...b };
+        for (const [k, v] of Object.entries(patch)) next[k] = typeof v === "number" ? v : safe(v);
+        return next;
+      });
+      saveToDB("businesses", arr);
+      return { ...prev, businesses: arr };
     });
-    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    showSaved();
   }
   function updVehicle(id, patch) {
     const arr = (data.vehicles || []).map(v => v.id === id ? { ...v, ...patch } : v);
@@ -8084,45 +8096,57 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }
   function updIndIncome(indId, month, incomeEntry) {
     const clean = makeIndividualIncome(typeof incomeEntry === "object" ? { ...incomeEntry, month } : { month, kratosIncome: safe(incomeEntry) });
-    const arr = data.individuals.map(x => {
-      if (x.id !== indId) return x;
-      const existing = x.monthlyIncome || [];
-      const has = existing.find(p => p.month === month);
-      const updated = has
-        ? existing.map(p => p.month === month ? clean : p)
-        : [...existing, clean];
-      return { ...x, monthlyIncome: updated };
+    setData(prev => {
+      const arr = prev.individuals.map(x => {
+        if (x.id !== indId) return x;
+        const existing = x.monthlyIncome || [];
+        const has = existing.find(p => p.month === month);
+        const updated = has
+          ? existing.map(p => p.month === month ? clean : p)
+          : [...existing, clean];
+        return { ...x, monthlyIncome: updated };
+      });
+      saveToDB("individuals", arr);
+      return { ...prev, individuals: arr };
     });
-    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    showSaved();
     writeIndividualIncomeLog(indId, clean, user.id).catch(() => {});
   }
   function updIndExpense(indId, month, entry) {
     const clean = makeIndividualExpense({ ...entry, month });
-    const arr = data.individuals.map(x => {
-      if (x.id !== indId) return x;
-      const existing = x.individualExpenses || [];
-      const has = existing.find(p => p.month === month);
-      const updated = has
-        ? existing.map(p => p.month === month ? clean : p)
-        : [...existing, clean];
-      return { ...x, individualExpenses: updated };
+    setData(prev => {
+      const arr = prev.individuals.map(x => {
+        if (x.id !== indId) return x;
+        const existing = x.individualExpenses || [];
+        const has = existing.find(p => p.month === month);
+        const updated = has
+          ? existing.map(p => p.month === month ? clean : p)
+          : [...existing, clean];
+        return { ...x, individualExpenses: updated };
+      });
+      saveToDB("individuals", arr);
+      return { ...prev, individuals: arr };
     });
-    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    showSaved();
     writeIndividualPersonalPL(indId, clean, user.id).catch(() => {});
   }
   function updIndAccountsLog(indId, entry) {
-    const arr = data.individuals.map(x => {
-      if (x.id !== indId) return x;
-      const existing = x.accountsLog || [];
-      const ts = new Date().toISOString();
-      const newEntry = { ...entry, timestamp: ts };
-      const alreadyExists = existing.some(e => e.month === entry.month);
-      const log = alreadyExists
-        ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
-        : [...existing, { ...newEntry, capturedAt: ts }];
-      return { ...x, accountsLog: log };
+    setData(prev => {
+      const arr = prev.individuals.map(x => {
+        if (x.id !== indId) return x;
+        const existing = x.accountsLog || [];
+        const ts = new Date().toISOString();
+        const newEntry = { ...entry, timestamp: ts };
+        const alreadyExists = existing.some(e => e.month === entry.month);
+        const log = alreadyExists
+          ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
+          : [...existing, { ...newEntry, capturedAt: ts }];
+        return { ...x, accountsLog: log };
+      });
+      saveToDB("individuals", arr);
+      return { ...prev, individuals: arr };
     });
-    saveToDB("individuals", arr); setData(d => ({ ...d, individuals: arr })); showSaved();
+    showSaved();
     writeIndividualLog(indId, entry, user.id).catch(() => {});
   }
   function saveSnapshot(note) {
@@ -8252,26 +8276,26 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }
   function updBizProfitField(bizId, month, field, value) {
     let capturedEntry = null;
-    const arr = data.businesses.map(b => {
-      if (b.id !== bizId) return b;
-      const existing = b.monthlyProfits || [];
-      const has = existing.find(p => p.month === month);
-      const current = has || { month };
-      const nextEntry = { ...current, [field]: safe(value) };
-
-      if (field !== "profit" && current.profit == null) {
-        nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
-      }
-
-      capturedEntry = nextEntry;
-
-      const updated = has
-        ? existing.map(p => p.month === month ? nextEntry : p)
-        : [...existing, nextEntry];
-
-      return { ...b, monthlyProfits: updated };
+    setData(prev => {
+      const arr = prev.businesses.map(b => {
+        if (b.id !== bizId) return b;
+        const existing = b.monthlyProfits || [];
+        const has = existing.find(p => p.month === month);
+        const current = has || { month };
+        const nextEntry = { ...current, [field]: safe(value) };
+        if (field !== "profit" && current.profit == null) {
+          nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
+        }
+        capturedEntry = nextEntry;
+        const updated = has
+          ? existing.map(p => p.month === month ? nextEntry : p)
+          : [...existing, nextEntry];
+        return { ...b, monthlyProfits: updated };
+      });
+      saveToDB("businesses", arr);
+      return { ...prev, businesses: arr };
     });
-    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    showSaved();
     if (capturedEntry) {
       ensurePeriodExists(month).then(() =>
         supabase.from("monthly_business_logs").upsert({
@@ -8287,14 +8311,18 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }
   function updBizHistory(bizId, entry) {
     // entry: { month, revenue, expenses, profit, cashBalance, liabilities, notes, events }
-    const arr = data.businesses.map(b => {
-      if (b.id !== bizId) return b;
-      const existing = b.historicalData || [];
-      const has = existing.find(e => e.month === entry.month);
-      const next = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
-      return { ...b, historicalData: next };
+    setData(prev => {
+      const arr = prev.businesses.map(b => {
+        if (b.id !== bizId) return b;
+        const existing = b.historicalData || [];
+        const has = existing.find(e => e.month === entry.month);
+        const next = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
+        return { ...b, historicalData: next };
+      });
+      saveToDB("businesses", arr);
+      return { ...prev, businesses: arr };
     });
-    saveToDB("businesses", arr); setData(d => ({ ...d, businesses: arr })); showSaved();
+    showSaved();
   }
   async function writeRentLogRow(entry) {
     try {
