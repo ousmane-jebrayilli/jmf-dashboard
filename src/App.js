@@ -8319,16 +8319,41 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       ).catch(() => {});
     }
   }
-  function updBizHistory(bizId, entry) {
+  async function updBizHistory(bizId, entry) {
     // entry: { month, revenue, expenses, profit, cashBalance, liabilities, notes, events }
+    // Read the freshest businesses from DB to avoid stale-state overwrites
+    const latestBusinesses = await loadLatestDashboardValue("businesses");
+    const baseBusinesses = Array.isArray(latestBusinesses) ? latestBusinesses : data.businesses;
+    const arr = baseBusinesses.map(b => {
+      if (b.id !== bizId) return b;
+      // Update historicalData
+      const existing = b.historicalData || [];
+      const has = existing.find(e => e.month === entry.month);
+      const nextHist = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
+      // Sync revenue/expenses/profit into monthlyProfits so P&L History table stays in sync
+      const existingProfits = b.monthlyProfits || [];
+      const hasProfit = existingProfits.find(p => p.month === entry.month);
+      const hasPLData = entry.revenue != null || entry.expenses != null || entry.profit != null;
+      const profitEntry = { month: entry.month, revenue: safe(entry.revenue), expenses: safe(entry.expenses), profit: safe(entry.profit) };
+      const nextProfits = hasPLData
+        ? (hasProfit
+          ? existingProfits.map(p => p.month === entry.month ? { ...p, ...profitEntry } : p)
+          : [...existingProfits, profitEntry])
+        : existingProfits;
+      return { ...b, historicalData: nextHist, monthlyProfits: nextProfits };
+    });
+    // Await the save — only update UI state after DB confirms the write
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) {
+      console.error("[updBizHistory] businesses save failed for bizId=", bizId, "month=", entry.month);
+    }
+    // Update React state (mirrors what we saved to DB)
     setData(prev => {
-      const arr = prev.businesses.map(b => {
+      const updated = prev.businesses.map(b => {
         if (b.id !== bizId) return b;
-        // Update historicalData
         const existing = b.historicalData || [];
         const has = existing.find(e => e.month === entry.month);
         const nextHist = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
-        // Sync revenue/expenses/profit into monthlyProfits so P&L History table stays in sync
         const existingProfits = b.monthlyProfits || [];
         const hasProfit = existingProfits.find(p => p.month === entry.month);
         const hasPLData = entry.revenue != null || entry.expenses != null || entry.profit != null;
@@ -8340,10 +8365,25 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           : existingProfits;
         return { ...b, historicalData: nextHist, monthlyProfits: nextProfits };
       });
-      saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
+      return { ...prev, businesses: updated };
     });
     showSaved();
+    // Secondary write: mirror P&L fields to monthly_business_logs for redundancy
+    if (entry.revenue != null || entry.expenses != null || entry.profit != null) {
+      try {
+        await ensurePeriodExists(entry.month);
+        await supabase.from("monthly_business_logs").upsert({
+          month_key:   entry.month,
+          business_id: bizId,
+          revenue:     safe(entry.revenue),
+          expenses:    safe(entry.expenses),
+          profit:      safe(entry.profit),
+          updated_at:  new Date().toISOString(),
+        }, { onConflict: "month_key,business_id" });
+      } catch (e) {
+        console.error("[updBizHistory] monthly_business_logs secondary save failed", e);
+      }
+    }
   }
   async function writeRentLogRow(entry) {
     try {
