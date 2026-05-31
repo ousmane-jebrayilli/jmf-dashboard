@@ -4557,7 +4557,7 @@ function BizCard({ biz, onUpdate, onUpdatePatch, onUpdateProfit, onUpdateProfitF
   const adjustedProfit = selectedProfitEntry.adjustedProfit != null || selectedProfitEntry.adjusted_profit != null
     ? safe(selectedProfitEntry.adjustedProfit ?? selectedProfitEntry.adjusted_profit)
     : null;
-  const maxProfitMagnitude = Math.max(1, ...profitRows.map(row => Math.abs(row.profit)));
+
 
   // ── Balance sheet helpers ─────────────────────────────────────────────────
   const assetItems = (biz.accounts && biz.accounts.length ? biz.accounts : [
