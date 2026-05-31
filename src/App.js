@@ -4530,6 +4530,7 @@ function BizCard({ biz, onUpdate, onUpdatePatch, onUpdateProfit, onUpdateProfitF
   const [bizSubTabs, setBizSubTabs] = useState({ balance:"current", pl:"current" });
   const [balLogOpen, setBalLogOpen] = useState(false);
   const [balLogForm, setBalLogForm] = useState({ month: currentYM(), cashAccounts: 0, taxPayable: 0, creditCards: 0, otherLiabilities: 0, note: "" });
+  const [plHistRange, setPlHistRange] = useState("12");
   const curYM          = currentYM();
   const isNonProfit    = biz.type === "nonprofit";
   const isTrackedOnly  = biz.type === "tracked_only";
@@ -4937,48 +4938,57 @@ function BizCard({ biz, onUpdate, onUpdatePatch, onUpdateProfit, onUpdateProfitF
 
                 {bizPrimaryTab === "pl" && activeSubTab === "history" && (
                   <div>
-                    <Label>P&amp;L History</Label>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                      <Label style={{ margin:0 }}>P&amp;L History</Label>
+                      <div style={{ display:"flex", gap:4 }}>
+                        {[["3","3m"],["6","6m"],["12","12m"],["all","All"]].map(([val, label]) => (
+                          <button key={val} onClick={() => setPlHistRange(val)}
+                            style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${plHistRange === val ? C.gold : C.border}`, background: plHistRange === val ? C.gold : "transparent", color: plHistRange === val ? "#fff" : C.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:C.sans, transition:"all 0.15s" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {profitRows.length === 0 ? (
                       <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic", marginTop:10 }}>No historical P&L data available yet.</div>
-                    ) : (
-                      <div style={{ marginTop: 12, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
-                        <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-                          <span>Month</span>
-                          <span style={{ textAlign:"right" }}>Revenue</span>
-                          <span style={{ textAlign:"right" }}>Expenses</span>
-                          <span style={{ textAlign:"right" }}>Profit</span>
+                    ) : (() => {
+                      const visibleRows = plHistRange === "all" ? profitRows : profitRows.slice(0, parseInt(plHistRange));
+                      const visibleMax = Math.max(1, ...visibleRows.map(r => Math.abs(r.profit)));
+                      return (
+                        <div style={{ marginTop: 8, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, padding:"10px 14px", background:C.bg, borderBottom:`1px solid ${C.borderDark}`, fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+                            <span>Month</span>
+                            <span style={{ textAlign:"right" }}>Revenue</span>
+                            <span style={{ textAlign:"right" }}>Expenses</span>
+                            <span style={{ textAlign:"right" }}>Profit</span>
+                          </div>
+                          {visibleRows.map((row, idx) => {
+                            const profitWidth = `${Math.max(6, (Math.abs(row.profit) / visibleMax) * 100)}%`;
+                            const profitColor = row.profit >= 0 ? C.gold : C.red;
+                            const hasData = row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null;
+                            return (
+                              <div key={row.month} style={{ padding:"12px 14px", borderBottom: idx < visibleRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                                <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
+                                  <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
+                                  <div style={{ textAlign:"right" }}>
+                                    <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>
+                                  </div>
+                                  <div style={{ textAlign:"right" }}>
+                                    <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>
+                                  </div>
+                                  <div style={{ textAlign:"right" }}>
+                                    <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{hasData ? $F(row.profit) : "—"}</span>
+                                  </div>
+                                </div>
+                                <div style={{ marginTop:8, height:6, background:C.border, borderRadius:999, overflow:"hidden" }}>
+                                  <div style={{ width: profitWidth, height:"100%", background: profitColor, opacity:0.78, borderRadius:999, marginLeft: row.profit >= 0 ? 0 : "auto" }} />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                        {profitRows.map((row, idx) => {
-                          const profitWidth = `${Math.max(6, (Math.abs(row.profit) / maxProfitMagnitude) * 100)}%`;
-                          const profitColor = row.profit >= 0 ? C.gold : C.red;
-                          return (
-                            <div key={row.month} style={{ padding:"12px 14px", borderBottom: idx < profitRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                              <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 1fr 1fr", gap:12, alignItems:"center" }}>
-                                <span style={{ fontSize:12, color:C.textMid }}>{monthLabel(row.month)}</span>
-                                <div style={{ textAlign:"right" }}>
-                                  {canEditRow(row.month)
-                                    ? <EditNum value={row.revenue} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "revenue", v)} />
-                                    : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.revenue != null ? C.text : C.textDim }}>{row.entry.revenue != null ? $F(row.revenue) : "—"}</span>}
-                                </div>
-                                <div style={{ textAlign:"right" }}>
-                                  {canEditRow(row.month)
-                                    ? <EditNum value={row.expenses} onChange={v => onUpdateProfitField && onUpdateProfitField(row.month, "expenses", v)} />
-                                    : <span style={{ fontFamily:C.mono, fontSize:13, color:row.entry.expenses != null ? C.text : C.textDim }}>{row.entry.expenses != null ? $F(row.expenses) : "—"}</span>}
-                                </div>
-                                <div style={{ textAlign:"right" }}>
-                                  {canEditRow(row.month)
-                                    ? <EditNum value={row.profit} onChange={v => (onUpdateProfitField ? onUpdateProfitField(row.month, "profit", v) : onUpdateProfit && onUpdateProfit(row.month, v))} />
-                                    : <span style={{ fontFamily:C.mono, fontSize:13, color:row.profit >= 0 ? C.gold : C.red }}>{(row.entry.profit != null || row.entry.revenue != null || row.entry.expenses != null) ? $F(row.profit) : "—"}</span>}
-                                </div>
-                              </div>
-                              <div style={{ marginTop:8, height:6, background:C.border, borderRadius:999, overflow:"hidden" }}>
-                                <div style={{ width: profitWidth, height:"100%", background: profitColor, opacity:0.78, borderRadius:999, marginLeft: row.profit >= 0 ? 0 : "auto" }} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                      );
+                    })()}
                     {isAdmin && (
                       <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}` }}>
                         <BizHistoricalTab
