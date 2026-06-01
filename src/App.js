@@ -7895,6 +7895,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [profiles, setProfiles]     = useState([]);
   const [showReminder, setShowReminder] = useState(false);
   const [reminderData, setReminderData] = useState({ missingRent: [], missingProfits: [] });
+  const _notifAccRef   = useRef(null);   // latest accumulated notificationsMeta
+  const _notifTimerRef = useRef(null);   // debounce timer for notificationsMeta save
   const [cfMonth, setCFMonth] = useState(currentYM());
   const [cfOpen, setCFOpen]   = useState({ biz:true, rent:true, payroll:true, otherInc:true, re:true, vehicle:true, otherObl:true });
   const [bizInfoOpen, setBizInfoOpen] = useState(false);
@@ -7926,9 +7928,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         ...meta,
         completed: { ...(meta.completed || {}), [id]: { completedAt: new Date().toISOString(), completedBy: user.id } }
       };
-      saveToDB("notificationsMeta", updated);
+      // Capture latest accumulated value for the debounced save
+      _notifAccRef.current = updated;
       return { ...prev, notificationsMeta: updated };
     });
+    // Debounce: cancel any pending save and reschedule — fires once after
+    // all rapid dismissals settle, with the fully-accumulated completed map.
+    // This prevents concurrent writes racing each other in Supabase.
+    clearTimeout(_notifTimerRef.current);
+    _notifTimerRef.current = setTimeout(() => {
+      if (_notifAccRef.current) {
+        saveToDB("notificationsMeta", _notifAccRef.current);
+        _notifAccRef.current = null;
+      }
+    }, 600);
   }
 
   // ── One-time reminder check on mount ──
