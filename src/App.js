@@ -7907,10 +7907,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
   const [periodStatus, setPeriodStatus]       = useState({ status: "open", is_locked: false, loading: true });
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [showOverrideModal, setShowOverrideModal] = useState(false);
-  const [overrideReason, setOverrideReason]   = useState("");
-  const [periodLoading, setPeriodLoading]     = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [collapsedCountries, setCollapsedCountries] = useState({});
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
@@ -7987,28 +7983,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   async function refreshPeriodStatus() {
     const { data: ps } = await supabase.rpc("get_period_status", { p_month_key: currentYM() });
     if (ps) setPeriodStatus({ ...ps, loading: false });
-  }
-  async function handleClosePeriod() {
-    setPeriodLoading(true);
-    setShowCloseConfirm(false);
-    await supabase.rpc("close_monthly_period", { p_month_key: currentYM(), p_admin_id: user.id });
-    await refreshPeriodStatus();
-    setPeriodLoading(false);
-  }
-  async function handleOverridePeriod() {
-    if (!overrideReason.trim()) return;
-    setPeriodLoading(true);
-    setShowOverrideModal(false);
-    await supabase.rpc("admin_override_period", { p_month_key: currentYM(), p_admin_id: user.id, p_override_reason: overrideReason.trim() });
-    await refreshPeriodStatus();
-    setOverrideReason("");
-    setPeriodLoading(false);
-  }
-  async function handleRelockPeriod() {
-    setPeriodLoading(true);
-    await supabase.rpc("relock_after_override", { p_month_key: currentYM(), p_admin_id: user.id });
-    await refreshPeriodStatus();
-    setPeriodLoading(false);
   }
   // ── Derived totals (ASWC excluded from business equity) ──
   const indNet        = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
@@ -8523,42 +8497,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
 
-      {/* ── Close Month confirmation ── */}
-      {showCloseConfirm && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:C.surface, borderRadius:14, padding:28, maxWidth:400, width:"100%", boxShadow:C.shadowMd }}>
-            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:12 }}>Close {monthLabel(currentYM())}?</div>
-            <div style={{ fontSize:13, color:C.textMid, marginBottom:24, lineHeight:1.6 }}>
-              This will lock all financial data for this month. No further edits will be possible without an admin override. This action is permanent unless manually overridden.
-            </div>
-            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-              <button onClick={() => setShowCloseConfirm(false)} style={{ fontSize:13, background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 18px", cursor:"pointer", color:C.textMid }}>Cancel</button>
-              <button onClick={handleClosePeriod} style={{ fontSize:13, background:C.red, color:"#FFF", border:"none", borderRadius:8, padding:"8px 18px", cursor:"pointer", fontWeight:700 }}>Yes, Close Month</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Override modal ── */}
-      {showOverrideModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:C.surface, borderRadius:14, padding:28, maxWidth:440, width:"100%", boxShadow:C.shadowMd }}>
-            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>Override Locked Period</div>
-            <div style={{ fontSize:13, color:C.textMid, marginBottom:16, lineHeight:1.6 }}>
-              You are unlocking <strong>{monthLabel(currentYM())}</strong>. A reason is required and will be saved to the audit trail.
-            </div>
-            <div style={{ marginBottom:20 }}>
-              <div style={{ fontSize:11, color:C.textDim, marginBottom:6, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>Override reason *</div>
-              <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="e.g. Correcting rent entry for Unit 2B"
-                style={{ width:"100%", padding:"10px 12px", border:`1px solid ${C.border}`, borderRadius:8, background:C.bg, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", resize:"vertical", minHeight:80, boxSizing:"border-box" }} />
-            </div>
-            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-              <button onClick={() => { setShowOverrideModal(false); setOverrideReason(""); }} style={{ fontSize:13, background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 18px", cursor:"pointer", color:C.textMid }}>Cancel</button>
-              <button onClick={handleOverridePeriod} disabled={!overrideReason.trim()} style={{ fontSize:13, background:C.amber, color:"#FFF", border:"none", borderRadius:8, padding:"8px 18px", cursor: overrideReason.trim() ? "pointer" : "not-allowed", fontWeight:700, opacity: overrideReason.trim() ? 1 : 0.5 }}>Unlock Period</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showReminder && (
         <ReminderModal
@@ -8682,45 +8620,6 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       </div>
 
       {/* PERIOD STATUS BAR */}
-      {!periodStatus.loading && (() => {
-        const isLocked   = periodStatus.is_locked;
-        const isOverride = periodStatus.status === "admin_override";
-        const barBg      = isLocked ? C.redLight   : isOverride ? C.amberLight  : C.greenLight;
-        const barBorder  = isLocked ? "rgba(224,85,85,0.35)" : isOverride ? "rgba(230,168,23,0.35)" : "rgba(39,174,96,0.35)";
-        const labelColor = isLocked ? C.red         : isOverride ? C.amber       : C.green;
-        const label      = isLocked ? "🔒 FINALIZED" : isOverride ? "⚠ ADMIN OVERRIDE" : "● OPEN";
-        return (
-          <div style={{ background:barBg, borderBottom:`1px solid ${barBorder}`, padding: isMobile ? "8px 14px" : "10px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-              <span style={{ fontSize:11, fontWeight:700, color:labelColor, letterSpacing:"0.06em" }}>{label}</span>
-              <span style={{ fontSize:11, color:C.textMid }}>{monthLabel(currentYM())}</span>
-              {isOverride && periodStatus.override_reason && (
-                <span style={{ fontSize:10, color:C.amber, fontStyle:"italic" }}>"{periodStatus.override_reason}"</span>
-              )}
-            </div>
-            <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-              {!isLocked && !isOverride && (
-                <button onClick={() => setShowCloseConfirm(true)} disabled={periodLoading}
-                  style={{ fontSize:11, background:C.red, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
-                  Close Month
-                </button>
-              )}
-              {isLocked && (
-                <button onClick={() => setShowOverrideModal(true)} disabled={periodLoading}
-                  style={{ fontSize:11, background:C.amber, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
-                  Override
-                </button>
-              )}
-              {isOverride && (
-                <button onClick={handleRelockPeriod} disabled={periodLoading}
-                  style={{ fontSize:11, background:C.red, color:"#FFF", border:"none", borderRadius:6, padding: isMobile ? "5px 10px" : "5px 14px", cursor:"pointer", fontWeight:700, opacity: periodLoading ? 0.6 : 1 }}>
-                  Re-lock
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* TABS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
