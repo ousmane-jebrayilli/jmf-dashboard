@@ -7924,13 +7924,15 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   }, [tab]);
 
   function completeNotification(id) {
-    const meta = data.notificationsMeta || { completed: {}, lastSeenAt: "" };
-    const updated = {
-      ...meta,
-      completed: { ...(meta.completed || {}), [id]: { completedAt: new Date().toISOString(), completedBy: user.id } }
-    };
-    saveToDB("notificationsMeta", updated);
-    setData(d => ({ ...d, notificationsMeta: updated }));
+    setData(prev => {
+      const meta = prev.notificationsMeta || { completed: {}, lastSeenAt: "" };
+      const updated = {
+        ...meta,
+        completed: { ...(meta.completed || {}), [id]: { completedAt: new Date().toISOString(), completedBy: user.id } }
+      };
+      saveToDB("notificationsMeta", updated);
+      return { ...prev, notificationsMeta: updated };
+    });
   }
 
   // ── One-time reminder check on mount ──
