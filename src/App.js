@@ -676,6 +676,28 @@ async function seedToDB(key, value) {
   }
 }
 
+// ─── NOTIFICATION DISMISSALS TABLE HELPER ────────────────────────────────────
+// Reads all rows from notification_dismissals and returns a map { alert_key: {completedAt, completedBy} }
+// for merging into notificationsMeta.completed on bootstrap.
+// Gracefully returns {} if the table doesn't exist yet (first deploy before migration).
+async function loadNotifDismissals() {
+  try {
+    const { data, error } = await supabase
+      .from("notification_dismissals")
+      .select("alert_key, dismissed_at, dismissed_by");
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach(r => {
+      map[r.alert_key] = { completedAt: r.dismissed_at || "", completedBy: r.dismissed_by || "" };
+    });
+    return map;
+  } catch (e) {
+    // Table may not exist yet on first deploy — treat as empty, not a hard error.
+    console.warn("[loadNotifDismissals] table unavailable:", e.message);
+    return {};
+  }
+}
+
 // ─── PHASE 4: RELATIONAL WRITE HELPERS ───────────────────────────────────────
 async function ensurePeriodExists(monthKey) {
   await supabase.from("monthly_periods").upsert(
@@ -7905,6 +7927,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [individualPrimaryTabs, setIndividualPrimaryTabs] = useState({});
   const [individualSubTabs, setIndividualSubTabs] = useState({});
   const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+  const [saveError, setSaveError] = useState("");
+  const showSaveError = (msg) => { setSaveError(msg); setTimeout(() => setSaveError(""), 6000); };
   const isMobile = useIsMobile();
   const isSmall = useIsSmall();
   const [periodStatus, setPeriodStatus]       = useState({ status: "open", is_locked: false, loading: true });
@@ -7920,14 +7944,28 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
   }, [tab]);
 
-  function completeNotification(id) {
+  async function completeNotification(id) {
     const entry = { completedAt: new Date().toISOString(), completedBy: user.id };
     // Accumulate from ref (handles rapid back-to-back clicks before re-render)
     const base = _latestNotifMeta.current || data?.notificationsMeta || { completed: {}, lastSeenAt: "" };
     const updated = { ...base, completed: { ...(base.completed || {}), [id]: entry } };
     _latestNotifMeta.current = updated;
+    // Optimistic UI update immediately
     setData(prev => ({ ...prev, notificationsMeta: updated }));
-    // Save immediately — no timer so a page refresh cannot lose the write
+    // Primary: upsert to dedicated dismissals table (one row per alert_key — survives blob failures)
+    try {
+      const { error } = await supabase
+        .from("notification_dismissals")
+        .upsert(
+          { alert_key: id, dismissed_at: entry.completedAt, dismissed_by: entry.completedBy },
+          { onConflict: "alert_key" }
+        );
+      if (error) throw error;
+    } catch (e) {
+      console.error("[completeNotification] dismissals table write failed:", e);
+      showSaveError("Dismissal could not be saved. It may reappear after a refresh.");
+    }
+    // Secondary: also update the blob so legacy completedMap is in sync
     saveToDB("notificationsMeta", updated);
   }
 
@@ -8021,37 +8059,42 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const setIndividualSubTab = (id, section, subTab) => setIndividualSubTabs(prev => ({ ...prev, [`${id}:${section}`]: subTab }));
 
   // ── Update helpers ──
-  function updPropPatch(id, patch) {
-    setData(prev => {
-      const arr = prev.properties.map(p => {
-        if (p.id !== id) return p;
-        const incoming = typeof patch === "function" ? patch(p) : patch;
-        const next = { ...p, ...incoming };
+  async function updPropPatch(id, patch) {
+    // Compute updated array from current state (called from user-event handlers where data is current)
+    const arr = data.properties.map(p => {
+      if (p.id !== id) return p;
+      const incoming = typeof patch === "function" ? patch(p) : patch;
+      const next = { ...p, ...incoming };
 
-        // When tax is tracked separately, preserve both the P&I component and the all-in debit.
-        if (hasSeparateMortgageTax(next) || next.taxes_paid_by === "lender") {
-          const touchedMonthlyTax = Object.prototype.hasOwnProperty.call(incoming, "monthlyTax");
-          const touchedMonthlyPI = Object.prototype.hasOwnProperty.call(incoming, "monthly_pi");
-          const touchedMonthlyPayment = Object.prototype.hasOwnProperty.call(incoming, "monthlyPayment");
+      // When tax is tracked separately, preserve both the P&I component and the all-in debit.
+      if (hasSeparateMortgageTax(next) || next.taxes_paid_by === "lender") {
+        const touchedMonthlyTax = Object.prototype.hasOwnProperty.call(incoming, "monthlyTax");
+        const touchedMonthlyPI = Object.prototype.hasOwnProperty.call(incoming, "monthly_pi");
+        const touchedMonthlyPayment = Object.prototype.hasOwnProperty.call(incoming, "monthlyPayment");
 
-          if (touchedMonthlyTax && !touchedMonthlyPayment) {
-            next.monthly_payment_tax = safe(next.monthlyTax);
-            next.monthlyPayment = getMortgageOperatingPayment(next) + safe(next.monthlyTax);
-          }
-          if (touchedMonthlyPI && !touchedMonthlyPayment) {
-            next.monthlyPayment = safe(next.monthly_pi) + safe(next.monthlyTax);
-          }
-          if (touchedMonthlyPayment) {
-            next.monthly_payment_tax = safe(next.monthlyTax);
-            next.monthly_pi = Math.max(0, safe(next.monthlyPayment) - safe(next.monthlyTax));
-          }
+        if (touchedMonthlyTax && !touchedMonthlyPayment) {
+          next.monthly_payment_tax = safe(next.monthlyTax);
+          next.monthlyPayment = getMortgageOperatingPayment(next) + safe(next.monthlyTax);
         }
+        if (touchedMonthlyPI && !touchedMonthlyPayment) {
+          next.monthlyPayment = safe(next.monthly_pi) + safe(next.monthlyTax);
+        }
+        if (touchedMonthlyPayment) {
+          next.monthly_payment_tax = safe(next.monthlyTax);
+          next.monthly_pi = Math.max(0, safe(next.monthlyPayment) - safe(next.monthlyTax));
+        }
+      }
 
-        return next;
-      });
-      saveToDB("properties", arr);
-      return { ...prev, properties: arr };
+      return next;
     });
+    // Optimistic UI update
+    setData(prev => ({ ...prev, properties: arr }));
+    // Await the DB write — only show "Saved" on confirmed success, surface errors on failure
+    const ok = await saveToDB("properties", arr);
+    if (!ok) {
+      showSaveError("Property save failed. Refresh to verify — your changes may not have persisted.");
+      return;
+    }
     showSaved();
   }
   function updProp(id, f, v) {
@@ -8398,8 +8441,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const rentLogOk = await writeRentLogRow(entry);
     let blobOk = false;
     try {
-      const latestRentPayments = await loadLatestDashboardValue("rentPayments");
-      const base = Array.isArray(latestRentPayments) ? latestRentPayments : (data.rentPayments || []);
+      // Isolate the fresh-load so a thrown error here doesn't skip saveToDB entirely.
+      let base = data.rentPayments || [];
+      try {
+        const latestRentPayments = await loadLatestDashboardValue("rentPayments");
+        if (Array.isArray(latestRentPayments)) base = latestRentPayments;
+      } catch {
+        // fresh load failed — fall back to current state; saveToDB still runs below
+      }
       blobOk = await saveToDB("rentPayments", mergeRentPaymentLists(base, [entry]));
     } catch (e) {
       console.error("rentPayments blob save failed", e);
@@ -8495,6 +8544,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
+      {/* ── Save-failure toast ── */}
+      {saveError && (
+        <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:2000, background:C.redLight, border:`1px solid rgba(224,85,85,0.45)`, borderRadius:10, padding:"10px 18px", color:C.redText, fontSize:13, fontWeight:600, display:"flex", alignItems:"center", gap:10, maxWidth:"90vw", boxShadow:C.shadowMd, whiteSpace:"nowrap" }}>
+          <span>⚠</span>
+          <span>{saveError}</span>
+          <button onClick={() => setSaveError("")} style={{ background:"none", border:"none", color:C.redText, cursor:"pointer", fontSize:16, lineHeight:1, padding:"0 2px", flexShrink:0, marginLeft:4 }}>✕</button>
+        </div>
+      )}
       {cashModal && <CashModal current={safe(aj?.cash)} onSave={v => updInd(1, "cash", v)} onClose={() => setCashModal(false)} />}
 
 
@@ -9913,9 +9970,10 @@ export default function App() {
         // ── End Migration V2 ──────────────────────────────────────────────────────
 
         const mergedProperties   = mergeById(DEFAULT.properties, dbData.properties).map(normalizeProperty);
-        const [monthlyRentLogs, bizPLLogs] = await Promise.all([
+        const [monthlyRentLogs, bizPLLogs, notifDismissals] = await Promise.all([
           loadMonthlyRentLogPayments(),
           loadMonthlyBusinessLogs(),
+          loadNotifDismissals(),
         ]);
         const mergedRentPayments = mergeRentPaymentLists(dbData.rentPayments || [], monthlyRentLogs);
         // Reconcile monthly_business_logs into bizData.monthlyProfits — ensures data survives
@@ -10000,7 +10058,8 @@ export default function App() {
           rentPayments:      mergedRentPayments,
           reportHistory:     dbData.reportHistory     || [],
           snapshots:         dbData.snapshots         || [],
-          notificationsMeta: migratedMeta,
+          // Merge notification_dismissals table rows into the blob completedMap so both sources agree.
+          notificationsMeta: { ...migratedMeta, completed: { ...(migratedMeta.completed || {}), ...notifDismissals } },
         });
       }
     }
