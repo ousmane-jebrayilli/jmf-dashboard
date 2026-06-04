@@ -8111,104 +8111,99 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const val = Array.isArray(v) || typeof v === "string" ? v : safe(v);
     updPropPatch(id, { [f]: val });
   }
-  function updInd(id, f, v) {
-    setData(prev => {
-      const arr = prev.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
-      saveToDB("individuals", arr);
-      return { ...prev, individuals: arr };
-    });
-    showSaved();
+  async function updInd(id, f, v) {
+    const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
+    setData(prev => ({ ...prev, individuals: arr }));
+    const ok = await saveToDB("individuals", arr);
+    if (!ok) showSaveError("Individual save failed. Refresh to verify.");
+    else showSaved();
   }
-  function updBiz(id, f, v) {
-    setData(prev => {
-      const arr = prev.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
-      saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
-    });
-    showSaved();
+  async function updBiz(id, f, v) {
+    const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
+    setData(prev => ({ ...prev, businesses: arr }));
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) showSaveError("Business save failed. Refresh to verify.");
+    else showSaved();
   }
-  function updBizPatch(id, patch) {
+  async function updBizPatch(id, patch) {
     // Atomic multi-field update — used when several fields must stay in sync (e.g. creditCards + liabilities)
-    setData(prev => {
-      const arr = prev.businesses.map(b => {
-        if (b.id !== id) return b;
-        const next = { ...b };
-        for (const [k, v] of Object.entries(patch)) next[k] = typeof v === "number" ? v : safe(v);
-        return next;
-      });
-      saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
+    const arr = data.businesses.map(b => {
+      if (b.id !== id) return b;
+      const next = { ...b };
+      for (const [k, v] of Object.entries(patch)) next[k] = typeof v === "number" ? v : safe(v);
+      return next;
     });
-    showSaved();
+    setData(prev => ({ ...prev, businesses: arr }));
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) showSaveError("Business save failed. Refresh to verify.");
+    else showSaved();
   }
-  function updVehicle(id, patch) {
+  async function updVehicle(id, patch) {
     const arr = (data.vehicles || []).map(v => v.id === id ? { ...v, ...patch } : v);
-    saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
+    setData(d => ({ ...d, vehicles: arr }));
+    const ok = await saveToDB("vehicles", arr);
+    if (!ok) showSaveError("Vehicle save failed. Refresh to verify.");
+    else showSaved();
   }
-  function addVehicleValuation(id, entry) {
+  async function addVehicleValuation(id, entry) {
     const arr = (data.vehicles || []).map(v => {
       if (v.id !== id) return v;
-      const existing = v.valuations || [];
-      return { ...v, valuations: [...existing, entry] };
+      return { ...v, valuations: [...(v.valuations || []), entry] };
     });
-    saveToDB("vehicles", arr); setData(d => ({ ...d, vehicles: arr })); showSaved();
+    setData(d => ({ ...d, vehicles: arr }));
+    const ok = await saveToDB("vehicles", arr);
+    if (!ok) showSaveError("Vehicle valuation save failed. Refresh to verify.");
+    else showSaved();
   }
-  function updIndIncome(indId, month, incomeEntry) {
+  async function updIndIncome(indId, month, incomeEntry) {
     const clean = makeIndividualIncome(typeof incomeEntry === "object" ? { ...incomeEntry, month } : { month, kratosIncome: safe(incomeEntry) });
-    setData(prev => {
-      const arr = prev.individuals.map(x => {
-        if (x.id !== indId) return x;
-        const existing = x.monthlyIncome || [];
-        const has = existing.find(p => p.month === month);
-        const updated = has
-          ? existing.map(p => p.month === month ? clean : p)
-          : [...existing, clean];
-        return { ...x, monthlyIncome: updated };
-      });
-      saveToDB("individuals", arr);
-      return { ...prev, individuals: arr };
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.monthlyIncome || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has ? existing.map(p => p.month === month ? clean : p) : [...existing, clean];
+      return { ...x, monthlyIncome: updated };
     });
-    showSaved();
+    setData(prev => ({ ...prev, individuals: arr }));
+    const ok = await saveToDB("individuals", arr);
+    if (!ok) showSaveError("Income log save failed. Refresh to verify.");
+    else showSaved();
     writeIndividualIncomeLog(indId, clean, user.id).catch(() => {});
   }
-  function updIndExpense(indId, month, entry) {
+  async function updIndExpense(indId, month, entry) {
     const clean = makeIndividualExpense({ ...entry, month });
-    setData(prev => {
-      const arr = prev.individuals.map(x => {
-        if (x.id !== indId) return x;
-        const existing = x.individualExpenses || [];
-        const has = existing.find(p => p.month === month);
-        const updated = has
-          ? existing.map(p => p.month === month ? clean : p)
-          : [...existing, clean];
-        return { ...x, individualExpenses: updated };
-      });
-      saveToDB("individuals", arr);
-      return { ...prev, individuals: arr };
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.individualExpenses || [];
+      const has = existing.find(p => p.month === month);
+      const updated = has ? existing.map(p => p.month === month ? clean : p) : [...existing, clean];
+      return { ...x, individualExpenses: updated };
     });
-    showSaved();
+    setData(prev => ({ ...prev, individuals: arr }));
+    const ok = await saveToDB("individuals", arr);
+    if (!ok) showSaveError("Expense log save failed. Refresh to verify.");
+    else showSaved();
     writeIndividualPersonalPL(indId, clean, user.id).catch(() => {});
   }
-  function updIndAccountsLog(indId, entry) {
-    setData(prev => {
-      const arr = prev.individuals.map(x => {
-        if (x.id !== indId) return x;
-        const existing = x.accountsLog || [];
-        const ts = new Date().toISOString();
-        const newEntry = { ...entry, timestamp: ts };
-        const alreadyExists = existing.some(e => e.month === entry.month);
-        const log = alreadyExists
-          ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
-          : [...existing, { ...newEntry, capturedAt: ts }];
-        return { ...x, accountsLog: log };
-      });
-      saveToDB("individuals", arr);
-      return { ...prev, individuals: arr };
+  async function updIndAccountsLog(indId, entry) {
+    const ts = new Date().toISOString();
+    const newEntry = { ...entry, timestamp: ts };
+    const arr = data.individuals.map(x => {
+      if (x.id !== indId) return x;
+      const existing = x.accountsLog || [];
+      const alreadyExists = existing.some(e => e.month === entry.month);
+      const log = alreadyExists
+        ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
+        : [...existing, { ...newEntry, capturedAt: ts }];
+      return { ...x, accountsLog: log };
     });
-    showSaved();
+    setData(prev => ({ ...prev, individuals: arr }));
+    const ok = await saveToDB("individuals", arr);
+    if (!ok) showSaveError("Balance log save failed. Refresh to verify.");
+    else showSaved();
     writeIndividualLog(indId, entry, user.id).catch(() => {});
   }
-  function saveSnapshot(note) {
+  async function saveSnapshot(note) {
     const indNet = f => safe(f.cash) + safe(f.accounts) + safe(f.securities) + safe(f.crypto) + safe(f.physicalAssets);
     const snapVehicleTotal = (data.vehicles || []).reduce((s, v) => s + getVehicleMarketValue(v) - safe(v.loanBalance), 0);
     const snapNW = data.properties.reduce((s, p) => {
@@ -8268,9 +8263,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           ? { ...snap, capturedAt: s.capturedAt, updatedAt: snap.capturedAt }
           : s)
       : [...existing, snap];
-    saveToDB("snapshots", updated);
     setData(d => ({ ...d, snapshots: updated }));
-    showSaved();
+    const ok = await saveToDB("snapshots", updated);
+    if (!ok) showSaveError("Snapshot save failed. Refresh to verify.");
+    else showSaved();
     const cfIncome = data.cashflow?.income || [];
     const cfObl    = data.cashflow?.obligations || [];
     const cfNet    = cfIncome.reduce((s, x) => s + safe(x.amount), 0) - cfObl.reduce((s, x) => s + safe(x.amount), 0);
@@ -8292,11 +8288,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     ).catch(() => {});
     return snap;
   }
-  function recordReportGeneration(entry) {
+  async function recordReportGeneration(entry) {
     const updated = [...(data.reportHistory || []), entry];
-    saveToDB("reportHistory", updated);
     setData(d => ({ ...d, reportHistory: updated }));
-    showSaved();
+    const ok = await saveToDB("reportHistory", updated);
+    if (!ok) showSaveError("Report history save failed. Refresh to verify.");
+    else showSaved();
   }
   async function updBizProfit(bizId, month, profit) {
     const latestBusinesses = await loadLatestDashboardValue("businesses");
@@ -8333,28 +8330,27 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       console.error("monthly_business_logs save failed", e);
     }
   }
-  function updBizProfitField(bizId, month, field, value) {
+  async function updBizProfitField(bizId, month, field, value) {
     let capturedEntry = null;
-    setData(prev => {
-      const arr = prev.businesses.map(b => {
-        if (b.id !== bizId) return b;
-        const existing = b.monthlyProfits || [];
-        const has = existing.find(p => p.month === month);
-        const current = has || { month };
-        const nextEntry = { ...current, [field]: safe(value) };
-        if (field !== "profit" && current.profit == null) {
-          nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
-        }
-        capturedEntry = nextEntry;
-        const updated = has
-          ? existing.map(p => p.month === month ? nextEntry : p)
-          : [...existing, nextEntry];
-        return { ...b, monthlyProfits: updated };
-      });
-      saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
+    const arr = data.businesses.map(b => {
+      if (b.id !== bizId) return b;
+      const existing = b.monthlyProfits || [];
+      const has = existing.find(p => p.month === month);
+      const current = has || { month };
+      const nextEntry = { ...current, [field]: safe(value) };
+      if (field !== "profit" && current.profit == null) {
+        nextEntry.profit = safe(nextEntry.revenue) - safe(nextEntry.expenses);
+      }
+      capturedEntry = nextEntry;
+      const updated = has
+        ? existing.map(p => p.month === month ? nextEntry : p)
+        : [...existing, nextEntry];
+      return { ...b, monthlyProfits: updated };
     });
-    showSaved();
+    setData(prev => ({ ...prev, businesses: arr }));
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) showSaveError("Business P&L save failed. Refresh to verify.");
+    else showSaved();
     if (capturedEntry) {
       ensurePeriodExists(month).then(() =>
         supabase.from("monthly_business_logs").upsert({
@@ -8368,31 +8364,30 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       ).catch(() => {});
     }
   }
-  function updBizHistory(bizId, entry) {
+  async function updBizHistory(bizId, entry) {
     // entry: { month, revenue, expenses, profit, cashBalance, liabilities, notes, events }
-    setData(prev => {
-      const arr = prev.businesses.map(b => {
-        if (b.id !== bizId) return b;
-        // Update historicalData
-        const existing = b.historicalData || [];
-        const has = existing.find(e => e.month === entry.month);
-        const nextHist = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
-        // Sync revenue/expenses/profit into monthlyProfits so P&L History table stays in sync
-        const existingProfits = b.monthlyProfits || [];
-        const hasProfit = existingProfits.find(p => p.month === entry.month);
-        const hasPLData = entry.revenue != null || entry.expenses != null || entry.profit != null;
-        const profitEntry = { month: entry.month, revenue: safe(entry.revenue), expenses: safe(entry.expenses), profit: safe(entry.profit) };
-        const nextProfits = hasPLData
-          ? (hasProfit
-            ? existingProfits.map(p => p.month === entry.month ? { ...p, ...profitEntry } : p)
-            : [...existingProfits, profitEntry])
-          : existingProfits;
-        return { ...b, historicalData: nextHist, monthlyProfits: nextProfits };
-      });
-      saveToDB("businesses", arr);
-      return { ...prev, businesses: arr };
+    const arr = data.businesses.map(b => {
+      if (b.id !== bizId) return b;
+      // Update historicalData
+      const existing = b.historicalData || [];
+      const has = existing.find(e => e.month === entry.month);
+      const nextHist = has ? existing.map(e => e.month === entry.month ? { ...e, ...entry } : e) : [...existing, entry];
+      // Sync revenue/expenses/profit into monthlyProfits so P&L History table stays in sync
+      const existingProfits = b.monthlyProfits || [];
+      const hasProfit = existingProfits.find(p => p.month === entry.month);
+      const hasPLData = entry.revenue != null || entry.expenses != null || entry.profit != null;
+      const profitEntry = { month: entry.month, revenue: safe(entry.revenue), expenses: safe(entry.expenses), profit: safe(entry.profit) };
+      const nextProfits = hasPLData
+        ? (hasProfit
+          ? existingProfits.map(p => p.month === entry.month ? { ...p, ...profitEntry } : p)
+          : [...existingProfits, profitEntry])
+        : existingProfits;
+      return { ...b, historicalData: nextHist, monthlyProfits: nextProfits };
     });
-    showSaved();
+    setData(prev => ({ ...prev, businesses: arr }));
+    const ok = await saveToDB("businesses", arr);
+    if (!ok) showSaveError("Business history save failed. Refresh to verify.");
+    else showSaved();
     // Secondary write to monthly_business_logs — this is read back on bootstrap to recover P&L data
     if (entry.revenue != null || entry.expenses != null || entry.profit != null) {
       ensurePeriodExists(entry.month).then(() =>
@@ -8489,17 +8484,23 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       }, { onConflict: "month_key" })
     ).catch(() => {});
   }
-  function updCF(type, idx, v) {
+  async function updCF(type, idx, v) {
     const a = [...data.cashflow[type]];
     a[idx] = { ...a[idx], amount: safe(v) };
     const cf = { ...data.cashflow, [type]: a };
-    saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+    setData(d => ({ ...d, cashflow: cf }));
+    const ok = await saveToDB("cashflow", cf);
+    if (!ok) showSaveError("Cash flow save failed. Refresh to verify.");
+    else showSaved();
     writeCashflowLog(cf);
   }
-  function delCF(type, idx) {
+  async function delCF(type, idx) {
     const a = data.cashflow[type].filter((_, i) => i !== idx);
     const cf = { ...data.cashflow, [type]: a };
-    saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+    setData(d => ({ ...d, cashflow: cf }));
+    const ok = await saveToDB("cashflow", cf);
+    if (!ok) showSaveError("Cash flow save failed. Refresh to verify.");
+    else showSaved();
     writeCashflowLog(cf);
   }
 
@@ -8537,10 +8538,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
     const ok = await approveSubmission(sub.id, user.id);
     if (!ok) return;
-    saveToDB("individuals", arr);
     setData(prev => ({ ...prev, individuals: arr }));
+    const saveOk = await saveToDB("individuals", arr);
+    if (!saveOk) showSaveError("Approval save failed. Refresh to verify.");
+    else showSaved();
     setPendingSubs(s => s.filter(x => x.id !== sub.id));
-    showSaved();
     writeIndividualLog(individualId, { month: monthKey, ...balanceFields }, user.id).catch(() => {});
   }
 
@@ -9405,11 +9407,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                               <button onClick={() => delCF("income", i)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:16, padding:"0 2px", lineHeight:1, flexShrink:0 }}>×</button>
                             </div>
                           ))}
-                          <button onClick={() => {
+                          <button onClick={async () => {
                             const label = window.prompt("Income label (e.g. Dividend, Side income):");
                             if (!label) return;
                             const cf = { ...data.cashflow, income: [...data.cashflow.income, { label, amount: 0 }] };
-                            saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+                            setData(d => ({ ...d, cashflow: cf }));
+                            const ok = await saveToDB("cashflow", cf);
+                            if (!ok) showSaveError("Cash flow save failed."); else showSaved();
                           }} style={{ marginTop:8, fontSize:11, background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textDim, padding:"5px 12px", cursor:"pointer", width:"100%" }}>
                             + Add income row
                           </button>
@@ -9495,11 +9499,13 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                               {item.note && <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>{item.note}</div>}
                             </div>
                           ))}
-                          <button onClick={() => {
+                          <button onClick={async () => {
                             const label = window.prompt("Obligation label (e.g. Phone bill, Subscription):");
                             if (!label) return;
                             const cf = { ...data.cashflow, obligations: [...data.cashflow.obligations, { label, amount: 0 }] };
-                            saveToDB("cashflow", cf); setData(d => ({ ...d, cashflow: cf })); showSaved();
+                            setData(d => ({ ...d, cashflow: cf }));
+                            const ok = await saveToDB("cashflow", cf);
+                            if (!ok) showSaveError("Cash flow save failed."); else showSaved();
                           }} style={{ marginTop:8, fontSize:11, background:"none", border:`1px dashed ${C.border}`, borderRadius:6, color:C.textDim, padding:"5px 12px", cursor:"pointer", width:"100%" }}>
                             + Add obligation row
                           </button>
@@ -10099,11 +10105,11 @@ export default function App() {
     };
   }, []);
 
-  function updInd(id, field, val) {
+  async function updInd(id, field, val) {
     if (!data) return;
     const arr = data.individuals.map(x => x.id === id ? { ...x, [field]: safe(val) } : x);
-    saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    await saveToDB("individuals", arr);
   }
 
   // Still checking session
@@ -10133,48 +10139,44 @@ export default function App() {
   if (isAdmin) {
     return <AdminDashboard user={currentUser} data={data} setData={setData} onLogout={logout} />;
   }
-  return <MemberView user={currentUser} data={data} onUpdate={updInd} onSaveIncome={(indId, month, incomeEntry) => {
+  return <MemberView user={currentUser} data={data} onUpdate={updInd} onSaveIncome={async (indId, month, incomeEntry) => {
     const clean = makeIndividualIncome(typeof incomeEntry === "object" ? { ...incomeEntry, month } : { month, kratosIncome: safe(incomeEntry) });
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
       const existing = x.monthlyIncome || [];
       const has = existing.find(p => p.month === month);
-      const updated = has
-        ? existing.map(p => p.month === month ? clean : p)
-        : [...existing, clean];
+      const updated = has ? existing.map(p => p.month === month ? clean : p) : [...existing, clean];
       return { ...x, monthlyIncome: updated };
     });
-    saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    await saveToDB("individuals", arr);
     writeIndividualIncomeLog(indId, clean, currentUser.id).catch(() => {});
-  }} onSaveExpense={(indId, month, entry) => {
+  }} onSaveExpense={async (indId, month, entry) => {
     const clean = makeIndividualExpense({ ...entry, month });
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
       const existing = x.individualExpenses || [];
       const has = existing.find(p => p.month === month);
-      const updated = has
-        ? existing.map(p => p.month === month ? clean : p)
-        : [...existing, clean];
+      const updated = has ? existing.map(p => p.month === month ? clean : p) : [...existing, clean];
       return { ...x, individualExpenses: updated };
     });
-    saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    await saveToDB("individuals", arr);
     writeIndividualPersonalPL(indId, clean, currentUser.id).catch(() => {});
-  }} onSaveAccountsLog={(indId, entry) => {
+  }} onSaveAccountsLog={async (indId, entry) => {
+    const ts = new Date().toISOString();
+    const newEntry = { ...entry, timestamp: ts };
     const arr = data.individuals.map(x => {
       if (x.id !== indId) return x;
       const existing = x.accountsLog || [];
-      const ts = new Date().toISOString();
-      const newEntry = { ...entry, timestamp: ts };
       const alreadyExists = existing.some(e => e.month === entry.month);
       const log = alreadyExists
         ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
         : [...existing, { ...newEntry, capturedAt: ts }];
       return { ...x, accountsLog: log };
     });
-    saveToDB("individuals", arr);
     setData(d => ({ ...d, individuals: arr }));
+    await saveToDB("individuals", arr);
     writeIndividualLog(indId, entry, currentUser.id).catch(() => {});
   }} onLogout={logout} />;
 }
