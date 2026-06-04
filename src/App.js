@@ -7965,8 +7965,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       console.error("[completeNotification] dismissals table write failed:", e);
       showSaveError("Dismissal could not be saved. It may reappear after a refresh.");
     }
-    // Secondary: also update the blob so legacy completedMap is in sync
-    saveToDB("notificationsMeta", updated);
+    // Secondary: await the blob save — prevents in-flight cancel if user refreshes quickly
+    const blobOk = await saveToDB("notificationsMeta", updated);
+    if (!blobOk) {
+      showSaveError("Dismissal backup save failed. It will reappear after a refresh until the database is reachable.");
+    }
   }
 
   // ── One-time reminder check on mount ──
