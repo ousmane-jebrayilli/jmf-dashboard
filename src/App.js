@@ -9036,7 +9036,12 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         {tab === "individuals" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
             {data.individuals.map(f => {
-              const net   = indNet(f);
+              // Always derive display values from the latest logged month (if any exists)
+              const latestLog = [...(f.accountsLog || [])].sort((a, b) => (b.month || "").localeCompare(a.month || ""))[0];
+              const latestLogNet = latestLog
+                ? (latestLog.net != null ? safe(latestLog.net) : safe(latestLog.cash) + safe(latestLog.accounts) + safe(latestLog.securities) + safe(latestLog.crypto) + safe(latestLog.physicalAssets))
+                : null;
+              const net   = latestLog ? latestLogNet : indNet(f);
               const isPos = net >= 0;
               const primaryTab = getIndividualPrimaryTab(f.id);
               const subTab = getIndividualSubTab(f.id, primaryTab);
@@ -9076,26 +9081,33 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                     ))}
                   </div>
 
-                  {primaryTab === "balance" && subTab === "current" && (
-                    <>
-                      {[
-                        { l: "Accounts",        fi: "accounts"       },
-                        { l: "Cash / Vault",    fi: "cash"           },
-                        { l: "Securities",      fi: "securities"     },
-                        { l: "Crypto",          fi: "crypto"         },
-                        { l: "Physical Assets", fi: "physicalAssets" },
-                      ].map((row, i, arr) => (
-                        <div key={row.fi} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", fontSize: 12 }}>
-                          <span style={{ color: C.textMid }}>{row.l}</span>
-                          <EditNum value={safe(f[row.fi])} onChange={v => updInd(f.id, row.fi, v)} />
+                  {primaryTab === "balance" && subTab === "current" && (() => {
+                    const dv = field => latestLog ? safe(latestLog[field]) : safe(f[field]);
+                    return (
+                      <>
+                        {latestLog
+                          ? <div style={{ fontSize:10, color:C.textDim, marginBottom:6 }}>As of {monthLabel(latestLog.month)} · Log a new month to update</div>
+                          : <div style={{ fontSize:10, color:C.amber, marginBottom:6 }}>No months logged yet — use History → + Log Month</div>
+                        }
+                        {[
+                          { l: "Accounts",        fi: "accounts"       },
+                          { l: "Cash / Vault",    fi: "cash"           },
+                          { l: "Securities",      fi: "securities"     },
+                          { l: "Crypto",          fi: "crypto"         },
+                          { l: "Physical Assets", fi: "physicalAssets" },
+                        ].map((row, i, arr) => (
+                          <div key={row.fi} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", fontSize: 12 }}>
+                            <span style={{ color: C.textMid }}>{row.l}</span>
+                            <span style={{ fontFamily: C.mono, fontWeight: 700, color: C.text, fontSize: 13 }}>{$F(dv(row.fi))}</span>
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
+                          <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: net >= 0 ? C.gold : C.red }}>{$F(net)}</span>
                         </div>
-                      ))}
-                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 4, borderTop: `2px solid ${C.border}` }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textMid }}>Net worth</span>
-                        <span style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 15, color: isPos ? C.gold : C.red }}>{$F(net)}</span>
-                      </div>
-                    </>
-                  )}
+                      </>
+                    );
+                  })()}
 
                   {primaryTab === "balance" && subTab === "history" && (
                     <div>
