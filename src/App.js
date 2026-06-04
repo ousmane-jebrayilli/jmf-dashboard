@@ -8203,7 +8203,20 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       const log = alreadyExists
         ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
         : [...existing, { ...newEntry, capturedAt: ts }];
-      return { ...x, accountsLog: log };
+      // Auto-sync Current tab: if this entry is the newest logged month, update top-level balance fields.
+      const latestLogMonth = log.reduce((best, e) => (e.month || "") > (best || "") ? e.month : best, "");
+      const syncToCurrent = entry.month === latestLogMonth;
+      return {
+        ...x,
+        ...(syncToCurrent && {
+          cash:           safe(entry.cash),
+          accounts:       safe(entry.accounts),
+          securities:     safe(entry.securities),
+          crypto:         safe(entry.crypto),
+          physicalAssets: safe(entry.physicalAssets),
+        }),
+        accountsLog: log,
+      };
     });
     setData(prev => ({ ...prev, individuals: arr }));
     const ok = await saveToDB("individuals", arr);
@@ -10181,7 +10194,19 @@ export default function App() {
       const log = alreadyExists
         ? existing.map(e => e.month === entry.month ? { ...newEntry, capturedAt: e.capturedAt || e.timestamp, updatedAt: ts } : e)
         : [...existing, { ...newEntry, capturedAt: ts }];
-      return { ...x, accountsLog: log };
+      const latestLogMonth = log.reduce((best, e) => (e.month || "") > (best || "") ? e.month : best, "");
+      const syncToCurrent = entry.month === latestLogMonth;
+      return {
+        ...x,
+        ...(syncToCurrent && {
+          cash:           safe(entry.cash),
+          accounts:       safe(entry.accounts),
+          securities:     safe(entry.securities),
+          crypto:         safe(entry.crypto),
+          physicalAssets: safe(entry.physicalAssets),
+        }),
+        accountsLog: log,
+      };
     });
     setData(d => ({ ...d, individuals: arr }));
     await saveToDB("individuals", arr);
