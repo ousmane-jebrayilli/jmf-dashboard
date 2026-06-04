@@ -7952,7 +7952,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     _latestNotifMeta.current = updated;
     // Optimistic UI update immediately
     setData(prev => ({ ...prev, notificationsMeta: updated }));
-    // Primary: upsert to dedicated dismissals table (one row per alert_key — survives blob failures)
+    // Layer 1: localStorage — synchronous, survives refresh even if all DB writes fail
+    try {
+      const existing = JSON.parse(localStorage.getItem("jmf_notif_dismissed") || "{}");
+      existing[id] = entry.completedAt;
+      localStorage.setItem("jmf_notif_dismissed", JSON.stringify(existing));
+    } catch {}
+    // Layer 2: dedicated dismissals table (primary Supabase store)
+    let tableOk = false;
     try {
       const { error } = await supabase
         .from("notification_dismissals")
@@ -7961,14 +7968,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           { onConflict: "alert_key" }
         );
       if (error) throw error;
+      tableOk = true;
     } catch (e) {
-      console.error("[completeNotification] dismissals table write failed:", e);
-      showSaveError("Dismissal could not be saved. It may reappear after a refresh.");
+      console.error("[completeNotification] dismissals table write failed:", e.message);
     }
-    // Secondary: await the blob save — prevents in-flight cancel if user refreshes quickly
+    // Layer 3: blob save — awaited so a quick refresh doesn't cancel the request
     const blobOk = await saveToDB("notificationsMeta", updated);
-    if (!blobOk) {
-      showSaveError("Dismissal backup save failed. It will reappear after a refresh until the database is reachable.");
+    if (!tableOk && !blobOk) {
+      showSaveError("Could not save dismissal to database (saved locally only — will reappear on other devices).");
     }
   }
 
@@ -10061,8 +10068,15 @@ export default function App() {
           rentPayments:      mergedRentPayments,
           reportHistory:     dbData.reportHistory     || [],
           snapshots:         dbData.snapshots         || [],
-          // Merge notification_dismissals table rows into the blob completedMap so both sources agree.
-          notificationsMeta: { ...migratedMeta, completed: { ...(migratedMeta.completed || {}), ...notifDismissals } },
+          // Merge all three dismissal sources: blob, Supabase table, localStorage
+          notificationsMeta: (() => {
+            let localDismissed = {};
+            try { localDismissed = JSON.parse(localStorage.getItem("jmf_notif_dismissed") || "{}"); } catch {}
+            // Convert localStorage format { id: timestamp } → { id: { completedAt, completedBy } }
+            const localMap = {};
+            Object.entries(localDismissed).forEach(([k, v]) => { localMap[k] = { completedAt: v || "", completedBy: "" }; });
+            return { ...migratedMeta, completed: { ...(migratedMeta.completed || {}), ...notifDismissals, ...localMap } };
+          })(),
         });
       }
     }
