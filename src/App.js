@@ -603,6 +603,8 @@ async function loadFromDB() {
 // Tracks the most-recent successfully loaded row sizes so saveToDB can refuse
 // to overwrite a key with dramatically smaller data.
 const _dbRowSizes = {};
+// Last error message from saveToDB — read by callers to surface detail to user
+let _lastDbError = "";
 function _countDataPoints(value) {
   if (!value) return 0;
   if (Array.isArray(value)) {
@@ -617,8 +619,10 @@ function _countDataPoints(value) {
   return 1;
 }
 async function saveToDB(key, value) {
+  _lastDbError = "";
   // Guard: never write an empty array when we previously had data
   if (Array.isArray(value) && value.length === 0 && (_dbRowSizes[key] || 0) > 0) {
+    _lastDbError = `Write guard blocked empty-array write (key="${key}")`;
     console.warn(`[saveToDB] BLOCKED write of empty array for key="${key}" (had ${_dbRowSizes[key]} data points). Possible silent wipe prevented.`);
     return false;
   }
@@ -626,6 +630,7 @@ async function saveToDB(key, value) {
   const incoming = _countDataPoints(value);
   const existing = _dbRowSizes[key] || 0;
   if (existing > 10 && incoming < existing * 0.2) {
+    _lastDbError = `Write guard blocked shrink (key="${key}", ${existing}→${incoming} pts)`;
     console.warn(`[saveToDB] BLOCKED suspicious shrink for key="${key}": ${existing} → ${incoming} data points (>80% reduction). Possible silent wipe prevented.`);
     return false;
   }
@@ -637,6 +642,7 @@ async function saveToDB(key, value) {
       .eq("key", key)
       .limit(1);
     if (lookupError) {
+      _lastDbError = lookupError.message || "DB lookup failed";
       console.error(`[saveToDB] DB lookup failed for key="${key}"`, lookupError);
       return false;
     }
@@ -644,12 +650,14 @@ async function saveToDB(key, value) {
       ? await supabase.from("dashboard_data").update({ value, updated_at }).eq("key", key)
       : await supabase.from("dashboard_data").insert({ key, value, updated_at });
     if (result.error) {
+      _lastDbError = result.error.message || "DB write failed";
       console.error(`[saveToDB] DB save failed for key="${key}"`, result.error);
       return false;
     }
     _dbRowSizes[key] = incoming; // track after successful write
     return true;
   } catch (e) {
+    _lastDbError = e?.message || "Unknown exception";
     console.error("[saveToDB] DB save failed", e);
     return false;
   }
@@ -8102,7 +8110,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     // Await the DB write — only show "Saved" on confirmed success, surface errors on failure
     const ok = await saveToDB("properties", arr);
     if (!ok) {
-      showSaveError("Property save failed. Refresh to verify — your changes may not have persisted.");
+      showSaveError(`Property save failed. (${_lastDbError || "check console"})`);
       return;
     }
     showSaved();
@@ -8115,14 +8123,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
     setData(prev => ({ ...prev, individuals: arr }));
     const ok = await saveToDB("individuals", arr);
-    if (!ok) showSaveError("Individual save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Individual save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function updBiz(id, f, v) {
     const arr = data.businesses.map(b => b.id === id ? { ...b, [f]: safe(v) } : b);
     setData(prev => ({ ...prev, businesses: arr }));
     const ok = await saveToDB("businesses", arr);
-    if (!ok) showSaveError("Business save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Business save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function updBizPatch(id, patch) {
@@ -8135,14 +8143,14 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, businesses: arr }));
     const ok = await saveToDB("businesses", arr);
-    if (!ok) showSaveError("Business save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Business save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function updVehicle(id, patch) {
     const arr = (data.vehicles || []).map(v => v.id === id ? { ...v, ...patch } : v);
     setData(d => ({ ...d, vehicles: arr }));
     const ok = await saveToDB("vehicles", arr);
-    if (!ok) showSaveError("Vehicle save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Vehicle save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function addVehicleValuation(id, entry) {
@@ -8152,7 +8160,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(d => ({ ...d, vehicles: arr }));
     const ok = await saveToDB("vehicles", arr);
-    if (!ok) showSaveError("Vehicle valuation save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Vehicle valuation save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function updIndIncome(indId, month, incomeEntry) {
@@ -8166,7 +8174,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, individuals: arr }));
     const ok = await saveToDB("individuals", arr);
-    if (!ok) showSaveError("Income log save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Income log save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     writeIndividualIncomeLog(indId, clean, user.id).catch(() => {});
   }
@@ -8181,7 +8189,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, individuals: arr }));
     const ok = await saveToDB("individuals", arr);
-    if (!ok) showSaveError("Expense log save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Expense log save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     writeIndividualPersonalPL(indId, clean, user.id).catch(() => {});
   }
@@ -8199,7 +8207,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, individuals: arr }));
     const ok = await saveToDB("individuals", arr);
-    if (!ok) showSaveError("Balance log save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Balance log save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     writeIndividualLog(indId, entry, user.id).catch(() => {});
   }
@@ -8265,7 +8273,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       : [...existing, snap];
     setData(d => ({ ...d, snapshots: updated }));
     const ok = await saveToDB("snapshots", updated);
-    if (!ok) showSaveError("Snapshot save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Snapshot save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     const cfIncome = data.cashflow?.income || [];
     const cfObl    = data.cashflow?.obligations || [];
@@ -8292,7 +8300,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const updated = [...(data.reportHistory || []), entry];
     setData(d => ({ ...d, reportHistory: updated }));
     const ok = await saveToDB("reportHistory", updated);
-    if (!ok) showSaveError("Report history save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Report history save failed. (${_lastDbError || "check console"})`);
     else showSaved();
   }
   async function updBizProfit(bizId, month, profit) {
@@ -8349,7 +8357,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, businesses: arr }));
     const ok = await saveToDB("businesses", arr);
-    if (!ok) showSaveError("Business P&L save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Business P&L save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     if (capturedEntry) {
       ensurePeriodExists(month).then(() =>
@@ -8386,7 +8394,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     });
     setData(prev => ({ ...prev, businesses: arr }));
     const ok = await saveToDB("businesses", arr);
-    if (!ok) showSaveError("Business history save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Business history save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     // Secondary write to monthly_business_logs — this is read back on bootstrap to recover P&L data
     if (entry.revenue != null || entry.expenses != null || entry.profit != null) {
@@ -8490,7 +8498,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const cf = { ...data.cashflow, [type]: a };
     setData(d => ({ ...d, cashflow: cf }));
     const ok = await saveToDB("cashflow", cf);
-    if (!ok) showSaveError("Cash flow save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Cash flow save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     writeCashflowLog(cf);
   }
@@ -8499,7 +8507,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const cf = { ...data.cashflow, [type]: a };
     setData(d => ({ ...d, cashflow: cf }));
     const ok = await saveToDB("cashflow", cf);
-    if (!ok) showSaveError("Cash flow save failed. Refresh to verify.");
+    if (!ok) showSaveError(`Cash flow save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     writeCashflowLog(cf);
   }
@@ -8540,7 +8548,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     if (!ok) return;
     setData(prev => ({ ...prev, individuals: arr }));
     const saveOk = await saveToDB("individuals", arr);
-    if (!saveOk) showSaveError("Approval save failed. Refresh to verify.");
+    if (!saveOk) showSaveError(`Approval save failed. (${_lastDbError || "check console"})`);
     else showSaved();
     setPendingSubs(s => s.filter(x => x.id !== sub.id));
     writeIndividualLog(individualId, { month: monthKey, ...balanceFields }, user.id).catch(() => {});
