@@ -14,7 +14,12 @@
       "Bash(/usr/local/lib/sf/bin/node -e \"const s=require\\('sharp'\\); s\\('/Users/ahmedjebrayilli/Downloads/logo512.png'\\).metadata\\(\\).then\\(m=>console.log\\(JSON.stringify\\(m\\)\\)\\)\")",
       "Bash(mdfind \"kMDItemFSName == 'High_Resolution_File_2.jpg'\")",
       "Bash(mdfind \"kMDItemFSName == '*.jpg'\" -onlyin \"/Users/ahmedjebrayilli\")",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(awk -F: '$2 > 7920 && $2 < 8578')",
+      "Bash(awk 'NR>=7920 && NR<=8578 && /useState|useEffect|useRef|useMemo|useCallback/' \"/Users/ahmedjebrayilli/Downloads/CODING PROJECTS/JMF Dashboard/src/App.js\")",
+      "Bash(awk -F: '$2 > 7940 && $2 < 8580')",
+      "Bash(awk 'NR>=7947 && NR<=8578' \"/Users/ahmedjebrayilli/Downloads/CODING PROJECTS/JMF Dashboard/src/App.js\")",
+      "Bash(npx react-scripts *)"
     ]
   }
 }

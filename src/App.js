@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import PersonalPage from "./PersonalPage";
 
 /*
  SUPABASE SCHEMA EXPECTED:
@@ -7944,6 +7945,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [collapsedCountries, setCollapsedCountries] = useState({});
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
   const [debtSort, setDebtSort] = useState({ field: "balance", dir: -1 });
+  const [showPersonal, setShowPersonal] = useState(false);
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
     Promise.all([getPendingSubmissions(), fetchAllProfiles()]).then(([subs, profs]) => {
@@ -8575,6 +8577,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Vehicles", "Cash Flow", "Debt", "Reports"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
+  if (showPersonal) return <PersonalPage onBack={() => setShowPersonal(false)} />;
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: C.sans }}>
       {/* ── Save-failure toast ── */}
@@ -8677,6 +8681,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             }} style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:10, padding:"5px 12px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>DB Backup</button>
           </>}
           <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: isMobile ? "4px 8px" : "5px 12px", cursor: "pointer", flexShrink:0, whiteSpace:"nowrap" }}>Sign out</button>
+          {/* OJ personal page — admin only, TODO: drop in real logo asset */}
+          <button onClick={() => setShowPersonal(true)} style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(201,168,76,0.15)", border: "1px solid rgba(201,168,76,0.4)", color: "#C9A84C", fontSize: 11, fontWeight: 800, fontFamily: "'SF Mono','Courier New',monospace", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", letterSpacing: 1 }}>OJ</button>
         </div>
       </div>
 
