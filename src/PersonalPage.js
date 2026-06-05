@@ -414,11 +414,12 @@ function ProfileTab() {
         <div style={{ background: `linear-gradient(135deg, #0E1E30 0%, #152238 100%)`, padding: "32px 28px", display: "flex", alignItems: "center", gap: 20, borderBottom: `1px solid ${C.border}` }}>
           <div style={{
             width: 64, height: 64, borderRadius: 14,
-            background: C.goldLight, border: `2px solid rgba(201,168,76,0.5)`,
+            background: "#000", border: `2px solid rgba(201,168,76,0.5)`,
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 22, fontWeight: 800, color: C.gold, fontFamily: C.mono, letterSpacing: 1,
-            flexShrink: 0,
-          }}>OJ</div>
+            flexShrink: 0, overflow: "hidden",
+          }}>
+            <img src={process.env.PUBLIC_URL + "/oj-logo.png"} alt="OJ" style={{ width: 52, height: 52, objectFit: "contain", mixBlendMode: "screen" }} />
+          </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{p.name}</div>
             <div style={{ fontSize: 11, color: C.textDim, marginTop: 4, letterSpacing: "0.05em" }}>Operative File — Private</div>
@@ -488,11 +489,12 @@ export default function PersonalPage({ onBack }) {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{
               width: 30, height: 30, borderRadius: 8,
-              background: C.goldLight, border: `1px solid rgba(201,168,76,0.4)`,
+              background: "#000", border: `1px solid rgba(201,168,76,0.4)`,
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 11, fontWeight: 800, color: C.gold, fontFamily: C.mono, letterSpacing: 1,
-              flexShrink: 0,
-            }}>OJ</div>
+              flexShrink: 0, overflow: "hidden",
+            }}>
+              <img src={process.env.PUBLIC_URL + "/oj-logo.png"} alt="OJ" style={{ width: 24, height: 24, objectFit: "contain", mixBlendMode: "screen" }} />
+            </div>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Ousmane Jebrayilli</span>
             <span style={{ fontSize: 11, color: C.textDim }}>· Personal</span>
           </div>

@@ -8681,8 +8681,10 @@ function AdminDashboard({ user, data, setData, onLogout }) {
             }} style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:10, padding:"5px 12px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>DB Backup</button>
           </>}
           <button onClick={onLogout} style={{ background: "transparent", border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 6, color: C.navText, fontSize: 10, padding: isMobile ? "4px 8px" : "5px 12px", cursor: "pointer", flexShrink:0, whiteSpace:"nowrap" }}>Sign out</button>
-          {/* OJ personal page — admin only, TODO: drop in real logo asset */}
-          <button onClick={() => setShowPersonal(true)} style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(201,168,76,0.15)", border: "1px solid rgba(201,168,76,0.4)", color: "#C9A84C", fontSize: 11, fontWeight: 800, fontFamily: "'SF Mono','Courier New',monospace", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", letterSpacing: 1 }}>OJ</button>
+          {/* OJ personal page — admin only */}
+          <button onClick={() => setShowPersonal(true)} style={{ width: 30, height: 30, borderRadius: 8, background: "#000", border: "1px solid rgba(201,168,76,0.4)", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", padding: 0 }}>
+            <img src={process.env.PUBLIC_URL + "/oj-logo.png"} alt="OJ" style={{ width: 24, height: 24, objectFit: "contain", mixBlendMode: "screen" }} />
+          </button>
         </div>
       </div>
 
