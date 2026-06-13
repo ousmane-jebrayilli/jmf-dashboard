@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // Supabase client — same project, deduped by supabase-js internals
@@ -264,6 +264,10 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
+  // Keep a ref so loadData doesn't re-create every time the inline callback changes
+  const onDerivedUpdateRef = useRef(onDerivedUpdate);
+  useEffect(() => { onDerivedUpdateRef.current = onDerivedUpdate; });
+
   // ── Toast ──
   function showToast(msg, type = "success") {
     setToast({ msg, type });
@@ -289,17 +293,17 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
       setHoldings(hlds  || []);
       setLastUpdated(new Date());
 
-      if (onDerivedUpdate) {
+      if (onDerivedUpdateRef.current) {
         const sec = (hlds || []).filter(h => !["crypto","cash"].includes(h.asset_class)).reduce((s,h) => s + safe(h.market_value_cad), 0);
         const cry = (hlds || []).filter(h => h.asset_class === "crypto").reduce((s,h) => s + safe(h.market_value_cad), 0);
-        onDerivedUpdate(Math.round(sec), Math.round(cry));
+        onDerivedUpdateRef.current(Math.round(sec), Math.round(cry));
       }
     } catch (e) {
       showToast("Load failed: " + e.message, "error");
     } finally {
       setLoading(false);
     }
-  }, [individualId, onDerivedUpdate]);
+  }, [individualId]); // onDerivedUpdate intentionally excluded — accessed via ref
 
   useEffect(() => { loadData(); }, [loadData]);
 
