@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import PersonalPage from "./PersonalPage";
+import SecuritiesView from "./SecuritiesView";
 
 /*
  SUPABASE SCHEMA EXPECTED:
@@ -7945,7 +7946,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const [collapsedCountries, setCollapsedCountries] = useState({});
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
   const [debtSort, setDebtSort] = useState({ field: "balance", dir: -1 });
-  const [showPersonal, setShowPersonal] = useState(false);
+  const [showPersonal,   setShowPersonal]   = useState(false);
+  const [showPortfolio,  setShowPortfolio]  = useState(false);
+  const [, setPortfolioDerived] = useState(null);
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
     Promise.all([getPendingSubmissions(), fetchAllProfiles()]).then(([subs, profs]) => {
@@ -8577,6 +8580,21 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const TABS = ["Overview", "Real Estate", "Individuals", "Businesses", "Vehicles", "Cash Flow", "Debt", "Reports"];
   const tabId = t => t.toLowerCase().replace(/ /g, "");
 
+  if (showPortfolio) return (
+    <SecuritiesView
+      individualId={1}
+      onBack={() => setShowPortfolio(false)}
+      onDerivedUpdate={(sec, cry) => {
+        setPortfolioDerived({ securities: sec, crypto: cry });
+        setData(prev => ({
+          ...prev,
+          individuals: prev.individuals.map(ind =>
+            ind.id === 1 ? { ...ind, securities: Math.round(sec), crypto: Math.round(cry) } : ind
+          ),
+        }));
+      }}
+    />
+  );
   if (showPersonal) return <PersonalPage onBack={() => setShowPersonal(false)} />;
 
   return (
@@ -9077,6 +9095,11 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                           {label}
                         </button>
                       ))}
+                      {f.id === 1 && (
+                        <button onClick={() => setShowPortfolio(true)} style={tabButton(false, C.blue)}>
+                          Portfolio
+                        </button>
+                      )}
                     </div>
                   </div>
 
