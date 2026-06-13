@@ -232,12 +232,19 @@ function Modal({ title, onClose, children, width = 520 }) {
 }
 
 // ─── SECURITIES VIEW ─────────────────────────────────────────────────────────
-export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }) {
+export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, onMonthLogged }) {
   const [accounts,  setAccounts]  = useState([]);
   const [holdings,  setHoldings]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [toast,     setToast]     = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Monthly snapshot state
+  const CURRENT_YM        = new Date().toISOString().slice(0, 7);
+  const CURRENT_MONTH_KEY = CURRENT_YM + "-01";
+  const CURRENT_MONTH_LABEL = new Date().toLocaleString("en-CA", { month: "long", year: "numeric" });
+  const [currentMonthSnap, setCurrentMonthSnap] = useState(null);
+  const [snapLoading,      setSnapLoading]       = useState(false);
 
   // Filters + sort
   const [filterAccount,  setFilterAccount]  = useState("all");
@@ -255,8 +262,6 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
   const [addSaving,   setAddSaving]   = useState(false);
   const [editModal,   setEditModal]   = useState(null);
   const [editSaving,  setEditSaving]  = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [deleting,      setDeleting]      = useState(false);
   const [csvStep,    setCsvStep]    = useState(null);
   const [csvTarget,  setCsvTarget]  = useState("all");
   const [csvPreview, setCsvPreview] = useState([]);
@@ -298,6 +303,15 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
         const cry = (hlds || []).filter(h => h.asset_class === "crypto").reduce((s,h) => s + safe(h.market_value_cad), 0);
         onDerivedUpdateRef.current(Math.round(sec), Math.round(cry));
       }
+
+      // Check if current month already logged
+      const { data: snap } = await sb
+        .from("securities_snapshots")
+        .select("*")
+        .eq("individual_id", individualId)
+        .eq("snapshot_month", new Date().toISOString().slice(0, 7) + "-01")
+        .maybeSingle();
+      setCurrentMonthSnap(snap || null);
     } catch (e) {
       showToast("Load failed: " + e.message, "error");
     } finally {
@@ -306,6 +320,37 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
   }, [individualId]); // onDerivedUpdate intentionally excluded — accessed via ref
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Log month ──
+  async function handleLogMonth() {
+    setSnapLoading(true);
+    try {
+      const total   = holdings.reduce((s,h) => s + safe(h.market_value_cad), 0);
+      const book    = holdings.reduce((s,h) => s + safe(h.book_value_cad),   0);
+      const byClass = {};
+      holdings.forEach(h => { byClass[h.asset_class] = (byClass[h.asset_class] || 0) + safe(h.market_value_cad); });
+      const record = {
+        individual_id:    individualId,
+        snapshot_month:   CURRENT_MONTH_KEY,
+        total_market_cad: Math.round(total * 100) / 100,
+        total_book_cad:   Math.round(book  * 100) / 100,
+        allocation_json:  byClass,
+      };
+      const { data: saved, error } = await sb
+        .from("securities_snapshots")
+        .upsert(record, { onConflict: "individual_id,snapshot_month" })
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      setCurrentMonthSnap(saved);
+      showToast(`${CURRENT_MONTH_LABEL} logged — ${$F(total)}`);
+      if (onMonthLogged) onMonthLogged(CURRENT_YM);
+    } catch (e) {
+      showToast("Log failed: " + e.message, "error");
+    } finally {
+      setSnapLoading(false);
+    }
+  }
 
   // ── Derived / Memoised ──
   const derived = useMemo(() => {
@@ -458,28 +503,6 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
     }
   }
 
-  // ── Delete ──
-  async function handleDelete(id) {
-    setDeleting(true);
-    const rollback = [...holdings];
-    const sym = holdings.find(h => h.id === id)?.symbol || "Position";
-    setHoldings(prev => prev.filter(h => h.id !== id));
-    try {
-      const { error } = await sb.from("securities_holdings").delete().eq("id", id);
-      if (error) throw new Error(error.message);
-      const { data: check } = await sb.from("securities_holdings").select("id").eq("id", id).maybeSingle();
-      if (check) throw new Error("Row still present after delete — write did not commit");
-      await loadData();
-      setDeleteConfirm(null);
-      showToast(`${sym} deleted`);
-    } catch (e) {
-      setHoldings(rollback);
-      showToast("Delete failed: " + e.message, "error");
-    } finally {
-      setDeleting(false);
-    }
-  }
-
   // ── CSV import ──
   function handleCSVFile(file) {
     if (!file) return;
@@ -603,6 +626,14 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
             style={{ fontSize:10, background:C.goldLight, border:`1px solid rgba(201,168,76,0.3)`, borderRadius:6, color:C.goldText, padding:"4px 10px", cursor:"pointer", fontWeight:600 }}>
             + Position
           </button>
+          {/* Monthly log button */}
+          {currentMonthSnap
+            ? <span style={{ fontSize:10, color:C.greenText, fontWeight:700, whiteSpace:"nowrap" }}>✓ {CURRENT_MONTH_LABEL}</span>
+            : <button onClick={handleLogMonth} disabled={snapLoading || loading || !holdings.length}
+                style={{ fontSize:10, background:C.gold, border:"none", borderRadius:6, color:"#0C1520", padding:"4px 12px", cursor:snapLoading?"not-allowed":"pointer", fontWeight:700, opacity:snapLoading?0.7:1, whiteSpace:"nowrap" }}>
+                {snapLoading ? "Logging…" : `Log ${CURRENT_MONTH_LABEL}`}
+              </button>
+          }
         </div>
       </div>
 
@@ -612,6 +643,20 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
 
       {!loading && (
         <div style={{ padding:isMobile?"16px 14px":"24px 28px", maxWidth:1300, margin:"0 auto" }}>
+
+          {/* ── NOT-LOGGED BANNER ── */}
+          {!currentMonthSnap && holdings.length > 0 && (
+            <div style={{ background:C.amberLight, border:`1px solid rgba(230,168,23,0.35)`, borderLeft:`4px solid ${C.amber}`, borderRadius:8, padding:"10px 16px", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:C.amberText }}>📅 {CURRENT_MONTH_LABEL} not logged yet</div>
+                <div style={{ fontSize:11, color:C.amberText, opacity:0.85, marginTop:2 }}>Update prices if needed, then click "Log {CURRENT_MONTH_LABEL}" to commit the snapshot.</div>
+              </div>
+              <button onClick={handleLogMonth} disabled={snapLoading}
+                style={{ fontSize:11, background:C.amber, border:"none", borderRadius:6, color:"#0C1520", padding:"7px 16px", cursor:snapLoading?"not-allowed":"pointer", fontWeight:700, flexShrink:0, opacity:snapLoading?0.7:1 }}>
+                {snapLoading ? "Logging…" : `Log ${CURRENT_MONTH_LABEL}`}
+              </button>
+            </div>
+          )}
 
           {/* ── METRIC CARDS ── */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:12, marginBottom:20 }}>
@@ -774,12 +819,8 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
                           {portPct.toFixed(1)}%
                         </td>
                         <td style={{ padding:"9px 12px", textAlign:"right" }}>
-                          <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}>
-                            <button onClick={() => setEditModal(h)}
-                              style={{ fontSize:10, background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textDim, padding:"3px 7px", cursor:"pointer" }}>Edit</button>
-                            <button onClick={() => setDeleteConfirm(h.id)}
-                              style={{ fontSize:10, background:"none", border:`1px solid rgba(224,85,85,0.3)`, borderRadius:5, color:C.red, padding:"3px 7px", cursor:"pointer" }}>✕</button>
-                          </div>
+                          <button onClick={() => setEditModal(h)}
+                            style={{ fontSize:10, background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textDim, padding:"3px 7px", cursor:"pointer" }}>Edit</button>
                         </td>
                       </tr>
                     );
@@ -843,26 +884,6 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate }
           }}
           saving={editSaving} onCancel={() => setEditModal(null)}
           onSave={(form, mktCadCalc) => handleEdit(editModal.id, form, mktCadCalc)} />
-        </Modal>
-      )}
-
-      {/* Delete confirm */}
-      {deleteConfirm && (
-        <Modal title="Delete position" onClose={() => setDeleteConfirm(null)} width={380}>
-          <div style={{ color:C.textMid, fontSize:13, marginBottom:20, lineHeight:1.6 }}>
-            Delete <strong style={{ color:C.text }}>{holdings.find(h=>h.id===deleteConfirm)?.symbol}</strong>?
-            This cannot be undone.
-          </div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button onClick={() => handleDelete(deleteConfirm)} disabled={deleting}
-              style={{ flex:1, padding:"10px 0", background:deleting?C.border:C.red, color:"#fff", border:"none", borderRadius:8, fontWeight:700, fontSize:13, cursor:deleting?"not-allowed":"pointer", opacity:deleting?0.7:1 }}>
-              {deleting ? "Deleting…" : "Delete"}
-            </button>
-            <button onClick={() => setDeleteConfirm(null)}
-              style={{ padding:"10px 20px", background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textDim, fontSize:13, cursor:"pointer" }}>
-              Cancel
-            </button>
-          </div>
         </Modal>
       )}
 

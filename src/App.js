@@ -777,7 +777,7 @@ function mergeById(defaults, dbArr) {
 // ─── NOTIFICATION ENGINE ──────────────────────────────────────────────────────
 // Pure function — derives all Phase 1 notifications from live data.
 // Persisted state (completedIds) is handled separately in notificationsMeta.
-function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId) {
+function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId, portfolioLoggedYM = null) {
   const ym = currentYM();
   const prevYM = shiftYM(ym, -1);
   const nextYM = shiftYM(ym, 1);
@@ -935,6 +935,22 @@ function computeNotifications(data, profiles, pendingSubs, isAdmin, individualId
         severity: "medium", status: notifStatus(dueDateStr, false),
       });
     }
+
+    // ── Portfolio price log ───────────────────────────────────────────────────
+    const portDue = ym + "-01";
+    const portLogged = portfolioLoggedYM === ym;
+    out.push({
+      id: `portfolio-prices-${ym}`,
+      type: "snapshot_needed", category: "Portfolio",
+      title: portLogged ? `Portfolio logged — ${monthLabel(ym)}` : `Portfolio prices due — ${monthLabel(ym)}`,
+      description: "AJ · Securities Portfolio",
+      detail: portLogged
+        ? `${monthLabel(ym)} snapshot committed`
+        : `Update prices in Portfolio tab, then click "Log ${monthLabel(ym)}"`,
+      month: ym, dueDate: portDue,
+      severity: "medium",
+      status: notifStatus(portDue, portLogged),
+    });
 
   } else {
     // ── Member: own current-month snapshot ────────────────────────────────────
@@ -7947,8 +7963,9 @@ function AdminDashboard({ user, data, setData, onLogout }) {
   const toggleCountry = (country) => setCollapsedCountries(s => ({ ...s, [country]: !s[country] }));
   const [debtSort, setDebtSort] = useState({ field: "balance", dir: -1 });
   const [showPersonal,   setShowPersonal]   = useState(false);
-  const [showPortfolio,  setShowPortfolio]  = useState(false);
-  const [, setPortfolioDerived] = useState(null);
+  const [showPortfolio,   setShowPortfolio]   = useState(false);
+  const [, setPortfolioDerived]              = useState(null);
+  const [portfolioLoggedYM, setPortfolioLoggedYM] = useState(null);
   useEffect(() => {
     // Load pending submissions and all member profiles in parallel
     Promise.all([getPendingSubmissions(), fetchAllProfiles()]).then(([subs, profs]) => {
@@ -8036,6 +8053,23 @@ function AdminDashboard({ user, data, setData, onLogout }) {
       }
     }
     checkReminder();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Portfolio snapshot check (sets notification state on mount) ──
+  useEffect(() => {
+    async function checkPortfolioLog() {
+      const ym = currentYM();
+      try {
+        const { data: snap } = await supabase
+          .from("securities_snapshots")
+          .select("snapshot_month")
+          .eq("individual_id", 1)
+          .eq("snapshot_month", ym + "-01")
+          .maybeSingle();
+        if (snap) setPortfolioLoggedYM(ym);
+      } catch {}
+    }
+    checkPortfolioLog();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Period status ──
@@ -8584,6 +8618,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     <SecuritiesView
       individualId={1}
       onBack={() => setShowPortfolio(false)}
+      onMonthLogged={(ym) => setPortfolioLoggedYM(ym)}
       onDerivedUpdate={(sec, cry) => {
         setPortfolioDerived({ securities: sec, crypto: cry });
         setData(prev => ({
@@ -8657,7 +8692,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
           )}
           {/* Notification bell */}
           {(() => {
-            const notifications = computeNotifications(data, profiles, pendingSubs, true, null);
+            const notifications = computeNotifications(data, profiles, pendingSubs, true, null, portfolioLoggedYM);
             const meta = data.notificationsMeta || { completed: {}, lastSeenAt: "" };
             const completedMap = meta.completed || {};
             const pendingCount = notifications.filter(n => n.status !== "upcoming" && n.status !== "completed" && !completedMap[n.id]).length;
