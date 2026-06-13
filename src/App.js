@@ -9300,7 +9300,7 @@ function AdminDashboard({ user, data, setData, onLogout }) {
         {/* ── CASH FLOW ── */}
         {tab === "cashflow" && (() => {
           // Computed income for selected month
-          const cfBizIn  = data.businesses.filter(b => b.type !== "nonprofit").reduce((s, b) => {
+          const cfBizIn  = data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only").reduce((s, b) => {
             const e = (b.monthlyProfits || []).find(p => p.month === cfMonth);
             return s + safe(e?.profit);
           }, 0);
@@ -9344,7 +9344,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
 
               {(() => {
                 // ── per-group subtotals (derived, no new calculation) ──────────
-                const bizRows     = data.businesses.filter(b => b.type !== "nonprofit");
+                const bizRows        = data.businesses.filter(b => b.type !== "nonprofit" && b.type !== "tracked_only");
+                const trackedOnlyRows = data.businesses.filter(b => b.type === "tracked_only");
                 const vehicleRows = (data.vehicles || []).filter(v => safe(v.monthlyPayment) + safe(v.insuranceMonthly) > 0);
 
                 // Section header component (inline)
@@ -9390,6 +9391,19 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                                 value={entry ? $F(profit) : "—"}
                                 valueColor={entry ? (profit >= 0 ? C.gold : C.red) : C.textDim}
                                 sub="Net profit · log in Businesses tab" />
+                            );
+                          })}
+                          {trackedOnlyRows.map(b => {
+                            const entry  = (b.monthlyProfits || []).find(p => p.month === cfMonth);
+                            const profit = safe(entry?.profit);
+                            return (
+                              <div key={b.id} style={{ padding:"8px 0 7px", borderBottom:`1px solid ${C.border}`, opacity: 0.45 }}>
+                                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                                  <span style={{ fontSize:13, color:C.textDim }}>{b.name}</span>
+                                  <span style={{ fontFamily:C.mono, fontSize:13, fontWeight:600, color:C.textDim }}>{entry ? $F(profit) : "—"}</span>
+                                </div>
+                                <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>Tracked only — excluded from total · rent captured under Rental Income</div>
+                              </div>
                             );
                           })}
                         </div>
