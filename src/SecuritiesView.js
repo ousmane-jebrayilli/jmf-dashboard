@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 // Supabase client — same project, deduped by supabase-js internals
 const sb = createClient(
@@ -36,9 +39,135 @@ const FX_USD_DEFAULT    = 1.3780;
 const safe  = n => (isNaN(n) || n == null) ? 0 : Number(n);
 const $F    = n => new Intl.NumberFormat("en-CA", { style:"currency", currency:"CAD", maximumFractionDigits:2 }).format(safe(n));
 const $Pct  = n => `${safe(n).toFixed(2)}%`;
+const $RPct = r => r == null || !isFinite(r) ? "—" : `${r >= 0 ? "+" : ""}${(r * 100).toFixed(2)}%`; // fraction → signed %
 const pnlOf  = h => safe(h.market_value_cad) - safe(h.book_value_cad);
 const pnlPctOf = h => safe(h.book_value_cad) > 0 ? (pnlOf(h) / safe(h.book_value_cad)) * 100 : 0;
 const acctLabel = a => a ? `${a.broker} — ${a.account_type} (${a.account_number_masked || "—"})` : "—";
+
+// ─── PERFORMANCE / RETURN MATH ────────────────────────────────────────────────
+// All guarded against NaN/Infinity. Callers render "—" when a figure is null.
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function monthShort(monthKey) {
+  if (!monthKey) return "—";
+  const d = new Date(monthKey);
+  if (isNaN(d.getTime())) return "—";
+  return `${MONTHS_SHORT[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`;
+}
+function monthLong(monthKey) {
+  if (!monthKey) return "—";
+  const d = new Date(monthKey);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-CA", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+function daysBetween(a, b) {
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  return isNaN(ms) ? 0 : Math.round(ms / 86400000);
+}
+function sortSnaps(arr) {
+  return [...(arr || [])].sort((a, b) => new Date(a.snapshot_month) - new Date(b.snapshot_month));
+}
+// Modified Dietz period return: (EMV - BMV - F) / (BMV + 0.5*F). Returns null if denom ~0.
+function periodReturn(bmv, emv, f) {
+  const denom = safe(bmv) + 0.5 * safe(f);
+  if (!isFinite(denom) || Math.abs(denom) < 1e-9) return null;
+  const r = (safe(emv) - safe(bmv) - safe(f)) / denom;
+  return isFinite(r) ? r : null;
+}
+// Chain-link an array of period returns: Π(1+r) - 1. Ignores nulls.
+function chainLink(returns) {
+  const clean = returns.filter(r => r != null && isFinite(r));
+  if (!clean.length) return null;
+  return clean.reduce((acc, r) => acc * (1 + r), 1) - 1;
+}
+// Window boundary for a period selector. Returns a Date; "all" → epoch.
+function periodBoundary(period, lastMonthKey) {
+  const last = new Date(lastMonthKey);
+  if (isNaN(last.getTime())) return new Date(0);
+  const y = last.getUTCFullYear(), m = last.getUTCMonth();
+  switch (period) {
+    case "1m":  return new Date(Date.UTC(y, m - 1, 1));
+    case "3m":  return new Date(Date.UTC(y, m - 3, 1));
+    case "ytd": return new Date(Date.UTC(y, 0, 1));
+    case "1y":  return new Date(Date.UTC(y - 1, m, 1));
+    default:    return new Date(0);
+  }
+}
+// Largest peak-to-trough drop (as a fraction, negative) across a market-value series.
+function maxDrawdown(values) {
+  if (!values || values.length < 3) return null;
+  let peak = values[0], worst = 0;
+  for (const v of values) {
+    if (v > peak) peak = v;
+    if (peak > 0) {
+      const dd = (v - peak) / peak;
+      if (dd < worst) worst = dd;
+    }
+  }
+  return worst; // <= 0
+}
+// Core metrics for the snapshot series + selected period window.
+function computeSnapshotMetrics(allSnaps, period) {
+  const s = sortSnaps(allSnaps);
+  const firstDate = s[0]?.snapshot_month || null;
+  const lastDate  = s[s.length - 1]?.snapshot_month || null;
+  if (s.length < 2) {
+    return { enough: false, count: s.length, firstDate, lastDate, chartData: [], hasBenchmark: false };
+  }
+
+  // ── Selected-period window (include the anchor just before the boundary) ──
+  let win = s;
+  if (period && period !== "all") {
+    const boundary = periodBoundary(period, lastDate);
+    const after  = s.filter(x => new Date(x.snapshot_month) >= boundary);
+    const before = s.filter(x => new Date(x.snapshot_month) <  boundary);
+    win = before.length ? [before[before.length - 1], ...after] : after;
+  }
+
+  // ── Period (window) return — chain-linked Modified Dietz ──
+  const winReturns = [];
+  for (let i = 1; i < win.length; i++) {
+    winReturns.push(periodReturn(win[i - 1].total_market_cad, win[i].total_market_cad, win[i].net_contributions));
+  }
+  const periodRet = win.length >= 2 ? chainLink(winReturns) : null;
+
+  // ── Cumulative since first snapshot (whole series) ──
+  const allReturns = [];
+  for (let i = 1; i < s.length; i++) {
+    allReturns.push(periodReturn(s[i - 1].total_market_cad, s[i].total_market_cad, s[i].net_contributions));
+  }
+  const cumulativeRet = chainLink(allReturns);
+
+  // ── Annualized (lifetime; only meaningful past 90 days) ──
+  const lifeDays = daysBetween(firstDate, lastDate);
+  let annualized = null;
+  if (lifeDays >= 90 && cumulativeRet != null && (1 + cumulativeRet) > 0) {
+    const a = Math.pow(1 + cumulativeRet, 365 / lifeDays) - 1;
+    annualized = isFinite(a) ? a : null;
+  }
+
+  // ── Max drawdown (window) ──
+  const dd = maxDrawdown(win.map(x => safe(x.total_market_cad)));
+
+  // ── Chart data (window) with optional normalized benchmark overlay ──
+  const benchBaseRow = win.find(x => x.benchmark_value != null && safe(x.benchmark_value) > 0);
+  const hasBenchmark = !!benchBaseRow;
+  const baseBench  = benchBaseRow ? safe(benchBaseRow.benchmark_value) : 0;
+  const baseMarket = benchBaseRow ? safe(benchBaseRow.total_market_cad) : 0;
+  const chartData = win.map(x => ({
+    label:   monthShort(x.snapshot_month),
+    month:   x.snapshot_month,
+    market:  Math.round(safe(x.total_market_cad)),
+    benchmark: hasBenchmark && x.benchmark_value != null && baseBench > 0
+      ? Math.round(safe(x.benchmark_value) / baseBench * baseMarket)
+      : null,
+  }));
+
+  return {
+    enough: true, count: s.length, firstDate, lastDate, lifeDays,
+    periodRet, cumulativeRet, annualized, maxDrawdown: dd,
+    chartData, hasBenchmark,
+  };
+}
 
 // ─── VERIFIED UPSERT ─────────────────────────────────────────────────────────
 // Write → select back → spot-check → throw on mismatch. Never leaves UI showing uncommitted data.
@@ -216,6 +345,55 @@ function PositionForm({ accounts, initial, onSave, onCancel, saving }) {
   );
 }
 
+// ─── SNAPSHOT FORM (historical backfill + edit contributions/benchmark) ───────
+function SnapshotForm({ initial, isEdit, onSave, onCancel, saving }) {
+  const [f, setF] = useState({
+    month:             initial?.snapshot_month ? String(initial.snapshot_month).slice(0, 7) : new Date().toISOString().slice(0, 7),
+    total_market_cad:  initial?.total_market_cad != null ? String(initial.total_market_cad) : "",
+    net_contributions: initial?.net_contributions != null ? String(initial.net_contributions) : "0",
+    benchmark_value:   initial?.benchmark_value != null ? String(initial.benchmark_value) : "",
+  });
+  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const lbl = t => <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4, fontWeight:600 }}>{t}</div>;
+  const inpStyle = { width:"100%", minHeight:44, padding:"8px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", boxSizing:"border-box" };
+  return (
+    <div>
+      <div style={{ marginBottom:12 }}>
+        {lbl("Month")}
+        <input type="month" value={f.month} disabled={isEdit} onChange={e => set("month", e.target.value)}
+          style={{ ...inpStyle, opacity:isEdit?0.6:1, cursor:isEdit?"not-allowed":"text" }} />
+      </div>
+      <div style={{ marginBottom:12 }}>
+        {lbl("Total market value (CAD)")}
+        <input type="number" step="any" value={f.total_market_cad} onChange={e => set("total_market_cad", e.target.value)} placeholder="e.g. 42500" style={inpStyle} />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        <div style={{ marginBottom:12 }}>
+          {lbl("Net contributions")}
+          <input type="number" step="any" value={f.net_contributions} onChange={e => set("net_contributions", e.target.value)} style={inpStyle} />
+        </div>
+        <div style={{ marginBottom:12 }}>
+          {lbl("Benchmark (optional)")}
+          <input type="number" step="any" value={f.benchmark_value} onChange={e => set("benchmark_value", e.target.value)} placeholder="VFV / S&P level" style={inpStyle} />
+        </div>
+      </div>
+      <div style={{ fontSize:10, color:C.textDim, lineHeight:1.6, marginBottom:16 }}>
+        Net contributions = deposits (+) / withdrawals (−) during the month. Keeping it accurate stops returns from being distorted by cash flows.
+      </div>
+      <div style={{ display:"flex", gap:10 }}>
+        <button onClick={() => onSave(f)} disabled={saving || !f.total_market_cad}
+          style={{ flex:1, minHeight:44, background:saving?C.border:C.gold, color:"#0C1520", border:"none", borderRadius:8, fontWeight:700, fontSize:13, cursor:saving?"not-allowed":"pointer", opacity:saving?0.7:1 }}>
+          {saving ? "Saving…" : "Save snapshot"}
+        </button>
+        <button onClick={onCancel}
+          style={{ minHeight:44, padding:"0 20px", background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textDim, fontSize:13, cursor:"pointer" }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── MODAL SHELL ─────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children, width = 520 }) {
   return (
@@ -267,7 +445,22 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
   const [csvPreview, setCsvPreview] = useState([]);
   const [csvSaving,  setCsvSaving]  = useState(false);
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  // Performance / snapshots
+  const [snapshots,  setSnapshots]  = useState([]);   // full history (asc by month)
+  const [perfPeriod, setPerfPeriod] = useState("all"); // 1m · 3m · ytd · 1y · all
+  const [backfill,   setBackfill]   = useState(null);  // null | {} (new) | snapshotRow (edit)
+  const [backfillSaving, setBackfillSaving] = useState(false);
+
+  // Mobile UI state
+  const [vw, setVw] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  const [mobileMenu,  setMobileMenu]  = useState(false);
+  const [filterSheet, setFilterSheet] = useState(false);
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = vw <= 640;
 
   // Keep a ref so loadData doesn't re-create every time the inline callback changes
   const onDerivedUpdateRef = useRef(onDerivedUpdate);
@@ -304,51 +497,93 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
         onDerivedUpdateRef.current(Math.round(sec), Math.round(cry));
       }
 
-      // Check if current month already logged
-      const { data: snap } = await sb
+      // Load full snapshot history (asc); derive current-month flag from it
+      const { data: snaps } = await sb
         .from("securities_snapshots")
         .select("*")
         .eq("individual_id", individualId)
-        .eq("snapshot_month", new Date().toISOString().slice(0, 7) + "-01")
-        .maybeSingle();
-      setCurrentMonthSnap(snap || null);
+        .order("snapshot_month", { ascending: true });
+      const history = sortSnaps(snaps || []);
+      setSnapshots(history);
+      setCurrentMonthSnap(history.find(x => x.snapshot_month === CURRENT_MONTH_KEY) || null);
+      return { accts: accts || [], hlds: hlds || [], history };
     } catch (e) {
       showToast("Load failed: " + e.message, "error");
     } finally {
       setLoading(false);
     }
-  }, [individualId]); // onDerivedUpdate intentionally excluded — accessed via ref
+  }, [individualId, CURRENT_MONTH_KEY]); // onDerivedUpdate intentionally excluded — accessed via ref
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Log month ──
+  // ── Snapshot capture (verified write; preserves existing net_contributions/benchmark) ──
+  // Used by both the manual "Log month" button and the auto-capture on price save.
+  async function captureSnapshot({ holdingsList, snapshotsList } = {}) {
+    const hl = holdingsList || holdings;
+    const sn = snapshotsList || snapshots;
+    if (!hl.length) return null;
+    const total   = hl.reduce((s,h) => s + safe(h.market_value_cad), 0);
+    const book    = hl.reduce((s,h) => s + safe(h.book_value_cad),   0);
+    const byClass = {};
+    hl.forEach(h => { byClass[h.asset_class] = (byClass[h.asset_class] || 0) + safe(h.market_value_cad); });
+    const existing = sn.find(x => x.snapshot_month === CURRENT_MONTH_KEY);
+    const record = {
+      ...(existing ? { id: existing.id } : {}),
+      individual_id:     individualId,
+      snapshot_month:    CURRENT_MONTH_KEY,
+      total_market_cad:  Math.round(total * 100) / 100,
+      total_book_cad:    Math.round(book  * 100) / 100,
+      allocation_json:   byClass,
+      net_contributions: safe(existing?.net_contributions), // preserved; AJ edits separately
+      snapshot_date:     new Date().toISOString().split("T")[0],
+    };
+    // benchmark_value intentionally omitted so an existing value is preserved on update
+    const saved = await verifiedUpsert("securities_snapshots", record, existing ? "id" : "individual_id,snapshot_month");
+    return { saved, total };
+  }
+
+  // ── Log month (manual) ──
   async function handleLogMonth() {
     setSnapLoading(true);
     try {
-      const total   = holdings.reduce((s,h) => s + safe(h.market_value_cad), 0);
-      const book    = holdings.reduce((s,h) => s + safe(h.book_value_cad),   0);
-      const byClass = {};
-      holdings.forEach(h => { byClass[h.asset_class] = (byClass[h.asset_class] || 0) + safe(h.market_value_cad); });
-      const record = {
-        individual_id:    individualId,
-        snapshot_month:   CURRENT_MONTH_KEY,
-        total_market_cad: Math.round(total * 100) / 100,
-        total_book_cad:   Math.round(book  * 100) / 100,
-        allocation_json:  byClass,
-      };
-      const { data: saved, error } = await sb
-        .from("securities_snapshots")
-        .upsert(record, { onConflict: "individual_id,snapshot_month" })
-        .select()
-        .single();
-      if (error) throw new Error(error.message);
-      setCurrentMonthSnap(saved);
-      showToast(`${CURRENT_MONTH_LABEL} logged — ${$F(total)}`);
+      const res = await captureSnapshot();
+      if (!res) { showToast("Nothing to log — no positions yet", "error"); return; }
+      await loadData();
+      showToast(`${CURRENT_MONTH_LABEL} logged — ${$F(res.total)}`);
       if (onMonthLogged) onMonthLogged(CURRENT_YM);
     } catch (e) {
       showToast("Log failed: " + e.message, "error");
     } finally {
       setSnapLoading(false);
+    }
+  }
+
+  // ── Historical backfill / edit a snapshot's contributions + benchmark ──
+  async function handleBackfillSave(form) {
+    setBackfillSaving(true);
+    try {
+      const monthKey = form.month && form.month.length === 7 ? form.month + "-01" : form.month;
+      if (!monthKey || isNaN(new Date(monthKey).getTime())) throw new Error("Pick a valid month");
+      const existing = snapshots.find(x => x.snapshot_month === monthKey);
+      const record = {
+        ...(existing ? { id: existing.id } : {}),
+        individual_id:     individualId,
+        snapshot_month:    monthKey,
+        total_market_cad:  Math.round(safe(form.total_market_cad) * 100) / 100,
+        total_book_cad:    existing ? safe(existing.total_book_cad) : Math.round(safe(form.total_market_cad) * 100) / 100,
+        net_contributions: Math.round(safe(form.net_contributions) * 100) / 100,
+        benchmark_value:   form.benchmark_value === "" || form.benchmark_value == null ? null : safe(form.benchmark_value),
+        snapshot_date:     monthKey,
+      };
+      if (existing && existing.allocation_json) record.allocation_json = existing.allocation_json;
+      await verifiedUpsert("securities_snapshots", record, existing ? "id" : "individual_id,snapshot_month");
+      await loadData();
+      setBackfill(null);
+      showToast(`${monthLong(monthKey)} snapshot saved`);
+    } catch (e) {
+      showToast("Snapshot save failed: " + e.message, "error");
+    } finally {
+      setBackfillSaving(false);
     }
   }
 
@@ -384,8 +619,9 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
     if (filterCurrency !== "all") filtered = filtered.filter(h => h.price_currency === filterCurrency);
     if (filterGainers  === "gainers") filtered = filtered.filter(h => pnlOf(h) > 0);
     if (filterGainers  === "losers")  filtered = filtered.filter(h => pnlOf(h) < 0);
+    const sortVal = h => sortField === "pnl" ? pnlOf(h) : sortField === "pnlPct" ? pnlPctOf(h) : h[sortField];
     filtered.sort((a, b) => {
-      const av = a[sortField], bv = b[sortField];
+      const av = sortVal(a), bv = sortVal(b);
       if (typeof av === "string") return sortDir * av.localeCompare(bv ?? "");
       return sortDir * (safe(av) - safe(bv));
     });
@@ -398,8 +634,22 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
         .reduce((s,h) => s + safe(h.market_value_cad), 0);
     });
 
-    return { marketTotal, bookTotal, pnl, pnlPct, byClass, nonCashTotal, flags, filtered, perAccount };
+    // Movers (per-position return %, excluding cash & positions with no book basis)
+    const ranked = holdings
+      .filter(h => h.asset_class !== "cash" && safe(h.book_value_cad) > 0)
+      .map(h => ({ symbol: h.symbol, name: h.name, pct: pnlPctOf(h), pnl: pnlOf(h) }))
+      .sort((a, b) => b.pct - a.pct);
+    const bestPosition  = ranked[0] || null;
+    const worstPosition = ranked.length ? ranked[ranked.length - 1] : null;
+    const topMovers     = ranked.slice(0, 3);
+    const bottomMovers  = ranked.length > 3 ? ranked.slice(-3).reverse() : [];
+
+    return { marketTotal, bookTotal, pnl, pnlPct, byClass, nonCashTotal, flags, filtered, perAccount,
+             bestPosition, worstPosition, topMovers, bottomMovers };
   }, [holdings, accounts, filterAccount, filterClass, filterCurrency, filterGainers, sortField, sortDir]);
+
+  // ── Performance metrics (recompute on snapshots / period change) ──
+  const perf = useMemo(() => computeSnapshotMetrics(snapshots, perfPeriod), [snapshots, perfPeriod]);
 
   // ── Sort toggle ──
   function toggleSort(field) {
@@ -413,11 +663,12 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
     if (!Object.keys(priceEdits).length) { setPriceMode(false); return; }
     setPriceSaving(true);
     const rollback = [...holdings];
-    setHoldings(prev => prev.map(h => {
+    const freshHoldings = holdings.map(h => {
       if (priceEdits[h.id] === undefined) return h;
       const p = safe(priceEdits[h.id]);
       return { ...h, market_price: p, market_value_cad: safe(h.quantity) * p * safe(h.fx_rate || 1) };
-    }));
+    });
+    setHoldings(freshHoldings);
     try {
       for (const [id, rawPrice] of Object.entries(priceEdits)) {
         const h = holdings.find(x => x.id === id);
@@ -429,10 +680,14 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
           updated_at: new Date().toISOString(),
         }, "id");
       }
+      // Auto-capture: refresh the current month's snapshot in place with the new prices.
+      try { await captureSnapshot({ holdingsList: freshHoldings, snapshotsList: snapshots }); }
+      catch (snapErr) { /* prices already saved; snapshot refresh is best-effort */ }
       await loadData();
       setPriceMode(false);
       setPriceEdits({});
-      showToast(`${Object.keys(priceEdits).length} price${Object.keys(priceEdits).length > 1 ? "s" : ""} saved`);
+      const n = Object.keys(priceEdits).length;
+      showToast(`${n} price${n > 1 ? "s" : ""} saved · ${CURRENT_MONTH_LABEL} snapshot updated`);
     } catch (e) {
       setHoldings(rollback);
       showToast("Price save failed: " + e.message, "error");
@@ -574,7 +829,10 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
   }
 
   // ─── RENDER ──────────────────────────────────────────────────────────────────
-  const { marketTotal, bookTotal, pnl, pnlPct, byClass, nonCashTotal, flags, filtered, perAccount } = derived;
+  const { marketTotal, bookTotal, pnl, pnlPct, byClass, nonCashTotal, flags, filtered, perAccount,
+          bestPosition, worstPosition, topMovers, bottomMovers } = derived;
+  const PERIODS = [["1m","1M"],["3m","3M"],["ytd","YTD"],["1y","1Y"],["all","All"]];
+  const activeFilterCount = [filterAccount, filterClass, filterCurrency, filterGainers].filter(v => v !== "all").length;
 
   const SortTh = ({ field, children, right }) => (
     <th onClick={() => toggleSort(field)} style={{ padding:"10px 12px", fontSize:9, fontWeight:700, color:sortField===field?C.gold:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", cursor:"pointer", whiteSpace:"nowrap", textAlign:right?"right":"left", userSelect:"none" }}>
@@ -585,7 +843,8 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
   return (
     <div style={{ background:C.bg, minHeight:"100vh", color:C.text, fontFamily:C.sans }}>
 
-      {/* ── NAV ── */}
+      {/* ── NAV (desktop) ── */}
+      {!isMobile && (
       <div style={{ background:C.nav, borderBottom:`1px solid ${C.navBorder}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:56, position:"sticky", top:0, zIndex:100 }}>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <button onClick={onBack} style={{ background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:6, color:C.navText, fontSize:11, padding:"5px 12px", cursor:"pointer", whiteSpace:"nowrap" }}>
@@ -636,13 +895,72 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
           }
         </div>
       </div>
+      )}
+
+      {/* ── NAV (mobile): sticky, total always visible, actions in ⋯ menu ── */}
+      {isMobile && (
+      <div style={{ background:C.nav, borderBottom:`1px solid ${C.navBorder}`, padding:"8px 12px", position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+            <button onClick={onBack} aria-label="Back to individuals"
+              style={{ width:44, height:44, flexShrink:0, background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:8, color:C.navText, fontSize:18, cursor:"pointer" }}>←</button>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.text, whiteSpace:"nowrap" }}>AJ · Portfolio</div>
+              <div style={{ fontSize:14, fontFamily:C.mono, fontWeight:800, color:C.gold, lineHeight:1.2 }}>{$F(marketTotal)}</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+            {priceMode ? (
+              <>
+                <button onClick={handlePriceSave} disabled={priceSaving}
+                  style={{ minWidth:64, height:44, background:C.green, border:"none", borderRadius:8, color:"#fff", fontSize:12, fontWeight:700, cursor:priceSaving?"not-allowed":"pointer", opacity:priceSaving?0.6:1 }}>
+                  {priceSaving ? "…" : "Save"}
+                </button>
+                <button onClick={() => { setPriceMode(false); setPriceEdits({}); }} aria-label="Cancel"
+                  style={{ width:44, height:44, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, color:C.textDim, fontSize:16, cursor:"pointer" }}>✕</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setAddModal(true)} aria-label="Add position"
+                  style={{ width:44, height:44, background:C.goldLight, border:`1px solid rgba(201,168,76,0.3)`, borderRadius:8, color:C.goldText, fontSize:22, fontWeight:700, lineHeight:1, cursor:"pointer" }}>+</button>
+                <button onClick={() => setMobileMenu(m => !m)} aria-label="More actions"
+                  style={{ width:44, height:44, background:"transparent", border:`1px solid rgba(255,255,255,0.12)`, borderRadius:8, color:C.navText, fontSize:20, cursor:"pointer" }}>⋯</button>
+              </>
+            )}
+          </div>
+        </div>
+        {mobileMenu && !priceMode && (
+          <>
+            <div onClick={() => setMobileMenu(false)} style={{ position:"fixed", inset:0, zIndex:115 }} />
+            <div style={{ position:"absolute", right:12, top:64, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, boxShadow:C.shadowMd, zIndex:120, minWidth:210, overflow:"hidden" }}>
+              {[
+                { label:"Update prices", onClick:() => { setPriceMode(true); setPriceEdits({}); setMobileMenu(false); } },
+                { label:"Import CSV",    onClick:() => { setCsvTarget(accounts[0]?.id || "all"); setCsvStep("upload"); setMobileMenu(false); } },
+                currentMonthSnap
+                  ? { label:`✓ ${CURRENT_MONTH_LABEL} logged`, onClick:() => setMobileMenu(false), done:true }
+                  : { label:`Log ${CURRENT_MONTH_LABEL}`, onClick:() => { setMobileMenu(false); handleLogMonth(); }, disabled:!holdings.length },
+                { label:"+ Add historical snapshot", onClick:() => { setBackfill({}); setMobileMenu(false); } },
+              ].map((it,i,arr) => (
+                <button key={i} onClick={it.onClick} disabled={it.disabled}
+                  style={{ display:"block", width:"100%", minHeight:48, textAlign:"left", padding:"0 16px", background:"none",
+                    border:"none", borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none",
+                    color:it.done?C.greenText:it.disabled?C.textDim:C.text, fontSize:13, fontWeight:600,
+                    cursor:it.disabled?"not-allowed":"pointer", opacity:it.disabled?0.5:1 }}>
+                  {it.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      )}
 
       {loading && (
         <div style={{ padding:48, textAlign:"center", color:C.textDim, fontSize:13 }}>Loading portfolio…</div>
       )}
 
       {!loading && (
-        <div style={{ padding:isMobile?"16px 14px":"24px 28px", maxWidth:1300, margin:"0 auto" }}>
+        <div style={{ padding:isMobile?"16px 14px":"24px 28px", paddingBottom:`calc(${isMobile?32:40}px + env(safe-area-inset-bottom))`, maxWidth:1300, margin:"0 auto" }}>
 
           {/* ── NOT-LOGGED BANNER ── */}
           {!currentMonthSnap && holdings.length > 0 && (
@@ -714,6 +1032,145 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
             </div>
           )}
 
+          {/* ── PERFORMANCE ── */}
+          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:isMobile?"16px 14px":"18px 20px", marginBottom:20, boxShadow:C.shadow }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:14 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.10em", textTransform:"uppercase" }}>Performance</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {PERIODS.map(([v,l]) => (
+                  <button key={v} onClick={() => setPerfPeriod(v)}
+                    style={{ minHeight:isMobile?36:28, padding:isMobile?"0 14px":"4px 11px", fontSize:11, fontWeight:700, borderRadius:6, cursor:"pointer",
+                      background:perfPeriod===v?C.goldLight:"transparent", color:perfPeriod===v?C.goldText:C.textDim,
+                      border:`1px solid ${perfPeriod===v?"rgba(201,168,76,0.4)":C.border}` }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!perf.enough ? (
+              <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10, padding:"28px 20px", textAlign:"center" }}>
+                <div style={{ fontSize:13, color:C.textMid, fontWeight:600, marginBottom:6 }}>📈 Log a few months to unlock return-over-time</div>
+                <div style={{ fontSize:11, color:C.textDim, lineHeight:1.6, maxWidth:440, margin:"0 auto" }}>
+                  Return-over-time needs at least two monthly snapshots. Per-position <strong style={{ color:C.textMid }}>Return %</strong> in the holdings table works right now and doesn't depend on snapshots.
+                </div>
+                <button onClick={() => setBackfill({})}
+                  style={{ marginTop:14, minHeight:40, padding:"0 18px", fontSize:12, fontWeight:700, background:C.goldLight, color:C.goldText, border:`1px solid rgba(201,168,76,0.4)`, borderRadius:8, cursor:"pointer" }}>
+                  + Add historical snapshot
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Metric cards */}
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fill,minmax(150px,1fr))", gap:10, marginBottom:16 }}>
+                  {[
+                    { label:"Cumulative return", val:$RPct(perf.cumulativeRet), color:safe(perf.cumulativeRet)>=0?C.green:C.red, sub:`since ${monthShort(perf.firstDate)}` },
+                    { label:`${(PERIODS.find(p=>p[0]===perfPeriod)||["","All"])[1]} return`, val:$RPct(perf.periodRet), color:perf.periodRet==null?C.textDim:(perf.periodRet>=0?C.green:C.red), sub:"selected period" },
+                    { label:"Annualized", val:$RPct(perf.annualized), color:perf.annualized==null?C.textDim:(perf.annualized>=0?C.green:C.red), sub:perf.annualized==null?"≥90 days needed":"per year" },
+                    { label:"Unrealized P&L", val:$F(pnl), color:pnl>=0?C.green:C.red, sub:$Pct(pnlPct) },
+                    { label:"Max drawdown", val:perf.maxDrawdown==null?"—":$RPct(perf.maxDrawdown), color:perf.maxDrawdown==null?C.textDim:C.red, sub:"peak → trough" },
+                    { label:"Best position", val:bestPosition?bestPosition.symbol:"—", color:C.green, sub:bestPosition?$RPct(bestPosition.pct/100):"—", mono:false },
+                    { label:"Worst position", val:worstPosition?worstPosition.symbol:"—", color:C.red, sub:worstPosition?$RPct(worstPosition.pct/100):"—", mono:false },
+                  ].map((k,i) => (
+                    <div key={i} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px" }}>
+                      <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>{k.label}</div>
+                      <div style={{ fontFamily:k.mono===false?C.sans:C.mono, fontSize:k.mono===false?16:17, fontWeight:800, color:k.color }}>{k.val}</div>
+                      <div style={{ fontSize:9, color:C.textDim, marginTop:3 }}>{k.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Chart */}
+                <div style={{ marginBottom:6 }}>
+                  <div style={{ fontSize:9, color:C.textDim, marginBottom:6 }}>
+                    Market value (CAD) · since {monthLong(perf.chartData[0]?.month || perf.firstDate)}{perf.hasBenchmark ? " · dashed = benchmark (normalized)" : ""}
+                  </div>
+                  <div style={{ width:"100%", height:isMobile?200:260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={perf.chartData} margin={{ top:8, right:12, bottom:4, left:isMobile?-8:8 }}>
+                        <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fill:C.textDim, fontSize:10 }} axisLine={{ stroke:C.border }} tickLine={false} />
+                        <YAxis tick={{ fill:C.textDim, fontSize:10 }} axisLine={false} tickLine={false}
+                          width={isMobile?44:64}
+                          tickFormatter={v => v >= 1000 ? `${Math.round(v/1000)}k` : String(v)} />
+                        <Tooltip
+                          contentStyle={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, fontSize:11 }}
+                          labelStyle={{ color:C.textMid }}
+                          formatter={(val, name) => [$F(val), name === "benchmark" ? "Benchmark" : "Market value"]} />
+                        <Line type="monotone" dataKey="market" stroke={C.gold} strokeWidth={2} dot={{ r:2, fill:C.gold }} activeDot={{ r:4 }} name="market" />
+                        {perf.hasBenchmark && (
+                          <Line type="monotone" dataKey="benchmark" stroke={C.blueText} strokeWidth={1.5} strokeDasharray="5 4" dot={false} connectNulls name="benchmark" />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Top movers */}
+                {(topMovers.length > 0) && (
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:12, marginTop:12 }}>
+                    {[["Top movers", topMovers, C.green], ["Bottom movers", bottomMovers, C.red]].filter(([,arr]) => arr.length).map(([title, arr, clr]) => (
+                      <div key={title} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px" }}>
+                        <div style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8, fontWeight:600 }}>{title}</div>
+                        {arr.map((m,i) => (
+                          <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 0" }}>
+                            <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:C.text }}>{m.symbol}</span>
+                            <span style={{ fontFamily:C.mono, fontSize:12, fontWeight:700, color:m.pct>=0?C.green:C.red }}>{$RPct(m.pct/100)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Snapshot history (always shown when any exist) */}
+            {snapshots.length > 0 && (
+              <div style={{ marginTop:16, borderTop:`1px solid ${C.border}`, paddingTop:14 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexWrap:"wrap", gap:8 }}>
+                  <span style={{ fontSize:9, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:600 }}>Snapshot history</span>
+                  <button onClick={() => setBackfill({})}
+                    style={{ minHeight:34, padding:"0 12px", fontSize:11, fontWeight:700, background:"transparent", color:C.goldText, border:`1px solid rgba(201,168,76,0.4)`, borderRadius:6, cursor:"pointer" }}>
+                    + Historical
+                  </button>
+                </div>
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                    <thead>
+                      <tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                        {["Month","Market value","Net contrib.","Benchmark","Period ret.",""].map((h,i) => (
+                          <th key={i} style={{ padding:"7px 10px", fontSize:9, fontWeight:700, color:C.textDim, letterSpacing:"0.06em", textTransform:"uppercase", textAlign:i===0||i===5?"left":"right", whiteSpace:"nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortSnaps(snapshots).map((s, idx, arr) => {
+                        const prev = idx > 0 ? arr[idx-1] : null;
+                        const r = prev ? periodReturn(prev.total_market_cad, s.total_market_cad, s.net_contributions) : null;
+                        return (
+                          <tr key={s.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                            <td style={{ padding:"7px 10px", color:C.text, whiteSpace:"nowrap" }}>{monthLong(s.snapshot_month)}</td>
+                            <td style={{ padding:"7px 10px", fontFamily:C.mono, textAlign:"right", color:C.gold, fontWeight:700 }}>{$F(s.total_market_cad)}</td>
+                            <td style={{ padding:"7px 10px", fontFamily:C.mono, textAlign:"right", color:safe(s.net_contributions)===0?C.textDim:C.text }}>
+                              {safe(s.net_contributions)===0 ? "—" : `${safe(s.net_contributions)>0?"+":""}${$F(s.net_contributions)}`}
+                            </td>
+                            <td style={{ padding:"7px 10px", fontFamily:C.mono, textAlign:"right", color:C.textDim }}>{s.benchmark_value==null?"—":safe(s.benchmark_value).toLocaleString("en-CA")}</td>
+                            <td style={{ padding:"7px 10px", fontFamily:C.mono, textAlign:"right", color:r==null?C.textDim:(r>=0?C.green:C.red), fontWeight:600 }}>{$RPct(r)}</td>
+                            <td style={{ padding:"7px 10px", textAlign:"left" }}>
+                              <button onClick={() => setBackfill(s)}
+                                style={{ minHeight:30, fontSize:10, background:"none", border:`1px solid ${C.border}`, borderRadius:5, color:C.textDim, padding:"3px 9px", cursor:"pointer" }}>Edit</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ── PER-ACCOUNT SUBTOTALS ── */}
           <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
             {accounts.map(a => (
@@ -724,7 +1181,8 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
             ))}
           </div>
 
-          {/* ── FILTERS ── */}
+          {/* ── FILTERS (desktop inline) ── */}
+          {!isMobile && (
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14, alignItems:"center" }}>
             <span style={{ fontSize:10, color:C.textDim, fontWeight:600 }}>Filter:</span>
             {[
@@ -753,8 +1211,21 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
             )}
             <span style={{ fontSize:10, color:C.textDim, marginLeft:"auto" }}>{filtered.length} position{filtered.length!==1?"s":""}</span>
           </div>
+          )}
 
-          {/* ── HOLDINGS TABLE ── */}
+          {/* ── FILTERS (mobile button) ── */}
+          {isMobile && (
+            <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:14 }}>
+              <button onClick={() => setFilterSheet(true)}
+                style={{ flex:1, minHeight:44, background:C.surface, border:`1px solid ${activeFilterCount?C.gold:C.border}`, borderRadius:8, color:activeFilterCount?C.goldText:C.text, fontSize:13, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                ⚙ Filters{activeFilterCount ? ` · ${activeFilterCount}` : ""}
+              </button>
+              <span style={{ fontSize:11, color:C.textDim, whiteSpace:"nowrap" }}>{filtered.length} pos.</span>
+            </div>
+          )}
+
+          {/* ── HOLDINGS (desktop table) ── */}
+          {!isMobile && (
           <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden", boxShadow:C.shadow }}>
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
@@ -767,7 +1238,8 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
                     <SortTh field="market_price" right>Price</SortTh>
                     <SortTh field="book_value_cad" right>Book CAD</SortTh>
                     <SortTh field="market_value_cad" right>Mkt CAD</SortTh>
-                    <SortTh field="market_value_cad" right>Unreal. P&L</SortTh>
+                    <SortTh field="pnl" right>Unreal. $</SortTh>
+                    <SortTh field="pnlPct" right>Return %</SortTh>
                     <th style={{ padding:"10px 12px", fontSize:9, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", textAlign:"right" }}>% Port.</th>
                     <th style={{ padding:"10px 12px", width:80 }} />
                   </tr>
@@ -807,13 +1279,11 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
                         </td>
                         <td style={{ padding:"9px 12px", fontFamily:C.mono, textAlign:"right", color:C.textMid }}>{isCash?"—":$F(h.book_value_cad)}</td>
                         <td style={{ padding:"9px 12px", fontFamily:C.mono, textAlign:"right", fontWeight:700, color:C.gold }}>{$F(h.market_value_cad)}</td>
-                        <td style={{ padding:"9px 12px", textAlign:"right" }}>
-                          {isCash ? <span style={{ color:C.textDim }}>—</span> : (
-                            <>
-                              <div style={{ fontFamily:C.mono, fontSize:12, color:pl>=0?C.green:C.red, fontWeight:600 }}>{pl>=0?"+":""}{$F(pl)}</div>
-                              <div style={{ fontSize:9, color:pl>=0?C.green:C.red }}>{pl>=0?"+":""}{plPct.toFixed(1)}%</div>
-                            </>
-                          )}
+                        <td style={{ padding:"9px 12px", fontFamily:C.mono, textAlign:"right", fontWeight:600 }}>
+                          {isCash ? <span style={{ color:C.textDim }}>—</span> : <span style={{ color:pl>=0?C.green:C.red }}>{pl>=0?"+":""}{$F(pl)}</span>}
+                        </td>
+                        <td style={{ padding:"9px 12px", fontFamily:C.mono, textAlign:"right", fontWeight:600 }}>
+                          {isCash ? <span style={{ color:C.textDim }}>—</span> : <span style={{ color:pl>=0?C.green:C.red }}>{pl>=0?"+":""}{plPct.toFixed(1)}%</span>}
                         </td>
                         <td style={{ padding:"9px 12px", fontFamily:C.mono, textAlign:"right", color:C.textDim, fontSize:11 }}>
                           {portPct.toFixed(1)}%
@@ -826,7 +1296,7 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
                     );
                   })}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={10} style={{ padding:"32px 20px", textAlign:"center", color:C.textDim, fontSize:12, fontStyle:"italic" }}>No positions match the current filters.</td></tr>
+                    <tr><td colSpan={11} style={{ padding:"32px 20px", textAlign:"center", color:C.textDim, fontSize:12, fontStyle:"italic" }}>No positions match the current filters.</td></tr>
                   )}
                 </tbody>
                 {/* Totals footer */}
@@ -839,13 +1309,126 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
                       <td style={{ padding:"10px 12px", fontFamily:C.mono, fontWeight:700, textAlign:"right" }}>
                         {(() => { const fp = filtered.reduce((s,h)=>s+pnlOf(h),0); return <span style={{ color:fp>=0?C.green:C.red }}>{fp>=0?"+":""}{$F(fp)}</span>; })()}
                       </td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 )}
               </table>
             </div>
           </div>
+          )}
+
+          {/* ── HOLDINGS (mobile cards) ── */}
+          {isMobile && (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {filtered.length === 0 && (
+                <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"28px 16px", textAlign:"center", color:C.textDim, fontSize:12, fontStyle:"italic" }}>
+                  No positions match the current filters.
+                </div>
+              )}
+              {filtered.map(h => {
+                const pl     = pnlOf(h);
+                const plPct  = pnlPctOf(h);
+                const portPct = marketTotal > 0 ? safe(h.market_value_cad) / marketTotal * 100 : 0;
+                const acct   = accounts.find(a => a.id === h.account_id);
+                const clrCls = ASSET_CLASS_COLOR[h.asset_class] || C.textDim;
+                const isCash = h.asset_class === "cash";
+                const Field = ({ label, children, right }) => (
+                  <div style={{ textAlign:right?"right":"left" }}>
+                    <div style={{ fontSize:8, color:C.textDim, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:2, fontWeight:600 }}>{label}</div>
+                    <div style={{ fontFamily:C.mono, fontSize:12, color:C.text }}>{children}</div>
+                  </div>
+                );
+                return (
+                  <div key={h.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", opacity:isCash?0.6:1 }}>
+                    {/* Top row: symbol + class · market value */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                          <span style={{ fontFamily:C.mono, fontWeight:700, fontSize:14, color:C.text }}>{h.symbol}</span>
+                          <span style={{ fontSize:8, fontWeight:700, letterSpacing:"0.05em", color:clrCls, background:`${clrCls}20`, border:`1px solid ${clrCls}40`, borderRadius:4, padding:"2px 6px" }}>
+                            {ASSET_CLASS_LABEL[h.asset_class] || h.asset_class}
+                          </span>
+                          {h.price_currency === "USD" && <span style={{ fontSize:8, color:C.textDim }}>USD</span>}
+                        </div>
+                        <div style={{ fontSize:11, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{h.name}</div>
+                        <div style={{ fontSize:9, color:C.textDim, marginTop:1 }}>{acct ? `${acct.broker} · ${acct.account_type}` : "—"}</div>
+                      </div>
+                      <div style={{ textAlign:"right", flexShrink:0 }}>
+                        <div style={{ fontFamily:C.mono, fontWeight:800, fontSize:14, color:C.gold }}>{$F(h.market_value_cad)}</div>
+                        <div style={{ fontSize:9, color:C.textDim, marginTop:2 }}>{portPct.toFixed(1)}% of port.</div>
+                      </div>
+                    </div>
+                    {/* Metrics */}
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
+                      <Field label="Quantity">{safe(h.quantity).toFixed(safe(h.quantity) % 1 === 0 ? 0 : 4)}</Field>
+                      <Field label="Price" right>
+                        {priceMode
+                          ? <input type="number" step="any" inputMode="decimal"
+                              value={priceEdits[h.id] ?? h.market_price}
+                              onChange={e => setPriceEdits(prev => ({ ...prev, [h.id]: e.target.value }))}
+                              style={{ width:100, minHeight:40, padding:"4px 8px", background:C.surface, border:`1px solid ${C.gold}`, borderRadius:6, color:C.gold, fontSize:13, fontFamily:C.mono, textAlign:"right", outline:"none", boxSizing:"border-box" }} />
+                          : safe(h.market_price).toFixed(2)}
+                      </Field>
+                      <Field label="Return $">
+                        {isCash ? <span style={{ color:C.textDim }}>—</span> : <span style={{ color:pl>=0?C.green:C.red, fontWeight:600 }}>{pl>=0?"+":""}{$F(pl)}</span>}
+                      </Field>
+                      <Field label="Return %" right>
+                        {isCash ? <span style={{ color:C.textDim }}>—</span> : <span style={{ color:pl>=0?C.green:C.red, fontWeight:600 }}>{pl>=0?"+":""}{plPct.toFixed(1)}%</span>}
+                      </Field>
+                    </div>
+                    {!priceMode && (
+                      <button onClick={() => setEditModal(h)}
+                        style={{ marginTop:10, width:"100%", minHeight:40, background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                        Edit position
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── FILTERS bottom sheet (mobile) ── */}
+          {isMobile && filterSheet && (
+            <>
+              <div onClick={() => setFilterSheet(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:300 }} />
+              <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:310, background:C.card, borderTop:`1px solid ${C.border}`, borderRadius:"16px 16px 0 0", padding:"18px 18px", paddingBottom:`calc(18px + env(safe-area-inset-bottom))`, boxShadow:C.shadowMd, maxHeight:"80vh", overflowY:"auto" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                  <span style={{ fontSize:14, fontWeight:700, color:C.text }}>Filters</span>
+                  <button onClick={() => setFilterSheet(false)} style={{ width:40, height:40, background:"none", border:"none", color:C.textDim, fontSize:20, cursor:"pointer" }}>✕</button>
+                </div>
+                {[
+                  { label:"Account", value:filterAccount, set:setFilterAccount,
+                    options:[["all","All accounts"], ...accounts.map(a=>[a.id,`${a.broker} ${a.account_type}`])] },
+                  { label:"Asset class", value:filterClass, set:setFilterClass,
+                    options:[["all","All classes"], ...ASSET_CLASSES.map(c=>[c,ASSET_CLASS_LABEL[c]])] },
+                  { label:"Currency", value:filterCurrency, set:setFilterCurrency,
+                    options:[["all","CAD + USD"],["CAD","CAD"],["USD","USD"]] },
+                  { label:"Performance", value:filterGainers, set:setFilterGainers,
+                    options:[["all","All"],["gainers","Gainers"],["losers","Losers"]] },
+                ].map(({ label, value, set, options }) => (
+                  <div key={label} style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:10, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontWeight:600 }}>{label}</div>
+                    <select value={value} onChange={e => set(e.target.value)}
+                      style={{ width:"100%", minHeight:44, padding:"8px 10px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:14, outline:"none", cursor:"pointer", boxSizing:"border-box" }}>
+                      {options.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                ))}
+                <div style={{ display:"flex", gap:10, marginTop:8 }}>
+                  <button onClick={() => { setFilterAccount("all"); setFilterClass("all"); setFilterCurrency("all"); setFilterGainers("all"); }}
+                    style={{ flex:1, minHeight:46, background:"none", border:`1px solid ${C.border}`, borderRadius:8, color:C.textMid, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                    Clear all
+                  </button>
+                  <button onClick={() => setFilterSheet(false)}
+                    style={{ flex:1, minHeight:46, background:C.gold, border:"none", borderRadius:8, color:"#0C1520", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                    Show {filtered.length} position{filtered.length!==1?"s":""}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Footer */}
           <div style={{ marginTop:24, textAlign:"center" }}>
@@ -884,6 +1467,14 @@ export default function SecuritiesView({ onBack, individualId, onDerivedUpdate, 
           }}
           saving={editSaving} onCancel={() => setEditModal(null)}
           onSave={(form, mktCadCalc) => handleEdit(editModal.id, form, mktCadCalc)} />
+        </Modal>
+      )}
+
+      {/* Historical snapshot / edit */}
+      {backfill && (
+        <Modal title={backfill.snapshot_month ? `Edit snapshot — ${monthLong(backfill.snapshot_month)}` : "Add historical snapshot"} onClose={() => setBackfill(null)}>
+          <SnapshotForm initial={backfill} isEdit={!!backfill.snapshot_month}
+            saving={backfillSaving} onCancel={() => setBackfill(null)} onSave={handleBackfillSave} />
         </Modal>
       )}
 
