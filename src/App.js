@@ -287,12 +287,27 @@ function personalNetCashFlow(income, entry) {
   const incomeValue = typeof income === "object" ? income.income : income;
   return safe(incomeValue) - personalExpenseTotal(entry);
 }
+// Reusable tenant profile — a person/entity that can hold many leases over time.
+// Stored in the top-level `tenants` blob; leases reference it via lease.tenant_id.
+function makeTenant(tenant = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: tenant.id || makeId("tenant"),
+    full_name: tenant.full_name || tenant.tenant_full_name || "",
+    phone: tenant.phone || tenant.phone_number || "",
+    email: tenant.email || "",
+    notes: tenant.notes || "",
+    created_at: tenant.created_at || now,
+    updated_at: tenant.updated_at || now,
+  };
+}
 function makeLease(lease = {}) {
   const start = lease.lease_start_date || "";
   const end = lease.lease_end_date || "";
   const termMonths = safe(lease.lease_term_months) || monthsInLeaseWindow(start, end);
   return {
     id: lease.id || makeId("lease"),
+    tenant_id: lease.tenant_id || "",
     tenant_full_name: lease.tenant_full_name || "",
     phone_number: lease.phone_number || "",
     email: lease.email || "",
@@ -308,6 +323,7 @@ function makeLease(lease = {}) {
     lease_status: lease.lease_status || "vacant",
     deposit_applies_to_rent: lease.deposit_applies_to_rent !== false,
     rent_due_day: safe(lease.rent_due_day) || 1,
+    ended_at: lease.ended_at || "",
   };
 }
 function makeUnit(unit = {}) {
@@ -318,6 +334,11 @@ function makeUnit(unit = {}) {
     market_rent: safe(unit.market_rent ?? unit.rent),
     notes: unit.notes || "",
     lease: unit.lease ? makeLease({ ...unit.lease, unit_label: unit.lease.unit_label || unit.label || unit.unit_label || "Unit" }) : null,
+    // Historical (ended/archived) leases for this unit. Preserved here so past
+    // tenants are never overwritten when a new lease begins.
+    leaseHistory: Array.isArray(unit.leaseHistory)
+      ? unit.leaseHistory.map(l => makeLease({ ...l, unit_label: l.unit_label || unit.label || unit.unit_label || "Unit" }))
+      : [],
   };
 }
 
@@ -567,6 +588,8 @@ const DEFAULT = {
 
   rentPayments: [], // { id, propertyId, unitId, leaseId, month:"YYYY-MM", amount, date, type:"payment", note }
 
+  tenants: [], // reusable tenant profiles: { id, full_name, phone, email, notes, created_at, updated_at }
+
   // Notification completion state — persisted, minimal (content is always computed from live data)
   notificationsMeta: { completed: {}, lastSeenAt: "" },
 
@@ -772,6 +795,43 @@ function mergeById(defaults, dbArr) {
   const defaultIds = new Set(defaults.map(d => d.id));
   const extras = arr.filter(x => !defaultIds.has(x.id));
   return [...merged, ...extras];
+}
+
+// Dedupe key for matching an inline lease tenant to a reusable tenant profile.
+function tenantMatchKey(name, phone) {
+  return `${(name || "").trim().toLowerCase()}|${(phone || "").replace(/\D/g, "")}`;
+}
+// Idempotent migration: derive reusable tenant profiles from the tenant info
+// embedded in existing leases (active + history), and link each lease to its
+// tenant via tenant_id. Safe to run on every load — existing profiles are
+// matched by name+phone so no duplicates are created and ids stay stable.
+// Returns { properties, tenants }. Does NOT mutate inputs.
+function seedTenantsFromLeases(properties, existingTenants) {
+  const tenants = (existingTenants || []).map(makeTenant);
+  const byKey = new Map(tenants.map(t => [tenantMatchKey(t.full_name, t.phone), t]));
+  function linkLease(lease) {
+    if (!lease) return lease;
+    const name = (lease.tenant_full_name || "").trim();
+    if (!name) return lease;               // nothing to link
+    if (lease.tenant_id) return lease;      // already linked
+    const key = tenantMatchKey(name, lease.phone_number);
+    let tenant = byKey.get(key);
+    if (!tenant) {
+      tenant = makeTenant({ full_name: name, phone: lease.phone_number, email: lease.email });
+      tenants.push(tenant);
+      byKey.set(key, tenant);
+    }
+    return { ...lease, tenant_id: tenant.id };
+  }
+  const nextProperties = (properties || []).map(p => ({
+    ...p,
+    units: (p.units || []).map(u => ({
+      ...u,
+      lease: u.lease ? linkLease(makeLease(u.lease)) : u.lease,
+      leaseHistory: (u.leaseHistory || []).map(l => linkLease(makeLease(l))),
+    })),
+  }));
+  return { properties: nextProperties, tenants };
 }
 
 // ─── NOTIFICATION ENGINE ──────────────────────────────────────────────────────
@@ -1090,7 +1150,7 @@ function getPropertyUnits(prop) {
   return (prop.units || []).map(makeUnit);
 }
 function getActiveLease(unit) {
-  return unit?.lease?.lease_status && !["vacant", "expired"].includes(unit.lease.lease_status) ? makeLease(unit.lease) : null;
+  return unit?.lease?.lease_status && !["vacant", "expired", "ended", "archived"].includes(unit.lease.lease_status) ? makeLease(unit.lease) : null;
 }
 function getMortgagePI(prop) {
   const separatedTax = safe(prop.monthly_payment_tax) || ((prop.taxes_paid_by === "lender" || prop.taxes_paid_by === "escrow") ? safe(prop.monthlyTax) : 0);
@@ -1166,11 +1226,12 @@ function getLeasePayments(rentPayments, propertyId, unitId, leaseId) {
       (!leaseId || entry.leaseId === leaseId)
     );
 }
-function buildLeaseLedger(unit, prop, rentPayments) {
-  const lease = getActiveLease(unit);
+// Build a ledger for ANY lease (active or historical), independent of unit state.
+// Used for the current lease AND for viewing preserved previous-lease ledgers.
+function buildLeaseLedgerFromLease(lease, propertyId, unitId, rentPayments) {
   if (!lease) return null;
   const schedule = buildLeaseSchedule(lease);
-  const payments = getLeasePayments(rentPayments, prop.id, unit.id, lease.id);
+  const payments = getLeasePayments(rentPayments, propertyId, unitId, lease.id);
   const paymentByMonth = payments.reduce((acc, entry) => {
     acc[entry.month] = (acc[entry.month] || 0) + safe(entry.amount);
     return acc;
@@ -1206,6 +1267,11 @@ function buildLeaseLedger(unit, prop, rentPayments) {
     remainingLeaseValue,
     unusedCredit: remainingCredit,
   };
+}
+function buildLeaseLedger(unit, prop, rentPayments) {
+  const lease = getActiveLease(unit);
+  if (!lease) return null;
+  return buildLeaseLedgerFromLease(lease, prop.id, unit.id, rentPayments);
 }
 function getLedgerCoverageSummary(ledger) {
   let paidThroughMonth = null;
@@ -3219,8 +3285,9 @@ function MemberView({ user, data, onUpdate, onSaveIncome, onSaveExpense, onSaveA
   );
 }
 
-function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
+function LeaseEditorModal({ propertyName, unit, tenants = [], onSaveTenant, onSave, onClose }) {
   const existing = unit?.lease ? makeLease(unit.lease) : makeLease({ unit_label: unit?.label || "", lease_status: "active" });
+  const [selectedTenantId, setSelectedTenantId] = useState(existing.tenant_id || "");
   const [tenantFullName, setTenantFullName] = useState(existing.tenant_full_name);
   const [phoneNumber, setPhoneNumber] = useState(existing.phone_number);
   const [email, setEmail] = useState(existing.email);
@@ -3232,32 +3299,63 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
   const [paymentFrequency, setPaymentFrequency] = useState(existing.payment_frequency || "monthly");
   const [leaseNotes, setLeaseNotes] = useState(existing.lease_notes);
   const [leaseStatus, setLeaseStatus] = useState(existing.lease_status || "active");
+  const [saving, setSaving] = useState(false);
   const inp = { width:"100%", padding:"10px 12px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, fontSize:13, fontFamily:C.sans, outline:"none", boxSizing:"border-box" };
 
-  const save = () => {
-    const nextLease = leaseStatus === "vacant" ? null : makeLease({
-      ...existing,
-      tenant_full_name: tenantFullName,
-      phone_number: phoneNumber,
-      email,
-      unit_label: unit.label,
-      lease_start_date: leaseStartDate,
-      lease_end_date: leaseEndDate,
-      lease_term_months: monthsInLeaseWindow(leaseStartDate, leaseEndDate),
-      monthly_rent: safe(monthlyRent),
-      deposit_received: safe(depositReceived),
-      deposit_date: depositDate,
-      payment_frequency: paymentFrequency,
-      lease_notes: leaseNotes,
-      lease_status: leaseStatus,
-    });
-    onSave({
-      ...unit,
-      status: leaseStatus === "vacant" ? "vacant" : leaseStatus,
-      market_rent: safe(monthlyRent),
-      lease: nextLease,
-    });
-    onClose();
+  const sortedTenants = [...(tenants || [])].sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
+
+  // Selecting an existing tenant auto-fills contact fields (still editable).
+  function pickTenant(id) {
+    setSelectedTenantId(id);
+    const t = (tenants || []).find(x => x.id === id);
+    if (t) {
+      setTenantFullName(t.full_name || "");
+      setPhoneNumber(t.phone || "");
+      setEmail(t.email || "");
+    }
+  }
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      // Resolve/persist the tenant profile and get a stable tenant_id to link.
+      let tenantId = selectedTenantId || "";
+      if (leaseStatus !== "vacant" && tenantFullName.trim() && onSaveTenant) {
+        tenantId = await onSaveTenant({
+          id: selectedTenantId || undefined,
+          full_name: tenantFullName.trim(),
+          phone: phoneNumber,
+          email,
+        });
+      }
+      const nextLease = leaseStatus === "vacant" ? null : makeLease({
+        ...existing,
+        tenant_id: tenantId,
+        tenant_full_name: tenantFullName,
+        phone_number: phoneNumber,
+        email,
+        unit_label: unit.label,
+        lease_start_date: leaseStartDate,
+        lease_end_date: leaseEndDate,
+        lease_term_months: monthsInLeaseWindow(leaseStartDate, leaseEndDate),
+        monthly_rent: safe(monthlyRent),
+        deposit_received: safe(depositReceived),
+        deposit_date: depositDate,
+        payment_frequency: paymentFrequency,
+        lease_notes: leaseNotes,
+        lease_status: leaseStatus,
+      });
+      onSave({
+        ...unit,
+        status: leaseStatus === "vacant" ? "vacant" : leaseStatus,
+        market_rent: safe(monthlyRent),
+        lease: nextLease,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -3268,10 +3366,30 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
           <div style={{ fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>{propertyName}</div>
           <div style={{ fontSize:22, fontWeight:700, color:C.text, marginTop:4 }}>{unit.label} Lease</div>
         </div>
+        {/* Tenant picker — reuse an existing tenant profile or create a new one. */}
+        <div style={{ marginBottom:14, background:C.bg, border:`1px solid ${C.border}`, borderRadius:12, padding:14 }}>
+          <Label>Tenant</Label>
+          <select
+            value={selectedTenantId || "__new__"}
+            onChange={e => { const v = e.target.value; if (v === "__new__") setSelectedTenantId(""); else pickTenant(v); }}
+            style={{ ...inp, cursor:"pointer" }}>
+            <option value="__new__">➕ New tenant (enter details below)</option>
+            {sortedTenants.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.full_name || "Unnamed tenant"}{t.phone ? ` · ${t.phone}` : ""}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize:11, color:C.textDim, marginTop:6, lineHeight:1.5 }}>
+            {selectedTenantId
+              ? "Existing tenant selected — contact details auto-filled. You can still edit them, and the lease dates/rent/deposit below stay unique to this lease."
+              : "Creating a new tenant profile from the contact details below. Reusable for future leases."}
+          </div>
+        </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:14 }}>
           <div>
             <Label>Tenant Full Name</Label>
-            <input value={tenantFullName} onChange={e => setTenantFullName(e.target.value)} style={inp} />
+            <input value={tenantFullName} onChange={e => { setTenantFullName(e.target.value); }} style={inp} />
           </div>
           <div>
             <Label>Phone Number</Label>
@@ -3327,7 +3445,7 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
           </div>
         </div>
         <div style={{ display:"flex", gap:10, marginTop:22 }}>
-          <button onClick={save} style={{ flex:1, padding:"12px 16px", background:C.gold, border:"none", borderRadius:10, color:"#FFF", fontSize:14, fontWeight:700, cursor:"pointer" }}>Save Tenant & Lease</button>
+          <button onClick={save} disabled={saving} style={{ flex:1, padding:"12px 16px", background:C.gold, border:"none", borderRadius:10, color:"#FFF", fontSize:14, fontWeight:700, cursor:saving ? "default" : "pointer", opacity:saving ? 0.7 : 1 }}>{saving ? "Saving…" : "Save Tenant & Lease"}</button>
           <button onClick={onClose} style={{ flex:1, padding:"12px 16px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:10, color:C.textMid, fontSize:14, cursor:"pointer" }}>Cancel</button>
         </div>
       </div>
@@ -3335,7 +3453,7 @@ function LeaseEditorModal({ propertyName, unit, onSave, onClose }) {
   );
 }
 
-function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, isAdmin, periodLocked }) {
+function PropCard({ prop, rentPayments, tenants = [], onSaveTenant, onUpdate, onPatch, onSaveRentPayment, isAdmin, periodLocked }) {
   const [open, setOpen] = useState(false);
   const [propTab, setPropTab] = useState("overview");
   const [taxNoteOpen, setTaxNoteOpen] = useState(false);
@@ -3345,6 +3463,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
   const [loggingRent, setLoggingRent] = useState(null);
   const [scheduleRows, setScheduleRows] = useState(12);
   const [scheduleFilter, setScheduleFilter] = useState("future");
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const isMobile = useIsMobile();
 
   const mortgage = calculateMortgageSnapshot(prop, currentYM());
@@ -3433,6 +3552,24 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
     updateUnits(units.map(item => item.id === unit.id ? makeUnit(unit) : item));
   }
 
+  // End / archive the current lease: preserve it in leaseHistory and free the unit.
+  // Nothing is deleted; the lease keeps its id so its rent ledger stays intact.
+  function endLease(unit) {
+    const lease = unit.lease ? makeLease(unit.lease) : null;
+    if (!lease) return;
+    if (!window.confirm(`End the current lease for ${unit.label}${lease.tenant_full_name ? ` (${lease.tenant_full_name})` : ""}?\n\nThe lease, deposit and payment history are preserved under Previous Leases. The unit becomes available for a new lease.`)) return;
+    const now = new Date();
+    const endedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const endedLease = { ...lease, lease_status: "ended", ended_at: endedAt };
+    const nextUnit = {
+      ...unit,
+      status: "vacant",
+      lease: null,
+      leaseHistory: [...(unit.leaseHistory || []), endedLease],
+    };
+    saveUnit(nextUnit);
+  }
+
   const tabStyle = (id) => ({
     padding: isMobile ? "9px 12px" : "11px 18px", fontSize: isMobile ? 11 : 12, fontWeight: 600, border: "none", cursor: "pointer",
     background: "transparent", fontFamily: C.sans, whiteSpace: "nowrap",
@@ -3442,7 +3579,7 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
 
   return (
     <div style={{ background:C.card, border:`1px solid ${open ? C.gold : C.border}`, borderRadius:18, overflow:"hidden", marginBottom:16, boxShadow: open ? C.shadowMd : C.shadow, transition:"border-color 0.18s, box-shadow 0.18s", fontFamily:C.sans }}>
-      {editingUnit && <LeaseEditorModal propertyName={prop.name} unit={editingUnit} onSave={saveUnit} onClose={() => setEditingUnit(null)} />}
+      {editingUnit && <LeaseEditorModal propertyName={prop.name} unit={editingUnit} tenants={tenants} onSaveTenant={onSaveTenant} onSave={saveUnit} onClose={() => setEditingUnit(null)} />}
       {loggingRent && (
         <RentLogModal
           propertyName={prop.name}
@@ -3879,10 +4016,23 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                             {lease?.lease_notes && <div style={{ fontSize:12, color:C.textMid, lineHeight:1.55 }}>{lease.lease_notes}</div>}
                           </div>
                           {isAdmin && (
-                            <button onClick={() => setEditingUnit(unit)}
-                              style={{ width:"100%", marginTop:14, padding:"10px 12px", background:lease ? C.surface : C.goldLight, border:`1px solid ${lease ? C.border : C.gold}`, borderRadius:10, color:lease ? C.textMid : C.goldText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                              {lease ? "Edit Tenant / Lease" : "Add Tenant"}
-                            </button>
+                            <div style={{ display:"flex", gap:8, marginTop:14 }}>
+                              <button onClick={() => setEditingUnit(unit)}
+                                style={{ flex:1, padding:"10px 12px", background:lease ? C.surface : C.goldLight, border:`1px solid ${lease ? C.border : C.gold}`, borderRadius:10, color:lease ? C.textMid : C.goldText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                {lease ? "Edit Tenant / Lease" : "Add Tenant"}
+                              </button>
+                              {lease && (
+                                <button onClick={() => endLease(unit)}
+                                  style={{ flex:1, padding:"10px 12px", background:C.redLight, border:`1px solid ${C.red}`, borderRadius:10, color:C.redText, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                  End Lease / Move Out
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {(unit.leaseHistory || []).length > 0 && (
+                            <div style={{ fontSize:11, color:C.textDim, marginTop:8 }}>
+                              {(unit.leaseHistory || []).length} previous lease{(unit.leaseHistory || []).length === 1 ? "" : "s"} · see Previous Leases below
+                            </div>
                           )}
                         </div>
                       );
@@ -4026,6 +4176,90 @@ function PropCard({ prop, rentPayments, onUpdate, onPatch, onSaveRentPayment, is
                   </div>
                 )}
               </div>
+
+              {/* ── PREVIOUS LEASES / LEASE HISTORY ── */}
+              {(() => {
+                const history = units.flatMap(u => (u.leaseHistory || []).map(l => ({ unit: u, lease: makeLease(l) })));
+                if (history.length === 0) return null;
+                // Most-recently-ended first
+                history.sort((a, b) => String(b.lease.ended_at || b.lease.lease_end_date || "").localeCompare(String(a.lease.ended_at || a.lease.lease_end_date || "")));
+                return (
+                  <div style={{ padding:"22px", borderTop:`1px solid ${C.border}` }}>
+                    <div style={{ marginBottom:14 }}>
+                      <Label>Previous Leases</Label>
+                      <div style={{ fontSize:12, color:C.textDim }}>Archived tenancies. Deposit and payment history are preserved and viewable.</div>
+                    </div>
+                    <div style={{ display:"grid", gap:12 }}>
+                      {history.map(({ unit, lease }) => {
+                        const ledger = buildLeaseLedgerFromLease(lease, prop.id, unit.id, rentPayments);
+                        const totalPaid = ledger ? ledger.totalPaid + ledger.totalCredited : 0;
+                        const outstanding = ledger ? ledger.totalOutstanding : 0;
+                        const isOpen = expandedHistoryId === lease.id;
+                        return (
+                          <div key={lease.id} style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
+                            <div style={{ padding:"14px 16px", background:C.bg }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap" }}>
+                                <div>
+                                  <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{lease.tenant_full_name || "Tenant TBD"}</div>
+                                  <div style={{ fontSize:11, color:C.textDim, marginTop:3 }}>
+                                    {unit.label} · {lease.lease_start_date ? formatDate(lease.lease_start_date) : "—"} – {lease.lease_end_date ? formatDate(lease.lease_end_date) : "—"}
+                                    {lease.ended_at ? ` · ended ${formatDate(lease.ended_at)}` : ""}
+                                  </div>
+                                </div>
+                                <span style={{ background:C.border, color:C.textDim, borderRadius:20, fontSize:10, fontWeight:700, padding:"4px 10px", textTransform:"capitalize" }}>
+                                  {(lease.lease_status || "ended").replace("_", " ")}
+                                </span>
+                              </div>
+                              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:10, marginTop:12 }}>
+                                {[
+                                  { label:"Monthly Rent", value:$F(lease.monthly_rent),        color:C.text  },
+                                  { label:"Deposit",       value:$F(lease.deposit_received),    color:safe(lease.deposit_received) > 0 ? C.gold : C.textDim },
+                                  { label:"Total Paid",    value:$F(totalPaid),                 color:C.green },
+                                  { label:"Outstanding",   value:$F(outstanding),               color:outstanding > 0 ? C.red : C.green },
+                                ].map(chip => (
+                                  <div key={chip.label}>
+                                    <div style={{ fontSize:10, color:C.textDim, textTransform:"uppercase", letterSpacing:"0.05em" }}>{chip.label}</div>
+                                    <div style={{ fontFamily:C.mono, fontSize:14, fontWeight:700, color:chip.color, marginTop:2 }}>{chip.value}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {(lease.phone_number || lease.email) && (
+                                <div style={{ fontSize:11, color:C.textMid, marginTop:10 }}>
+                                  {[lease.phone_number, lease.email].filter(Boolean).join(" · ")}
+                                </div>
+                              )}
+                              <button onClick={() => setExpandedHistoryId(isOpen ? null : lease.id)}
+                                style={{ marginTop:12, padding:"8px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, color:C.textMid, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                                {isOpen ? "Hide Ledger" : "View Ledger / History"}
+                              </button>
+                            </div>
+                            {isOpen && ledger && (
+                              <div style={{ padding:"14px 16px", borderTop:`1px solid ${C.border}` }}>
+                                {safe(lease.deposit_received) > 0 && (
+                                  <div style={{ fontSize:11, color:C.goldText, background:C.goldLight, borderRadius:10, padding:"8px 12px", marginBottom:12, lineHeight:1.5 }}>
+                                    Prepaid deposit: {$F(lease.deposit_received)} received {lease.deposit_date ? formatDate(lease.deposit_date) : "—"}.
+                                    {ledger.unusedCredit > 0 && ` ${$F(ledger.unusedCredit)} unused balance.`}
+                                  </div>
+                                )}
+                                <div style={{ display:"grid", gap:6 }}>
+                                  {ledger.rows.map((row, idx) => (
+                                    <div key={`${lease.id}-${row.month}`} style={{ display:"grid", gridTemplateColumns:"1fr 90px 90px 90px", gap:8, padding:"6px 0", borderBottom: idx < ledger.rows.length - 1 ? `1px solid ${C.border}` : "none", fontSize:12, alignItems:"center" }}>
+                                      <span style={{ color:C.text }}>{monthLabel(row.month)}{row.creditApplied > 0 && row.paid === 0 && <span style={{ fontSize:10, color:C.textDim, marginLeft:4 }}>(deposit)</span>}</span>
+                                      <span style={{ fontFamily:C.mono, color:C.textMid, textAlign:"right" }}>{$F(row.amount)}</span>
+                                      <span style={{ fontFamily:C.mono, color:C.text, textAlign:"right" }}>{(row.paid + row.creditApplied) > 0 ? $F(row.paid + row.creditApplied) : "—"}</span>
+                                      <span style={{ textAlign:"right", fontWeight:700, color:row.outstanding === 0 ? C.green : C.red }}>{row.outstanding === 0 ? "Paid" : "Unpaid"}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -8158,6 +8392,21 @@ function AdminDashboard({ user, data, setData, onLogout }) {
     const val = Array.isArray(v) || typeof v === "string" ? v : safe(v);
     updPropPatch(id, { [f]: val });
   }
+  // Create or update a reusable tenant profile. Returns the resolved tenant id
+  // synchronously so a lease can be linked to it immediately.
+  async function upsertTenant(profile) {
+    const arr = data.tenants || [];
+    const existing = profile.id ? arr.find(t => t.id === profile.id) : null;
+    const clean = makeTenant({ ...(existing || {}), ...profile, updated_at: new Date().toISOString() });
+    const next = existing
+      ? arr.map(t => t.id === clean.id ? clean : t)
+      : [...arr, clean];
+    setData(prev => ({ ...prev, tenants: next }));
+    const ok = await saveToDB("tenants", next);
+    if (!ok) showSaveError(`Tenant save failed. (${_lastDbError || "check console"})`);
+    else showSaved();
+    return clean.id;
+  }
   async function updInd(id, f, v) {
     const arr = data.individuals.map(x => x.id === id ? { ...x, [f]: safe(v) } : x);
     setData(prev => ({ ...prev, individuals: arr }));
@@ -9077,6 +9326,8 @@ function AdminDashboard({ user, data, setData, onLogout }) {
                           key={p.id}
                           prop={p}
                           rentPayments={data.rentPayments || []}
+                          tenants={data.tenants || []}
+                          onSaveTenant={upsertTenant}
                           onUpdate={(f, v) => updProp(p.id, f, v)}
                           onPatch={patch => updPropPatch(p.id, patch)}
                           onSaveRentPayment={updRentPayment}
@@ -9976,6 +10227,7 @@ export default function App() {
           seedToDB("businesses",   DEFAULT.businesses),
           seedToDB("cashflow",     DEFAULT.cashflow),
           seedToDB("rentPayments", DEFAULT.rentPayments),
+          seedToDB("tenants",      DEFAULT.tenants),
           seedToDB("snapshots",    []),
           seedToDB("reportHistory",[]),
           seedToDB("vehicles",     DEFAULT.vehicles || []),
@@ -9985,6 +10237,7 @@ export default function App() {
           ...DEFAULT,
           properties:   DEFAULT.properties.map(normalizeProperty),
           rentPayments: DEFAULT.rentPayments.map(normalizeRentPayment),
+          tenants:      DEFAULT.tenants,
         });
 
       } else if (dbData._error) {
@@ -10002,6 +10255,7 @@ export default function App() {
         seedIfMissing("businesses",        DEFAULT.businesses);
         seedIfMissing("cashflow",          DEFAULT.cashflow);
         seedIfMissing("rentPayments",      DEFAULT.rentPayments);
+        seedIfMissing("tenants",           DEFAULT.tenants);
         seedIfMissing("snapshots",         []);
         seedIfMissing("reportHistory",     []);
         seedIfMissing("vehicles",          DEFAULT.vehicles || []);
@@ -10165,6 +10419,16 @@ export default function App() {
         });
         // NOT writing correctedProps to DB — in-memory only (Fix C).
 
+        // ── Tenant migration: derive reusable tenant profiles from existing leases ──
+        // Idempotent: matches by name+phone, links each lease to a tenant_id.
+        // We link tenant_id onto the in-memory (corrected) properties for the UI,
+        // but persist ONLY the tenants blob (never correctedProps — Fix C).
+        const { properties: tenantLinkedProps, tenants: seededTenants } =
+          seedTenantsFromLeases(correctedProps, dbData.tenants || []);
+        if (JSON.stringify(seededTenants) !== JSON.stringify(dbData.tenants || [])) {
+          saveToDB("tenants", seededTenants);
+        }
+
         // One-time notificationsMeta format migration (completedIds[] → completed{})
         const rawMeta = dbData.notificationsMeta || DEFAULT.notificationsMeta;
         const migratedMeta = (() => {
@@ -10180,11 +10444,12 @@ export default function App() {
         setData({
           ...DEFAULT,
           individuals:       mergeById(DEFAULT.individuals, indData),
-          properties:        correctedProps,
+          properties:        tenantLinkedProps,
           businesses:        mergeById(DEFAULT.businesses,  bizData),
           vehicles:          mergeById(DEFAULT.vehicles || [], dbData.vehicles || []),
           cashflow:          dbData.cashflow          || DEFAULT.cashflow,
           rentPayments:      mergedRentPayments,
+          tenants:           seededTenants,
           reportHistory:     dbData.reportHistory     || [],
           snapshots:         dbData.snapshots         || [],
           // Merge all three dismissal sources: blob, Supabase table, localStorage
